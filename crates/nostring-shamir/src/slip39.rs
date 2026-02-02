@@ -9,31 +9,10 @@
 //! - Groups and members for hierarchical splitting
 
 use crate::shamir::{reconstruct_secret, split_secret, Share};
+use crate::wordlist::{index_to_word, word_to_index};
 use crate::ShamirError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-
-/// SLIP-39 wordlist (1024 words)
-/// For brevity, using a subset - full implementation would include all 1024 words
-pub const WORDLIST: &[&str] = &[
-    "academic", "acid", "acne", "acquire", "acrobat", "activity", "actress", "adapt",
-    "adequate", "adjust", "admit", "adult", "advance", "advocate", "afraid", "again",
-    "agency", "agree", "aide", "aircraft", "airline", "airport", "ajar", "alarm",
-    "album", "alcohol", "alien", "alive", "alpha", "already", "alto", "aluminum",
-    "always", "amazing", "ambition", "amount", "amuse", "analysis", "anatomy", "ancestor",
-    "ancient", "angel", "angry", "animal", "answer", "antenna", "anxiety", "apart",
-    "aquatic", "arcade", "arena", "argue", "armed", "armor", "army", "arrest",
-    "arrow", "artist", "artwork", "aspect", "auction", "august", "aunt", "average",
-    // ... (abbreviated - full list has 1024 words)
-    "axis", "axle", "beam", "beard", "beast", "become", "bedroom", "behavior",
-    "believe", "belong", "benefit", "best", "beyond", "bicycle", "biology", "birthday",
-    "bishop", "black", "blanket", "blessing", "blind", "blue", "body", "bolt",
-    "boring", "born", "both", "boundary", "bracelet", "branch", "brave", "breathe",
-    "briefing", "broken", "brother", "browser", "budget", "building", "bulb", "burden",
-    "burning", "busy", "buyer", "cage", "calcium", "camera", "campus", "canyon",
-    "capacity", "capital", "capture", "carbon", "cards", "careful", "cargo", "carpet",
-    "carve", "category", "cause", "ceiling", "center", "ceramic", "champion", "change",
-];
 
 /// A SLIP-39 mnemonic share
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -297,9 +276,9 @@ fn encode_share_to_words(
                 word_index |= 1 << (9 - i);
             }
         }
-        // Use modulo to stay within our abbreviated wordlist
-        let idx = (word_index as usize) % WORDLIST.len();
-        words.push(WORDLIST[idx].to_string());
+        // Use the full 1024-word list (indices 0-1023)
+        let word = index_to_word(word_index).expect("Index always valid (10 bits = 0-1023)");
+        words.push(word.to_string());
     }
 
     words
@@ -318,18 +297,10 @@ fn simple_checksum(bits: &[bool]) -> u32 {
 
 /// Parse mnemonic words back to a share
 pub fn parse_mnemonic(words: &[String]) -> Result<Slip39Share, ShamirError> {
-    // Build word to index map
-    let word_map: HashMap<&str, usize> = WORDLIST
-        .iter()
-        .enumerate()
-        .map(|(i, &w)| (w, i))
-        .collect();
-
-    // Convert words to bits
+    // Convert words to bits using the official wordlist
     let mut bits = Vec::new();
     for word in words {
-        let idx = word_map
-            .get(word.as_str())
+        let idx = word_to_index(word.as_str())
             .ok_or_else(|| ShamirError::InvalidShare(format!("Unknown word: {}", word)))?;
 
         for i in (0..10).rev() {
@@ -443,12 +414,8 @@ mod tests {
 
     #[test]
     fn test_mnemonic_roundtrip() {
-        // NOTE: This test is limited because we use an abbreviated wordlist (128 words)
-        // instead of the full SLIP-39 1024-word list. The mnemonic encoding loses
-        // information when word indices exceed our list size.
-        // 
-        // The core functionality (generate + combine) is tested in other tests.
-        // Full mnemonic roundtrip requires the complete wordlist.
+        // This test verifies that encoding a share to mnemonic words and parsing
+        // it back recovers the original share data.
         
         let master_secret = vec![0x42u8; 16];
         let config = Slip39Config::two_of_three();
@@ -456,15 +423,13 @@ mod tests {
         let groups = generate_shares(&master_secret, &config).unwrap();
         let original_share = &groups[0][0];
 
-        // Verify words were generated
-        assert!(!original_share.words.is_empty());
-        
-        // Parse the mnemonic back - structure should be parseable
+        // Parse the mnemonic back
         let parsed = parse_mnemonic(&original_share.words).unwrap();
-        
-        // With abbreviated wordlist, only verify the parsing doesn't crash
-        // and produces valid structure
-        assert!(parsed.member_threshold >= 1);
-        assert!(parsed.group_count >= 1);
+
+        // With full 1024-word wordlist, these should all match
+        assert_eq!(parsed.identifier, original_share.identifier);
+        assert_eq!(parsed.group_index, original_share.group_index);
+        assert_eq!(parsed.member_index, original_share.member_index);
+        assert_eq!(parsed.share_value, original_share.share_value);
     }
 }

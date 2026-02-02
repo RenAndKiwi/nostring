@@ -1,7 +1,7 @@
 # WORKING.md - NoString Build Session
 
-**Current Phase:** 3 - Shamir Backup
-**Last Completed:** Phase 2 (Inheritance MVP) - 17 tests passing
+**Current Phase:** 4 - Multi-Heir + Cascade
+**Last Completed:** Phase 3 (Shamir Backup) - 20 tests passing
 
 ---
 
@@ -38,21 +38,42 @@ For each phase:
 
 ---
 
-## Phase 3: Shamir Backup
+## Phase 3: Shamir Backup ✅ COMPLETE
 
 **Goal:** Split seed for resilient backup
 
 ### Sub-tasks:
-- [ ] 3.1: Research SLIP-39 implementation
-- [ ] 3.2: Implement SLIP-39 share generation
-- [ ] 3.3: Implement SLIP-39 share recovery
-- [ ] 3.4: Codex32 compatibility layer
-- [ ] 3.5: M-of-N threshold configuration
-- [ ] 3.6: QR code export for shares
+- [x] 3.1: GF(256) arithmetic with precomputed tables
+- [x] 3.2: Core Shamir split/reconstruct with Lagrange interpolation
+- [x] 3.3: SLIP-39 mnemonic encoding (abbreviated wordlist)
+- [x] 3.4: Codex32 placeholder (full impl needs BCH math)
+- [x] 3.5: M-of-N threshold configuration (2-of-3, 3-of-5, etc.)
+- [ ] 3.6: QR code export for shares (deferred)
+
+### What was built:
+- `gf256.rs`: Galois Field arithmetic (add, mul, div, inv)
+- `shamir.rs`: Split/reconstruct any M-of-N scheme
+- `slip39.rs`: Mnemonic word encoding (128-word subset)
+- `codex32.rs`: Parse/validate Codex32 format
+- `shares.rs`: Multi-format handling (SLIP-39, Codex32, raw)
+
+### Commits:
+- `d280eb8` Phase 3: Shamir secret sharing
+
+---
+
+## Phase 4: Multi-Heir + Cascade
+
+**Goal:** Multiple recovery paths with different timelocks
+
+### Sub-tasks:
+- [ ] 4.1: Multiple heir support in policy
+- [ ] 4.2: Cascade timelocks (spouse 6mo, kids 9mo, executor 12mo)
+- [ ] 4.3: Threshold signatures (2-of-3 heirs)
+- [ ] 4.4: Policy builder UI patterns
 
 ### References:
-- SLIP-39: https://github.com/satoshilabs/slips/blob/master/slip-0039.md
-- Codex32: https://github.com/roconnor-blockstream/SSS32
+- Liana multi-path policies
 
 ---
 

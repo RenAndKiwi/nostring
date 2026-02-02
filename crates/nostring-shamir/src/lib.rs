@@ -42,6 +42,7 @@ pub mod gf256;
 pub mod shamir;
 pub mod shares;
 pub mod slip39;
+pub mod wordlist;
 
 // Re-exports
 pub use shamir::{reconstruct_secret, split_secret, Share};
