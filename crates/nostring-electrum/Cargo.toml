@@ -1,0 +1,24 @@
+[package]
+name = "nostring-electrum"
+description = "Electrum client integration for NoString"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+# Electrum client (from bitcoindevkit)
+# Requires proxy + ssl features for full Client type
+electrum-client = { version = "0.24", default-features = false, features = ["proxy", "use-rustls"] }
+
+# Bitcoin types
+bitcoin.workspace = true
+
+# Error handling
+thiserror.workspace = true
+
+# Logging
+log = "0.4"
+
+[dev-dependencies]
+# For integration tests
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }

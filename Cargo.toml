@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/nostring-core",
     "crates/nostring-email",
+    "crates/nostring-electrum",
     "crates/nostring-inherit",
     "crates/nostring-shamir",
     "tauri-app/src-tauri",

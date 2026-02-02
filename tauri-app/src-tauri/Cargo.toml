@@ -10,13 +10,18 @@ tauri-build = { version = "2.0", features = [] }
 
 [dependencies]
 nostring-core = { path = "../../crates/nostring-core" }
+nostring-electrum = { path = "../../crates/nostring-electrum" }
 nostring-email = { path = "../../crates/nostring-email" }
 nostring-inherit = { path = "../../crates/nostring-inherit" }
 nostring-shamir = { path = "../../crates/nostring-shamir" }
 tauri.workspace = true
+bitcoin.workspace = true
+miniscript.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
+base64 = "0.22"
+log = "0.4"
 
 [features]
 default = ["custom-protocol"]

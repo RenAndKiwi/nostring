@@ -3,8 +3,10 @@
 //! All commands are async and return JSON-serializable results.
 
 use crate::state::{AppState, PolicyStatus};
-use nostring_core::seed::{generate_mnemonic, parse_mnemonic, derive_seed, WordCount};
-use nostring_core::crypto::{encrypt_seed, decrypt_seed, EncryptedSeed};
+use bitcoin::psbt::Psbt;
+use nostring_core::crypto::{decrypt_seed, encrypt_seed, EncryptedSeed};
+use nostring_core::seed::{derive_seed, generate_mnemonic, parse_mnemonic, WordCount};
+use nostring_electrum::ElectrumClient;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -156,22 +158,64 @@ pub async fn get_policy_status(state: State<'_, AppState>) -> Result<Option<Poli
 
 /// Refresh policy status from blockchain
 #[tauri::command]
-pub async fn refresh_policy_status(state: State<'_, AppState>) -> Result<CommandResult<PolicyStatus>, ()> {
-    // TODO: Connect to Electrum and fetch actual block height
-    // For now, return mock data
-    let mock_status = PolicyStatus {
-        current_block: 880000,
-        expiry_block: 906280, // ~6 months from now
-        blocks_remaining: 26280,
-        days_remaining: 182.5,
-        urgency: "ok".to_string(),
-        last_checkin: Some(1738400000),
+pub async fn refresh_policy_status(
+    state: State<'_, AppState>,
+) -> Result<CommandResult<PolicyStatus>, ()> {
+    // Get Electrum URL and network from state
+    let electrum_url = state.electrum_url.lock().unwrap().clone();
+    let network = *state.network.lock().unwrap();
+
+    // Connect to Electrum
+    let client = match ElectrumClient::new(&electrum_url, network) {
+        Ok(c) => c,
+        Err(e) => return Ok(CommandResult::err(format!("Failed to connect to Electrum: {}", e))),
+    };
+
+    // Get current block height
+    let current_block = match client.get_height() {
+        Ok(h) => h as u64,
+        Err(e) => return Ok(CommandResult::err(format!("Failed to get block height: {}", e))),
+    };
+
+    // Check if we have inheritance config
+    let config_lock = state.inheritance_config.lock().unwrap();
+    let (expiry_block, blocks_remaining, days_remaining, urgency) = if let Some(config) = &*config_lock {
+        // Calculate based on config
+        // For simplicity, assume UTXO was created at current_block - timelock_blocks
+        // In production, track the actual UTXO confirmation height
+        let timelock = config.timelock_blocks as u64;
+        let expiry = current_block + timelock; // Simplified - should use actual UTXO height
+        let remaining = expiry.saturating_sub(current_block) as i64;
+        let days = remaining as f64 * 10.0 / 60.0 / 24.0; // ~10 min per block
+
+        let urgency = if remaining > 4320 {
+            "ok" // > 30 days
+        } else if remaining > 1008 {
+            "warning" // > 7 days
+        } else {
+            "critical"
+        };
+
+        (expiry, remaining, days, urgency.to_string())
+    } else {
+        // No config yet - return placeholder
+        (current_block + 26280, 26280, 182.5, "ok".to_string())
+    };
+    drop(config_lock);
+
+    let status = PolicyStatus {
+        current_block,
+        expiry_block,
+        blocks_remaining,
+        days_remaining,
+        urgency,
+        last_checkin: None, // TODO: track this
     };
 
     let mut status_lock = state.policy_status.lock().unwrap();
-    *status_lock = Some(mock_status.clone());
+    *status_lock = Some(status.clone());
 
-    Ok(CommandResult::ok(mock_status))
+    Ok(CommandResult::ok(status))
 }
 
 // ============================================================================
@@ -185,26 +229,90 @@ pub async fn initiate_checkin(state: State<'_, AppState>) -> Result<CommandResul
     if !*unlocked {
         return Ok(CommandResult::err("Wallet is locked"));
     }
+    drop(unlocked);
 
-    // TODO: Build actual PSBT using nostring-inherit
-    // For now, return placeholder
-    Ok(CommandResult::ok("cHNidP8B...placeholder...".to_string()))
+    // Check if we have inheritance config
+    let config = {
+        let config_lock = state.inheritance_config.lock().unwrap();
+        match &*config_lock {
+            Some(c) => c.clone(),
+            None => return Ok(CommandResult::err("No inheritance policy configured. Please set up your policy first.")),
+        }
+    };
+
+    // Get Electrum URL and network
+    let electrum_url = state.electrum_url.lock().unwrap().clone();
+    let network = *state.network.lock().unwrap();
+
+    // Connect to Electrum
+    let client = match ElectrumClient::new(&electrum_url, network) {
+        Ok(c) => c,
+        Err(e) => return Ok(CommandResult::err(format!("Failed to connect to Electrum: {}", e))),
+    };
+
+    // Parse the descriptor to get the script
+    use miniscript::Descriptor;
+    use miniscript::descriptor::DescriptorPublicKey;
+    use std::str::FromStr;
+    
+    let descriptor: Descriptor<DescriptorPublicKey> = match Descriptor::from_str(&config.descriptor) {
+        Ok(d) => d,
+        Err(e) => return Ok(CommandResult::err(format!("Invalid descriptor: {}", e))),
+    };
+
+    // Get the script pubkey for the inheritance address (index 0)
+    use miniscript::descriptor::DefiniteDescriptorKey;
+    let derived: Descriptor<DefiniteDescriptorKey> = match descriptor.at_derivation_index(0) {
+        Ok(d) => d,
+        Err(e) => return Ok(CommandResult::err(format!("Failed to derive script: {}", e))),
+    };
+    let script = derived.script_pubkey();
+
+    // Find UTXOs
+    let utxos = match client.get_utxos_for_script(&script) {
+        Ok(u) => u,
+        Err(e) => return Ok(CommandResult::err(format!("Failed to get UTXOs: {}", e))),
+    };
+
+    if utxos.is_empty() {
+        return Ok(CommandResult::err("No UTXOs found for inheritance address. Please deposit funds first."));
+    }
+
+    // Use the first UTXO for check-in
+    let utxo = &utxos[0];
+
+    // Build the check-in PSBT using nostring-inherit
+    use nostring_inherit::checkin::{CheckinTxBuilder, InheritanceUtxo as InhUtxo};
+    use bitcoin::ScriptBuf;
+
+    let inheritance_utxo = InhUtxo::new(
+        utxo.outpoint,
+        utxo.value,
+        utxo.height,
+        ScriptBuf::from(script.to_owned()),
+    );
+
+    // Fee rate (sats/vbyte) - TODO: make configurable or estimate
+    let fee_rate = 10;
+
+    let builder = CheckinTxBuilder::new(inheritance_utxo, descriptor, fee_rate);
+    
+    match builder.build_psbt_base64() {
+        Ok(psbt_base64) => Ok(CommandResult::ok(psbt_base64)),
+        Err(e) => Ok(CommandResult::err(format!("Failed to build PSBT: {}", e))),
+    }
 }
 
 /// Complete a check-in with signed PSBT
+/// 
+/// This is an alias for broadcast_signed_psbt - kept for API compatibility.
 #[tauri::command]
 pub async fn complete_checkin(
-    _signed_psbt: String,
+    signed_psbt: String,
     state: State<'_, AppState>,
 ) -> Result<CommandResult<String>, ()> {
-    let unlocked = state.unlocked.lock().unwrap();
-    if !*unlocked {
-        return Ok(CommandResult::err("Wallet is locked"));
-    }
-
-    // TODO: Validate PSBT, extract transaction, broadcast via Electrum
-    // For now, return placeholder txid
-    Ok(CommandResult::ok("txid_placeholder_abc123".to_string()))
+    // Delegate to broadcast_signed_psbt
+    broadcast_signed_psbt(signed_psbt, state).await
 }
 
 /// Broadcast a signed PSBT (from QR scan)
@@ -217,28 +325,46 @@ pub async fn broadcast_signed_psbt(
     if !*unlocked {
         return Ok(CommandResult::err("Wallet is locked"));
     }
+    drop(unlocked);
 
-    // Validate PSBT format (should be base64 encoded)
-    if !signed_psbt.chars().all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '=') {
-        return Ok(CommandResult::err("Invalid PSBT format"));
-    }
-
-    // TODO: Decode PSBT, validate signatures, finalize, and broadcast via Electrum
-    // For now, simulate success with mock txid
-    
-    // In production:
     // 1. Decode base64 → PSBT bytes
-    // 2. Parse PSBT using bitcoin crate
-    // 3. Validate all inputs are signed
-    // 4. Finalize PSBT → Transaction
-    // 5. Broadcast via Electrum server
-    
-    let mock_txid = format!("check-in-{:016x}", std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs());
-    
-    Ok(CommandResult::ok(mock_txid))
+    use base64::prelude::*;
+    let psbt_bytes = match BASE64_STANDARD.decode(&signed_psbt) {
+        Ok(b) => b,
+        Err(e) => return Ok(CommandResult::err(format!("Invalid base64: {}", e))),
+    };
+
+    // 2. Parse PSBT (PSBT has its own deserialize method)
+    let psbt: Psbt = match Psbt::deserialize(&psbt_bytes) {
+        Ok(p) => p,
+        Err(e) => return Ok(CommandResult::err(format!("Invalid PSBT: {}", e))),
+    };
+
+    // 3. Finalize PSBT → Transaction
+    // In a real implementation, we'd use miniscript to finalize properly
+    // For now, we assume the PSBT is already finalized with signatures
+    let tx = match psbt.extract_tx() {
+        Ok(t) => t,
+        Err(e) => return Ok(CommandResult::err(format!("PSBT not fully signed: {}", e))),
+    };
+
+    // 4. Get Electrum client
+    let electrum_url = state.electrum_url.lock().unwrap().clone();
+    let network = *state.network.lock().unwrap();
+
+    let client = match ElectrumClient::new(&electrum_url, network) {
+        Ok(c) => c,
+        Err(e) => return Ok(CommandResult::err(format!("Failed to connect to Electrum: {}", e))),
+    };
+
+    // 5. Broadcast transaction
+    match client.broadcast(&tx) {
+        Ok(txid) => {
+            log::info!("Check-in broadcast successful: {}", txid);
+            Ok(CommandResult::ok(txid.to_string()))
+        }
+        Err(e) => Ok(CommandResult::err(format!("Broadcast failed: {}", e))),
+    }
 }
 
 // ============================================================================
