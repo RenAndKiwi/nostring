@@ -54,11 +54,11 @@ pub fn derive_bitcoin_master(seed: &[u8; 64]) -> Result<Xpriv, KeyError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::seed::{generate_mnemonic, derive_seed};
+    use crate::seed::{generate_mnemonic_24, derive_seed};
 
     #[test]
     fn test_key_derivation() {
-        let mnemonic = generate_mnemonic().unwrap();
+        let mnemonic = generate_mnemonic_24().unwrap();
         let seed = derive_seed(&mnemonic, "");
         
         let nostr_keys = derive_nostr_keys(&seed).unwrap();
