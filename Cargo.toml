@@ -7,6 +7,7 @@ members = [
     "crates/nostring-inherit",
     "crates/nostring-notify",
     "crates/nostring-shamir",
+    "crates/nostring-watch",
     "tauri-app/src-tauri",
 ]
 

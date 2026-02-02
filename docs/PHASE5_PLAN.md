@@ -128,28 +128,47 @@ Transform NoString from library code into a production-ready desktop application
 
 ### Requirements
 - Detect any spend from inheritance UTXO
-- Automatically rebuild UTXO with fresh timelock
-- Or: notify user to manually check in
+- Notify user to create fresh inheritance UTXO
+- Track UTXO state over time
 
-### Implementation
-1. **UTXO Watcher**
-   - Connect to Bitcoin node/API (Esplora, Electrum)
-   - Monitor inheritance address(es)
-   - Detect confirmations
+### Implementation (Approved 2026-02-02)
 
-2. **Transaction Detection**
-   - If UTXO spent → owner is alive → may need new inheritance UTXO
-   - Parse transaction to understand if it's:
-     - Owner spending (check-in)
-     - Heir claiming (timeout passed)
+**New crate: `nostring-watch`**
 
-3. **Fresh UTXO Creation**
-   - Build new inheritance output
-   - Requires signing (user action or auto if hot)
+1. **WatchService**
+   - Periodic polling via Electrum
+   - Track known UTXOs per policy
+   - Emit events on state changes
+   - Optional auto-notify integration
+
+2. **State Persistence**
+   - JSON file in app data directory
+   - Stores: policy descriptors, known UTXOs, last poll time
+   - No secrets (safe if leaked)
+
+3. **Event Types**
+   - `UtxoAppeared` — new inheritance funded
+   - `UtxoSpent` — UTXO consumed (check-in or claim)
+   - `TimelockWarning` — approaching expiry (delegate to 5.1)
+
+4. **Security**
+   - TLS required (via nostring-electrum)
+   - Min poll interval: 1 minute
+   - Event deduplication
 
 ### Files
-- `crates/nostring-watch/` — new crate for blockchain monitoring
-- Integration with nostring-inherit
+```
+crates/nostring-watch/
+├── Cargo.toml
+└── src/
+    ├── lib.rs        # WatchService, WatchEvent
+    ├── state.rs      # WatchState persistence
+    └── events.rs     # Event definitions
+```
+
+### Integration
+- Tauri: receive events, update UI
+- Notifications: optional callback to nostring-notify
 
 ---
 

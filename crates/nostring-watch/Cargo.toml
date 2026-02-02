@@ -1,0 +1,20 @@
+[package]
+name = "nostring-watch"
+description = "UTXO monitoring service for NoString inheritance"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+nostring-electrum = { path = "../nostring-electrum" }
+nostring-inherit = { path = "../nostring-inherit" }
+bitcoin.workspace = true
+miniscript.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror = "2.0"
+log = "0.4"
+tokio = { workspace = true, features = ["sync", "time"] }
+
+[dev-dependencies]
+tempfile = "3.10"
