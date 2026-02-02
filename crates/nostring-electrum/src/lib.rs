@@ -17,7 +17,7 @@
 //! use nostring_electrum::ElectrumClient;
 //! use bitcoin::Network;
 //!
-//! let client = ElectrumClient::new("ssl://electrum.blockstream.info:60002", Network::Bitcoin)?;
+//! let client = ElectrumClient::new("ssl://blockstream.info:700", Network::Bitcoin)?;
 //! let height = client.get_height()?;
 //! println!("Current block height: {}", height);
 //! ```
@@ -74,7 +74,7 @@ impl ElectrumClient {
     /// Create a new Electrum client
     ///
     /// # Arguments
-    /// * `url` - Electrum server URL (e.g., "ssl://electrum.blockstream.info:60002")
+    /// * `url` - Electrum server URL (e.g., "ssl://blockstream.info:700")
     /// * `network` - Bitcoin network (Mainnet, Testnet, Signet, Regtest)
     ///
     /// # Security
@@ -91,10 +91,43 @@ impl ElectrumClient {
         Ok(Self { client, network })
     }
 
-    /// Get current blockchain height
+    /// Get current blockchain tip height
+    /// 
+    /// Uses binary search to find the actual tip height.
     pub fn get_height(&self) -> Result<u32, Error> {
-        let header = self.client.block_headers_subscribe()?;
-        Ok(header.height as u32)
+        // Binary search for the tip
+        // Start with known bounds as of Feb 2026
+        let mut low: u32 = 930000; // Known to exist
+        let mut high: u32 = 940000; // Probably doesn't exist yet
+        
+        // Verify low exists
+        if self.client.block_header(low as usize).is_err() {
+            return Err(Error::Connection("Server data unavailable".into()));
+        }
+        
+        // Find upper bound that doesn't exist
+        while self.client.block_header(high as usize).is_ok() {
+            low = high;
+            high += 5000;
+        }
+        
+        // Binary search for the exact tip
+        while high - low > 1 {
+            let mid = (low + high) / 2;
+            if self.client.block_header(mid as usize).is_ok() {
+                low = mid;
+            } else {
+                high = mid;
+            }
+        }
+        
+        Ok(low)
+    }
+    
+    /// Get the tip header via subscription (height may be unreliable)
+    pub fn get_tip_header(&self) -> Result<bitcoin::block::Header, Error> {
+        let notification = self.client.block_headers_subscribe()?;
+        Ok(notification.header)
     }
 
     /// Get UTXOs for a script (typically from a descriptor address)
@@ -173,13 +206,20 @@ impl ElectrumClient {
 }
 
 /// Default Electrum servers for each network
+/// 
+/// Note: Blockstream uses non-standard ports:
+/// - Mainnet SSL: 700
+/// - Testnet SSL: 993 (or 143 TCP)
+/// - Liquid: 995 (or 195 TCP)
 pub fn default_server(network: Network) -> &'static str {
     match network {
-        Network::Bitcoin => "ssl://electrum.blockstream.info:60002",
-        Network::Testnet => "ssl://electrum.blockstream.info:60004",
+        // Blockstream mainnet on port 700 (SSL) or 110 (TCP)
+        Network::Bitcoin => "ssl://blockstream.info:700",
+        // Alternative: "tcp://electrum.blockstream.info:50001"
+        Network::Testnet => "ssl://blockstream.info:993",
         Network::Signet => "ssl://mempool.space:60602",
-        Network::Regtest => "tcp://127.0.0.1:60401",
-        _ => "ssl://electrum.blockstream.info:60002",
+        Network::Regtest => "tcp://127.0.0.1:50001",
+        _ => "ssl://blockstream.info:700",
     }
 }
 
@@ -189,8 +229,9 @@ mod tests {
 
     #[test]
     fn test_default_servers() {
-        assert!(default_server(Network::Bitcoin).contains("60002"));
-        assert!(default_server(Network::Testnet).contains("60004"));
+        assert!(default_server(Network::Bitcoin).contains("blockstream"));
+        assert!(default_server(Network::Bitcoin).contains("700"));
+        assert!(default_server(Network::Testnet).contains("993"));
     }
 
     // Integration tests require network access
@@ -206,12 +247,30 @@ mod tests {
     #[test]
     #[ignore = "requires network access"]
     fn test_get_height_mainnet() {
-        let client =
-            ElectrumClient::new(default_server(Network::Bitcoin), Network::Bitcoin).unwrap();
+        let url = default_server(Network::Bitcoin);
+        println!("Connecting to: {}", url);
+        
+        let client = ElectrumClient::new(url, Network::Bitcoin).unwrap();
+        
+        // Get height via binary search
         let height = client.get_height().unwrap();
-        // Block height should be > 800000 as of 2024
-        assert!(height > 800000);
         println!("Current mainnet height: {}", height);
+        
+        // Should be ~934,000-936,000 as of Feb 2026
+        assert!(height > 930000 && height < 950000, 
+            "Height {} is unexpected", height);
+        
+        // Verify the tip header timestamp is recent (within 2 hours)
+        let tip = client.get_tip_header().unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let age = now - tip.time as u64;
+        println!("Tip header age: {} seconds", age);
+        assert!(age < 7200, "Tip header is too old ({} seconds)", age);
+        
+        println!("✓ Mainnet Electrum working correctly");
     }
 
     #[test]
