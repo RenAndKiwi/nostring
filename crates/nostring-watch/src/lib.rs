@@ -402,4 +402,126 @@ mod tests {
         // Should be after 2024
         assert!(ts > 1700000000);
     }
+
+    #[test]
+    fn test_add_remove_policy() {
+        let dir = tempdir().unwrap();
+        let _config = test_config(dir.path());
+
+        // Create a mock-friendly service by loading state directly
+        let mut state = WatchState::new();
+        
+        // Add policy
+        let descriptor = "wsh(pk(xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8NqtwybGhePY2gZ29ESFjqJoCu1Rupje8YtGqsefD265TMg7usUDFdp6W1EGMcet8/0/*))";
+        state.add_policy(PolicyState::new("test-inheritance", descriptor, 26280));
+        
+        assert_eq!(state.policy_ids().len(), 1);
+        assert!(state.get_policy("test-inheritance").is_some());
+        
+        // Remove policy
+        let removed = state.remove_policy("test-inheritance");
+        assert!(removed.is_some());
+        assert!(state.policy_ids().is_empty());
+    }
+
+    #[test]
+    fn test_rate_limiting() {
+        // Test that rate limiting config is respected
+        let config = WatchConfig {
+            state_path: std::path::PathBuf::from("/tmp/test"),
+            poll_interval_secs: 600,
+            min_poll_interval_secs: 60,
+            warning_threshold_blocks: 4320,
+        };
+        
+        assert_eq!(config.min_poll_interval_secs, 60);
+        // Actual rate limiting is tested in integration test below
+    }
+
+    // =========================================================================
+    // Integration Tests (require network access)
+    // Run with: cargo test --package nostring-watch -- --ignored
+    // =========================================================================
+
+    #[test]
+    #[ignore = "requires network access"]
+    fn test_poll_mainnet() {
+        use nostring_electrum::ElectrumClient;
+        
+        let dir = tempdir().unwrap();
+        let config = WatchConfig {
+            state_path: dir.path().join("watch_state.json"),
+            poll_interval_secs: 600,
+            min_poll_interval_secs: 0, // Disable for test
+            warning_threshold_blocks: 4320,
+        };
+
+        // Connect to mainnet
+        let client = ElectrumClient::new("ssl://blockstream.info:700", Network::Bitcoin)
+            .expect("Failed to connect to Electrum");
+
+        let mut service = WatchService::new(client, config)
+            .expect("Failed to create WatchService");
+
+        // Add a test policy (this xpub won't have real UTXOs)
+        let descriptor = "wsh(pk(xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8NqtwybGhePY2gZ29ESFjqJoCu1Rupje8YtGqsefD265TMg7usUDFdp6W1EGMcet8/0/*))";
+        service.add_policy("test-policy", descriptor, 26280)
+            .expect("Failed to add policy");
+
+        // Poll should succeed (even if no UTXOs found)
+        let events = service.poll().expect("Poll failed");
+        
+        // Should have polled successfully
+        assert!(service.state().last_poll.is_some());
+        assert!(service.state().last_height.is_some());
+        
+        // Height should be reasonable (mainnet ~935k as of Feb 2026)
+        let height = service.state().last_height.unwrap();
+        assert!(height > 930000, "Height {} is too low", height);
+        assert!(height < 960000, "Height {} is too high", height);
+
+        // No UTXOs for test xpub, so no UtxoAppeared events
+        // But we should not have errors
+        let errors: Vec<_> = events.iter().filter(|e| e.is_error()).collect();
+        assert!(errors.is_empty(), "Poll returned errors: {:?}", errors);
+
+        println!("✓ Poll successful at height {}", height);
+        println!("✓ Events: {:?}", events);
+    }
+
+    #[test]
+    #[ignore = "requires network access"]
+    fn test_poll_rate_limiting() {
+        use nostring_electrum::ElectrumClient;
+        
+        let dir = tempdir().unwrap();
+        let config = WatchConfig {
+            state_path: dir.path().join("watch_state.json"),
+            poll_interval_secs: 600,
+            min_poll_interval_secs: 60, // Enable rate limiting
+            warning_threshold_blocks: 4320,
+        };
+
+        let client = ElectrumClient::new("ssl://blockstream.info:700", Network::Bitcoin)
+            .expect("Failed to connect to Electrum");
+
+        let mut service = WatchService::new(client, config)
+            .expect("Failed to create WatchService");
+
+        // First poll should succeed
+        let result1 = service.poll();
+        assert!(result1.is_ok(), "First poll should succeed");
+
+        // Immediate second poll should fail (rate limited)
+        let result2 = service.poll();
+        assert!(result2.is_err(), "Second poll should be rate limited");
+        
+        match result2 {
+            Err(WatchError::PollTooFrequent { min }) => {
+                assert_eq!(min, 60);
+                println!("✓ Rate limiting enforced (min {} seconds)", min);
+            }
+            other => panic!("Expected PollTooFrequent, got {:?}", other),
+        }
+    }
 }
