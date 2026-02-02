@@ -207,6 +207,40 @@ pub async fn complete_checkin(
     Ok(CommandResult::ok("txid_placeholder_abc123".to_string()))
 }
 
+/// Broadcast a signed PSBT (from QR scan)
+#[tauri::command]
+pub async fn broadcast_signed_psbt(
+    signed_psbt: String,
+    state: State<'_, AppState>,
+) -> Result<CommandResult<String>, ()> {
+    let unlocked = state.unlocked.lock().unwrap();
+    if !*unlocked {
+        return Ok(CommandResult::err("Wallet is locked"));
+    }
+
+    // Validate PSBT format (should be base64 encoded)
+    if !signed_psbt.chars().all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '=') {
+        return Ok(CommandResult::err("Invalid PSBT format"));
+    }
+
+    // TODO: Decode PSBT, validate signatures, finalize, and broadcast via Electrum
+    // For now, simulate success with mock txid
+    
+    // In production:
+    // 1. Decode base64 → PSBT bytes
+    // 2. Parse PSBT using bitcoin crate
+    // 3. Validate all inputs are signed
+    // 4. Finalize PSBT → Transaction
+    // 5. Broadcast via Electrum server
+    
+    let mock_txid = format!("check-in-{:016x}", std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs());
+    
+    Ok(CommandResult::ok(mock_txid))
+}
+
 // ============================================================================
 // Settings Commands
 // ============================================================================

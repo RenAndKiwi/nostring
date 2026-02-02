@@ -241,15 +241,32 @@ esplora-client = "0.6"  # or electrum-client
 
 ---
 
-## Decisions (Confirmed 2026-02-02)
+## Decisions (Updated 2026-02-02)
 
 1. **Frontend:** HTML/JS (simpler, faster iteration)
 2. **Bitcoin API:** Electrum (established, better privacy with own server)
-3. **Hardware wallet:** SeedSigner (via BC-UR QR codes)
+3. **Hardware wallet:** Electrum watch-only (base64 PSBTs, simpler than BC-UR)
 4. **Notifications:** Email + Telegram
 5. **Mobile:** Skip for MVP
+
+**Revised order:**
+1. 5.3a Tauri shell ✅
+2. 5.5a PSBT generation ✅  
+3. 5.5c QR display (qrcode.js, base64 PSBTs)
+4. 5.5d QR scanning (jsQR library)
+5. 5.5e Electrum air-gap flow
+6. 5.4 Auto check-in (Electrum server)
+7. 5.1 Notifications
+8. 5.2 Heir documentation
+
+**Why Electrum over SeedSigner:**
+- Base64 PSBTs are simpler than BC-UR fountain codes
+- Electrum is more widely used for air-gapped signing
+- Same security model (QR transfer, no USB)
+- Can add SeedSigner support later if needed
 
 ---
 
 *Created: 2026-02-02*
+*Updated: 2026-02-02 (Electrum-first approach)*
 *bb-feature Phase 1: Research & Plan ✅*

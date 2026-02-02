@@ -342,19 +342,185 @@ async function refreshStatus() {
     }
 }
 
+// Store current PSBT for copy/broadcast
+let currentPsbtBase64 = null;
+
 async function initiateCheckin() {
     try {
         const result = await invoke('initiate_checkin');
         
         if (result.success) {
-            // TODO: Show QR code for SeedSigner
-            alert('PSBT created. SeedSigner signing coming soon.\n\nPSBT: ' + result.data.substring(0, 50) + '...');
+            currentPsbtBase64 = result.data;
+            showPsbtQrCode(result.data);
         } else {
             alert('Error: ' + result.error);
         }
     } catch (err) {
         console.error('Failed to initiate check-in:', err);
         alert('Failed to initiate check-in');
+    }
+}
+
+// ============================================================================
+// QR Code Display (for unsigned PSBT)
+// ============================================================================
+function showPsbtQrCode(psbtBase64) {
+    const modal = document.getElementById('qr-modal');
+    const container = document.getElementById('qr-container');
+    const instructions = document.getElementById('qr-instructions');
+    
+    // Clear previous QR
+    container.innerHTML = '';
+    
+    // Generate QR code
+    // For large PSBTs, we use alphanumeric mode which is more efficient
+    QRCode.toCanvas(psbtBase64.toUpperCase(), {
+        width: 350,
+        margin: 2,
+        errorCorrectionLevel: 'L' // Low EC for larger data capacity
+    }, (error, canvas) => {
+        if (error) {
+            console.error('QR generation error:', error);
+            // Fallback: show text for manual copy
+            container.innerHTML = `<p style="color: var(--error);">PSBT too large for QR. Use copy button.</p>`;
+        } else {
+            container.appendChild(canvas);
+        }
+    });
+    
+    instructions.textContent = 'Scan this QR with Electrum (watch-only wallet) to sign the check-in transaction.';
+    
+    // Show modal
+    modal.classList.remove('hidden');
+    
+    // Setup event handlers
+    document.getElementById('qr-modal-close').onclick = () => modal.classList.add('hidden');
+    document.getElementById('btn-copy-psbt').onclick = () => copyPsbtToClipboard();
+    document.getElementById('btn-scan-response').onclick = () => openQrScanner();
+}
+
+function copyPsbtToClipboard() {
+    if (currentPsbtBase64) {
+        navigator.clipboard.writeText(currentPsbtBase64).then(() => {
+            alert('PSBT copied to clipboard.\n\nPaste into Electrum: Tools → Load transaction → From text');
+        }).catch(err => {
+            console.error('Copy failed:', err);
+            // Fallback: show in prompt
+            prompt('Copy this PSBT:', currentPsbtBase64);
+        });
+    }
+}
+
+// ============================================================================
+// QR Code Scanner (for signed PSBT response)
+// ============================================================================
+let scannerStream = null;
+let scannerAnimationId = null;
+
+function openQrScanner() {
+    const qrModal = document.getElementById('qr-modal');
+    const scannerModal = document.getElementById('scanner-modal');
+    const video = document.getElementById('scanner-video');
+    const status = document.getElementById('scanner-status');
+    
+    // Hide QR modal, show scanner
+    qrModal.classList.add('hidden');
+    scannerModal.classList.remove('hidden');
+    
+    status.textContent = 'Initializing camera...';
+    status.classList.remove('scanner-success');
+    
+    // Request camera access
+    navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: 'environment' } 
+    }).then(stream => {
+        scannerStream = stream;
+        video.srcObject = stream;
+        video.play();
+        status.textContent = 'Scanning for QR code...';
+        startScanning();
+    }).catch(err => {
+        console.error('Camera error:', err);
+        status.textContent = 'Camera access denied. Please allow camera access.';
+    });
+    
+    // Setup close handler
+    document.getElementById('scanner-modal-close').onclick = () => closeScanner();
+}
+
+function startScanning() {
+    const video = document.getElementById('scanner-video');
+    const canvas = document.getElementById('scanner-canvas');
+    const ctx = canvas.getContext('2d');
+    const status = document.getElementById('scanner-status');
+    
+    function scan() {
+        if (video.readyState === video.HAVE_ENOUGH_DATA) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0);
+            
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const code = jsQR(imageData.data, imageData.width, imageData.height);
+            
+            if (code) {
+                console.log('QR detected:', code.data.substring(0, 50) + '...');
+                handleScannedPsbt(code.data);
+                return; // Stop scanning
+            }
+        }
+        
+        scannerAnimationId = requestAnimationFrame(scan);
+    }
+    
+    scan();
+}
+
+function closeScanner() {
+    const scannerModal = document.getElementById('scanner-modal');
+    scannerModal.classList.add('hidden');
+    
+    // Stop camera
+    if (scannerStream) {
+        scannerStream.getTracks().forEach(track => track.stop());
+        scannerStream = null;
+    }
+    
+    // Stop scanning loop
+    if (scannerAnimationId) {
+        cancelAnimationFrame(scannerAnimationId);
+        scannerAnimationId = null;
+    }
+}
+
+async function handleScannedPsbt(psbtData) {
+    const status = document.getElementById('scanner-status');
+    
+    // Stop scanning
+    if (scannerAnimationId) {
+        cancelAnimationFrame(scannerAnimationId);
+        scannerAnimationId = null;
+    }
+    
+    status.textContent = '✓ PSBT detected! Processing...';
+    status.classList.add('scanner-success');
+    
+    try {
+        // Send signed PSBT to backend for broadcast
+        const result = await invoke('broadcast_signed_psbt', { signedPsbt: psbtData });
+        
+        if (result.success) {
+            closeScanner();
+            alert('✓ Check-in broadcast successfully!\n\nTxid: ' + result.data);
+            refreshStatus();
+        } else {
+            status.textContent = 'Error: ' + result.error;
+            status.classList.remove('scanner-success');
+        }
+    } catch (err) {
+        console.error('Broadcast error:', err);
+        status.textContent = 'Failed to broadcast: ' + err.message;
+        status.classList.remove('scanner-success');
     }
 }
 

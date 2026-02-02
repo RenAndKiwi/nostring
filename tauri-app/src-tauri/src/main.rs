@@ -26,6 +26,7 @@ fn main() {
             // Check-in
             commands::initiate_checkin,
             commands::complete_checkin,
+            commands::broadcast_signed_psbt,
             // Settings
             commands::get_electrum_url,
             commands::set_electrum_url,

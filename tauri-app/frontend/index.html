@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NoString</title>
     <link rel="stylesheet" href="styles/main.css">
+    <!-- QR Code library for air-gapped PSBT transfer -->
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"></script>
+    <!-- QR Scanner library -->
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 </head>
 <body>
     <div id="app">
@@ -23,6 +27,39 @@
                 <p>Loading...</p>
             </div>
         </main>
+    </div>
+    
+    <!-- QR Code Modal -->
+    <div id="qr-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="qr-modal-title">PSBT QR Code</h3>
+                <button id="qr-modal-close" class="btn-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="qr-container"></div>
+                <p id="qr-instructions" class="qr-instructions"></p>
+                <div id="qr-actions" class="qr-actions">
+                    <button id="btn-copy-psbt" class="btn-secondary">Copy PSBT</button>
+                    <button id="btn-scan-response" class="btn-primary">Scan Signed PSBT</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- QR Scanner Modal -->
+    <div id="scanner-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Scan Signed PSBT</h3>
+                <button id="scanner-modal-close" class="btn-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <video id="scanner-video" autoplay playsinline></video>
+                <canvas id="scanner-canvas" class="hidden"></canvas>
+                <p id="scanner-status">Initializing camera...</p>
+            </div>
+        </div>
     </div>
     
     <script src="js/app.js" type="module"></script>
