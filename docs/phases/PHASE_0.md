@@ -221,3 +221,53 @@ The key derivation test passes — we can generate a mnemonic, derive the seed, 
 - The seed.rs and keys.rs code is clean and minimal
 - Test proves the core derivation works
 - No shortcuts taken — the test actually generates and derives keys
+
+---
+
+### 2026-02-02 00:30 CST — Feature 0.3 Complete
+
+**nostr-mail Analysis - DONE**
+
+See: `NOSTR_MAIL_ANALYSIS.md`
+
+Key findings:
+- crypto.rs: NIP-44 encryption, Schnorr signatures
+- email.rs: SMTP/IMAP with custom Nostr headers
+- nostr.rs: Relay management, profile fetching
+- Already using same dependencies as us (nostr-sdk, lettre, imap)
+
+Port strategy: Adapt crypto patterns, port email module, skip DM infrastructure.
+
+### 2026-02-02 01:00 CST — Feature 0.4 Complete
+
+**Liana Analysis - DONE**
+
+See: `LIANA_ANALYSIS.md`
+
+Key findings:
+- LianaPolicy: primary_path + recovery_paths (timelocked)
+- Uses miniscript crate for compilation
+- Supports cascade timelocks (multiple heirs at different times)
+- Timelock math: ~144 blocks/day, max 65535 blocks (~455 days)
+
+Port strategy: Use miniscript directly, simplify for our use case.
+
+---
+
+## Phase 0 Reflection
+
+**What we accomplished:**
+1. Rust 1.93.0 environment set up
+2. Workspace with 4 crates + Tauri app builds cleanly
+3. Key derivation test passes (BIP-39 → NIP-06 + BIP-84)
+4. Analyzed both upstream projects (nostr-mail, Liana)
+
+**Time spent:** ~2 hours
+
+**Ready for Phase 1:** Yes — we understand both upstreams and have a working foundation.
+
+**Key insight from analysis:** Both projects use the same core libraries we're already using (nostr-sdk, miniscript). Integration should be straightforward.
+
+---
+
+*Phase 0 completed: 2026-02-02 01:00 CST*
