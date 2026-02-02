@@ -12,6 +12,7 @@ miniscript.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
+base64 = "0.22"
 
 [dev-dependencies]
 serde_json.workspace = true

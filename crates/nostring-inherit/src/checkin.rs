@@ -17,6 +17,7 @@
 //! the check-in happens automatically.
 
 use bitcoin::absolute::LockTime;
+use bitcoin::psbt::Psbt;
 use bitcoin::transaction::Version;
 use bitcoin::{Amount, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Witness};
 use miniscript::descriptor::DescriptorPublicKey;
@@ -280,6 +281,35 @@ impl CheckinTxBuilder {
     pub fn descriptor(&self) -> &Descriptor<DescriptorPublicKey> {
         &self.descriptor
     }
+
+    /// Build an unsigned PSBT for the check-in
+    ///
+    /// The PSBT can be exported to SeedSigner or other hardware wallets for signing.
+    pub fn build_psbt(&self) -> Result<Psbt, CheckinError> {
+        let tx = self.build_unsigned_tx()?;
+        
+        let psbt = Psbt::from_unsigned_tx(tx)
+            .map_err(|e| CheckinError::PsbtError(e.to_string()))?;
+        
+        // TODO: Add UTXO information to PSBT inputs
+        // psbt.inputs[0].witness_utxo = Some(TxOut { ... });
+        // psbt.inputs[0].witness_script = Some(script);
+        
+        Ok(psbt)
+    }
+
+    /// Build PSBT and serialize to base64
+    pub fn build_psbt_base64(&self) -> Result<String, CheckinError> {
+        use base64::prelude::*;
+        let psbt = self.build_psbt()?;
+        Ok(BASE64_STANDARD.encode(psbt.serialize()))
+    }
+
+    /// Build PSBT and serialize to bytes (for QR encoding)
+    pub fn build_psbt_bytes(&self) -> Result<Vec<u8>, CheckinError> {
+        let psbt = self.build_psbt()?;
+        Ok(psbt.serialize())
+    }
 }
 
 #[cfg(test)]
@@ -371,5 +401,57 @@ mod tests {
         assert_eq!(utxo.txid, restored.txid);
         assert_eq!(utxo.vout, restored.vout);
         assert_eq!(utxo.value_sats, restored.value_sats);
+    }
+
+    #[test]
+    fn test_checkin_psbt_generation() {
+        use crate::policy::{InheritancePolicy, Timelock};
+        use bitcoin::bip32::Xpub;
+        use miniscript::descriptor::DescriptorPublicKey;
+        use std::str::FromStr;
+
+        // Create test keys
+        let test_xpub = Xpub::from_str("xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8NqtwybGhePY2gZ29ESFjqJoCu1Rupje8YtGqsefD265TMg7usUDFdp6W1EGMcet8").unwrap();
+        let owner_key = DescriptorPublicKey::from_str(&format!("[00000001/84'/0'/0']{}/<0;1>/*", test_xpub)).unwrap();
+        let heir_key = DescriptorPublicKey::from_str(&format!("[00000002/84'/0'/1']{}/<0;1>/*", test_xpub)).unwrap();
+
+        // Create a simple inheritance policy
+        let policy = InheritancePolicy::simple(
+            owner_key,
+            heir_key,
+            Timelock::six_months(),
+        ).unwrap();
+
+        let descriptor = policy.to_wsh_descriptor().unwrap();
+
+        // Create a test UTXO
+        let outpoint = OutPoint {
+            txid: Txid::all_zeros(),
+            vout: 0,
+        };
+        let utxo = InheritanceUtxo::new(
+            outpoint,
+            Amount::from_sat(100_000),
+            800_000,
+            ScriptBuf::new_p2wsh(&bitcoin::WScriptHash::all_zeros()),
+        );
+
+        // Build the PSBT
+        let builder = CheckinTxBuilder::new(utxo, descriptor, 10);
+        let psbt_result = builder.build_psbt();
+        
+        assert!(psbt_result.is_ok(), "PSBT creation failed: {:?}", psbt_result.err());
+        
+        // Test base64 encoding
+        let base64_result = builder.build_psbt_base64();
+        assert!(base64_result.is_ok());
+        let base64_str = base64_result.unwrap();
+        assert!(base64_str.starts_with("cHNidP8")); // PSBT magic in base64
+        
+        // Test bytes encoding
+        let bytes_result = builder.build_psbt_bytes();
+        assert!(bytes_result.is_ok());
+        let bytes = bytes_result.unwrap();
+        assert_eq!(&bytes[0..5], b"psbt\xff"); // PSBT magic bytes
     }
 }
