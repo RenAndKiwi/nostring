@@ -8,6 +8,7 @@
 //! - RS1024 checksum (Reed-Solomon)
 //! - Groups and members for hierarchical splitting
 
+use crate::rs1024::{rs1024_create_checksum, rs1024_verify_checksum, CS_SHAMIR_EXTENDABLE};
 use crate::shamir::{reconstruct_secret, split_secret, Share};
 use crate::wordlist::{index_to_word, word_to_index};
 use crate::ShamirError;
@@ -208,6 +209,7 @@ fn encode_share_to_words(
 ) -> Vec<String> {
     // Build the share data structure per SLIP-39 format:
     // - ID: 15 bits
+    // - Extendable flag: 1 bit (ext=1 for modern shares)
     // - Iteration exponent: 4 bits
     // - Group index: 4 bits
     // - Group threshold - 1: 4 bits
@@ -220,6 +222,7 @@ fn encode_share_to_words(
     let mut bits = Vec::new();
 
     push_bits(&mut bits, identifier, 15);
+    push_bits(&mut bits, 1, 1); // Extendable flag (1 = extendable)
     push_bits(&mut bits, 0, 4); // Iteration exponent (0 = no PBKDF2)
     push_bits(&mut bits, group_index as u16, 4);
     push_bits(&mut bits, (group_threshold - 1) as u16, 4);
@@ -237,15 +240,8 @@ fn encode_share_to_words(
         bits.push(false);
     }
 
-    // Add simple checksum (30 bits = 3 words) - simplified version
-    // Full implementation would use RS1024
-    let checksum = simple_checksum(&bits);
-    for i in (0..30).rev() {
-        bits.push((checksum >> i) & 1 != 0);
-    }
-
-    // Convert bits to words (10 bits per word)
-    let mut words = Vec::new();
+    // Convert bits to 10-bit values (data only, no checksum yet)
+    let mut data_values: Vec<u16> = Vec::new();
     for chunk in bits.chunks(10) {
         let mut word_index = 0u16;
         for (i, &bit) in chunk.iter().enumerate() {
@@ -253,7 +249,16 @@ fn encode_share_to_words(
                 word_index |= 1 << (9 - i);
             }
         }
-        // Use the full 1024-word list (indices 0-1023)
+        data_values.push(word_index);
+    }
+
+    // Create RS1024 checksum (3 words = 30 bits)
+    let checksum = rs1024_create_checksum(CS_SHAMIR_EXTENDABLE, &data_values);
+    data_values.extend_from_slice(&checksum);
+
+    // Convert all values (including checksum) to words
+    let mut words = Vec::new();
+    for word_index in data_values {
         let word = index_to_word(word_index).expect("Index always valid (10 bits = 0-1023)");
         words.push(word.to_string());
     }
@@ -261,27 +266,26 @@ fn encode_share_to_words(
     words
 }
 
-/// Simple checksum (placeholder for RS1024)
-fn simple_checksum(bits: &[bool]) -> u32 {
-    let mut sum = 0u32;
-    for (i, &bit) in bits.iter().enumerate() {
-        if bit {
-            sum = sum.wrapping_add((i as u32).wrapping_mul(31));
-        }
-    }
-    sum & 0x3FFFFFFF // 30 bits
-}
-
 /// Parse mnemonic words back to a share
 pub fn parse_mnemonic(words: &[String]) -> Result<Slip39Share, ShamirError> {
-    // Convert words to bits using the official wordlist
-    let mut bits = Vec::new();
+    // Convert words to 10-bit values
+    let mut values: Vec<u16> = Vec::new();
     for word in words {
         let idx = word_to_index(word.as_str())
             .ok_or_else(|| ShamirError::InvalidShare(format!("Unknown word: {}", word)))?;
+        values.push(idx);
+    }
 
+    // Verify RS1024 checksum
+    if !rs1024_verify_checksum(CS_SHAMIR_EXTENDABLE, &values) {
+        return Err(ShamirError::InvalidShare("Invalid RS1024 checksum".into()));
+    }
+
+    // Convert values to bits for parsing
+    let mut bits = Vec::new();
+    for &val in &values {
         for i in (0..10).rev() {
-            bits.push((idx >> i) & 1 != 0);
+            bits.push((val >> i) & 1 != 0);
         }
     }
 
@@ -291,17 +295,17 @@ pub fn parse_mnemonic(words: &[String]) -> Result<Slip39Share, ShamirError> {
     }
 
     let identifier = bits_to_u16(&bits[0..15]);
-    // Skip iteration exponent (bits 15..19)
-    let group_index = bits_to_u8(&bits[19..23]);
-    let group_threshold = bits_to_u8(&bits[23..27]) + 1;
-    let group_count = bits_to_u8(&bits[27..31]) + 1;
-    let member_index = bits_to_u8(&bits[31..35]);
-    let member_threshold = bits_to_u8(&bits[35..39]) + 1;
+    // Skip iteration exponent (bits 15..19) and extendable flag (bit 15)
+    let group_index = bits_to_u8(&bits[20..24]);
+    let group_threshold = bits_to_u8(&bits[24..28]) + 1;
+    let group_count = bits_to_u8(&bits[28..32]) + 1;
+    let member_index = bits_to_u8(&bits[32..36]);
+    let member_threshold = bits_to_u8(&bits[36..40]) + 1;
 
-    // Share value starts at bit 39, ends 30 bits before end (checksum)
+    // Share value starts at bit 40, ends 30 bits before end (checksum)
     let share_bits_end = bits.len() - 30;
     let mut share_value = Vec::new();
-    for chunk in bits[39..share_bits_end].chunks(8) {
+    for chunk in bits[40..share_bits_end].chunks(8) {
         if chunk.len() == 8 {
             share_value.push(bits_to_u8(chunk));
         }

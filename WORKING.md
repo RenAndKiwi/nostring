@@ -1,7 +1,7 @@
 # WORKING.md - NoString Build Session
 
-**Current Phase:** 4 - Multi-Heir + Cascade
-**Last Completed:** Phase 3 (Shamir Backup) - 20 tests passing
+**Current Phase:** 5 - UX Polish
+**Last Completed:** Phase 4 (Multi-Heir + Cascade) - 24 tests in inherit
 
 ---
 
@@ -62,18 +62,40 @@ For each phase:
 
 ---
 
-## Phase 4: Multi-Heir + Cascade
+## Phase 4: Multi-Heir + Cascade ✅ COMPLETE
 
 **Goal:** Multiple recovery paths with different timelocks
 
 ### Sub-tasks:
-- [ ] 4.1: Multiple heir support in policy
-- [ ] 4.2: Cascade timelocks (spouse 6mo, kids 9mo, executor 12mo)
-- [ ] 4.3: Threshold signatures (2-of-3 heirs)
-- [ ] 4.4: Policy builder UI patterns
+- [x] 4.1: Multiple heir support in policy
+- [x] 4.2: Cascade timelocks (spouse 6mo, kids 9mo, executor 12mo)
+- [x] 4.3: Threshold signatures (2-of-3 heirs)
+- [x] 4.4: Policy builder convenience methods
+
+### What was built:
+- `cascade()` builder for multiple timelocks
+- `multisig_owner()` for corporate treasuries
+- `simple_with_multisig_heir()` for M-of-N heir groups
+- Helper methods: `timelocks()`, `is_cascade()`, etc.
+
+### Commits:
+- `343ce42` Phase 4: Multi-Heir + Cascade inheritance policies
+
+---
+
+## Phase 5: UX Polish
+
+**Goal:** Frictionless check-ins, notifications, mobile
+
+### Sub-tasks:
+- [ ] 5.1: Auto check-in on any wallet transaction
+- [ ] 5.2: Push notifications for check-in reminders
+- [ ] 5.3: Heir onboarding wizard
+- [ ] 5.4: Hardware wallet support for signing
 
 ### References:
-- Liana multi-path policies
+- Tauri for desktop app
+- Push notification services
 
 ---
 

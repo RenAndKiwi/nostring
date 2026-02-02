@@ -39,6 +39,7 @@
 
 pub mod codex32;
 pub mod gf256;
+pub mod rs1024;
 pub mod shamir;
 pub mod shares;
 pub mod slip39;

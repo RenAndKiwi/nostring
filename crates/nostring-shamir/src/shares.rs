@@ -124,10 +124,14 @@ mod tests {
 
     #[test]
     fn test_share_format_detection() {
-        // Codex32 format
-        let codex32 = "ms12cashsabcdef";
+        // Codex32 format (valid test vector 1 from BIP-93)
+        let codex32 = "ms10testsxxxxxxxxxxxxxxxxxxxxxxxxxx4nzvca9cmczlw";
         let result = parse_share_string(codex32);
-        assert!(matches!(result, Ok(AnyShare::Codex32(_))));
+        assert!(
+            matches!(result, Ok(AnyShare::Codex32(_))),
+            "Failed to parse codex32: {:?}",
+            result
+        );
 
         // Hex format
         let hex = "deadbeef";
