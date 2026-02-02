@@ -1,48 +1,175 @@
 # NoString
 
-**Sovereign communications for life — and beyond.**
+**Sovereign Bitcoin inheritance. No trusted third parties.**
 
-Encrypted email with Nostr identity and Bitcoin-secured inheritance.
+NoString is a Bitcoin inheritance system that uses timelocked transactions to pass Bitcoin to your heirs without lawyers, courts, or custodians. Check in periodically to prove you're still in control. If you stop checking in, your heirs can claim.
 
 ---
 
-## What is NoString?
+## Features
 
-NoString is an encrypted email client that uses your Nostr keypair for identity and encryption. Unlike traditional PGP, key discovery is automatic — if someone has a Nostr profile, you can send them encrypted email.
+- **Single Seed** — One BIP-39 mnemonic for Bitcoin and Nostr identity
+- **Timelock Inheritance** — Miniscript policies with configurable check-in periods
+- **Multi-Heir Support** — Cascade timelocks (spouse → children → executor)
+- **Shamir Backup** — Split your seed with SLIP-39 or Codex32
+- **Air-Gap Signing** — QR-based PSBT flow for hardware wallets
+- **Notifications** — Email and Nostr DM reminders before timelock expiry
+- **Desktop App** — Cross-platform Tauri application
 
-What makes NoString unique: **inheritance is a first-class feature.** Using Bitcoin timelocks (miniscript), you can ensure your heirs gain access to your communications if you become incapacitated.
+---
 
-## Core Features
+## Quick Start
 
-- **Encrypted Email** — NIP-44 encryption, works with any SMTP/IMAP provider
-- **Nostr Identity** — One keypair for identity, encryption, and contact discovery
-- **Bitcoin Inheritance** — Timelock-based deadman switch, trustless and on-chain
-- **BIP-39 + Codex32** — Standard seed backup, with optional physical Shamir splits
-- **Self-Hosted** — Your infrastructure, your rules
+### Prerequisites
 
-## Philosophy
+- Rust 1.75+
+- Node.js 20+ (for Tauri frontend)
 
-1. **One seed rules all** — BIP-39 seed derives both Nostr keys (NIP-06) and Bitcoin keys (BIP-84)
-2. **No phone numbers** — Your pubkey is your identity
-3. **Email is archival** — Chat is ephemeral, email persists
-4. **Death is a feature** — Inheritance should be planned, not an afterthought
-5. **Trustless timelocks** — Bitcoin secures access, not corporate promises
+### Build
 
-## Status
+```bash
+# Clone
+git clone https://github.com/nostring/nostring
+cd nostring
 
-🚧 **Pre-alpha** — Planning and architecture phase
+# Build all crates
+cargo build --release
 
-See [ROADMAP.md](docs/ROADMAP.md) for development plan.
+# Run tests
+cargo test
 
-## Built On
+# Build Tauri app (requires additional setup)
+cd tauri-app
+npm install
+npm run tauri build
+```
 
-- [nostr-mail](https://github.com/asherp/nostr-mail) — Nostr-encrypted email client (Tauri/Rust)
-- [Liana](https://github.com/wizardsardine/liana) — Bitcoin wallet with miniscript timelocks (Rust)
+### Development
+
+```bash
+# Run tests with network access
+cargo test -- --ignored
+
+# Run specific crate tests
+cargo test --package nostring-core
+cargo test --package nostring-inherit
+cargo test --package nostring-watch
+```
+
+---
+
+## Architecture
+
+```
+nostring/
+├── crates/
+│   ├── nostring-core      # Seed generation, encryption, key derivation
+│   ├── nostring-inherit   # Miniscript policies, check-in transactions
+│   ├── nostring-shamir    # SLIP-39 and Codex32 secret sharing
+│   ├── nostring-electrum  # Bitcoin network via Electrum protocol
+│   ├── nostring-notify    # Email and Nostr DM notifications
+│   ├── nostring-watch     # UTXO monitoring service
+│   └── nostring-email     # IMAP email (placeholder)
+├── tauri-app/             # Desktop application
+└── docs/                  # Documentation
+```
+
+### Key Dependencies
+
+- [bitcoin](https://crates.io/crates/bitcoin) — Bitcoin primitives
+- [miniscript](https://crates.io/crates/miniscript) — Policy compilation
+- [electrum-client](https://crates.io/crates/electrum-client) — Electrum protocol
+- [nostr-sdk](https://crates.io/crates/nostr-sdk) — Nostr protocol
+- [tauri](https://tauri.app) — Desktop application framework
+
+---
+
+## How It Works
+
+### 1. Setup
+
+1. Generate or import a BIP-39 seed
+2. Add heir(s) by importing their xpub
+3. Configure timelock (e.g., 6 months)
+4. Fund the inheritance address
+
+### 2. Check-In
+
+Periodically "check in" by signing a transaction that resets the timelock:
+
+```
+Owner can spend immediately
+    OR
+Heir can spend after 26,280 blocks (~6 months)
+```
+
+### 3. Inheritance
+
+If you stop checking in:
+1. Timelock expires
+2. Heir uses their key to claim
+3. No intermediaries required
+
+---
+
+## Documentation
+
+| Document | Purpose |
+|----------|---------|
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Technical design |
+| [SECURITY.md](docs/SECURITY.md) | Security model |
+| [HEIR_GUIDE.md](docs/HEIR_GUIDE.md) | Setup guide for heirs |
+| [CLAIM_GUIDE.md](docs/CLAIM_GUIDE.md) | How heirs claim |
+| [SELF_HOSTING.md](docs/SELF_HOSTING.md) | Deployment guide |
+| [OPERATIONS.md](docs/OPERATIONS.md) | Operational runbook |
+| [ROADMAP.md](docs/ROADMAP.md) | Project status |
+
+---
+
+## Security
+
+- Seeds are encrypted at rest (AES-256-GCM + Argon2)
+- No private keys transmitted over network
+- Air-gapped signing via QR codes
+- TLS required for Electrum connections
+- No trusted third parties
+
+See [SECURITY.md](docs/SECURITY.md) for the full security model.
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
+
+### Running Tests
+
+```bash
+# Unit tests (no network)
+cargo test
+
+# Integration tests (requires network)
+cargo test -- --ignored
+
+# All tests
+cargo test && cargo test -- --ignored
+```
+
+---
 
 ## License
 
-BSD 3-Clause (following upstream projects)
+BSD-3-Clause. See [LICENSE](LICENSE).
 
 ---
 
-*Your keys, your messages, your legacy.*
+## Acknowledgments
+
+- [Liana](https://wizardsardine.com/liana/) — Miniscript inheritance inspiration
+- [SLIP-39](https://github.com/satoshilabs/slips/blob/master/slip-0039.md) — Shamir secret sharing
+- [Codex32](https://github.com/BlockstreamResearch/codex32) — BIP-93 implementation
+- [Bitcoin Butlers](https://bitcoinbutlers.com) — Sovereign Bitcoin education
+
+---
+
+*NoString: Your keys, your Bitcoin, your inheritance.*

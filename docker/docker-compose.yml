@@ -1,0 +1,75 @@
+# NoString Docker Compose
+#
+# This configuration is for development and self-hosted deployments.
+# NoString is primarily a desktop application, but services like
+# UTXO monitoring can run as background daemons.
+#
+# Usage:
+#   docker-compose up -d              # Start all services
+#   docker-compose logs -f watcher    # Follow watcher logs
+#   docker-compose down               # Stop all services
+
+version: "3.8"
+
+services:
+  # ===========================================================================
+  # NoString Builder (for development)
+  # ===========================================================================
+  builder:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: nostring:latest
+    profiles:
+      - build
+
+  # ===========================================================================
+  # Electrum Proxy (optional - for privacy)
+  # ===========================================================================
+  # Run your own Electrum server for maximum privacy.
+  # See: https://github.com/romanz/electrs
+  electrs:
+    image: getumbrel/electrs:v0.10.5
+    restart: unless-stopped
+    ports:
+      - "50001:50001"    # TCP
+      - "50002:50002"    # SSL (requires cert)
+    volumes:
+      - electrs-data:/data
+      - ./electrs.toml:/etc/electrs/config.toml:ro
+    environment:
+      - ELECTRS_NETWORK=bitcoin
+      - ELECTRS_DAEMON_RPC_ADDR=bitcoind:8332
+    depends_on:
+      - bitcoind
+    profiles:
+      - full-node
+
+  # ===========================================================================
+  # Bitcoin Core (optional - for full sovereignty)
+  # ===========================================================================
+  bitcoind:
+    image: lncm/bitcoind:v27.0
+    restart: unless-stopped
+    ports:
+      - "8332:8332"      # RPC
+      - "8333:8333"      # P2P
+    volumes:
+      - bitcoind-data:/data
+      - ./bitcoin.conf:/data/.bitcoin/bitcoin.conf:ro
+    profiles:
+      - full-node
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  electrs-data:
+  bitcoind-data:
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  default:
+    name: nostring
