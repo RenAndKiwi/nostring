@@ -39,68 +39,34 @@ pub struct HeirKey {
     pub derivation_path: DerivationPath,
 }
 
-// Custom serde for Fingerprint
-mod fingerprint_serde {
-    use super::*;
-    use serde::{Deserializer, Serializer};
+/// Macro for creating serde modules that use FromStr/ToString
+macro_rules! string_serde {
+    ($mod_name:ident, $type:ty) => {
+        mod $mod_name {
+            use super::*;
+            use serde::{Deserializer, Serializer};
 
-    pub fn serialize<S>(fp: &Fingerprint, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&fp.to_string())
-    }
+            pub fn serialize<S>(value: &$type, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: Serializer,
+            {
+                serializer.serialize_str(&value.to_string())
+            }
 
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Fingerprint, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        Fingerprint::from_str(&s).map_err(serde::de::Error::custom)
-    }
+            pub fn deserialize<'de, D>(deserializer: D) -> Result<$type, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                let s = String::deserialize(deserializer)?;
+                <$type>::from_str(&s).map_err(serde::de::Error::custom)
+            }
+        }
+    };
 }
 
-// Custom serde for Xpub
-mod xpub_serde {
-    use super::*;
-    use serde::{Deserializer, Serializer};
-
-    pub fn serialize<S>(xpub: &Xpub, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&xpub.to_string())
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Xpub, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        Xpub::from_str(&s).map_err(serde::de::Error::custom)
-    }
-}
-
-// Custom serde for DerivationPath
-mod derivation_path_serde {
-    use super::*;
-    use serde::{Deserializer, Serializer};
-
-    pub fn serialize<S>(path: &DerivationPath, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&path.to_string())
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<DerivationPath, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        DerivationPath::from_str(&s).map_err(serde::de::Error::custom)
-    }
-}
+string_serde!(fingerprint_serde, Fingerprint);
+string_serde!(xpub_serde, Xpub);
+string_serde!(derivation_path_serde, DerivationPath);
 
 impl HeirKey {
     /// Create a new heir key from components
@@ -121,33 +87,24 @@ impl HeirKey {
 
     /// Parse from a descriptor key string like "[fingerprint/path]xpub"
     pub fn from_descriptor_str(label: impl Into<String>, s: &str) -> Result<Self, HeirError> {
-        // Parse as descriptor public key
         let desc_key =
             DescriptorPublicKey::from_str(s).map_err(|e| HeirError::InvalidXpub(e.to_string()))?;
 
-        match desc_key {
-            DescriptorPublicKey::XPub(xkey) => {
-                let (fingerprint, path) = xkey.origin.ok_or(HeirError::MissingFingerprint)?;
-                Ok(Self {
-                    label: label.into(),
-                    fingerprint,
-                    xpub: xkey.xkey,
-                    derivation_path: path,
-                })
-            }
-            DescriptorPublicKey::MultiXPub(xkey) => {
-                let (fingerprint, path) = xkey.origin.ok_or(HeirError::MissingFingerprint)?;
-                Ok(Self {
-                    label: label.into(),
-                    fingerprint,
-                    xpub: xkey.xkey,
-                    derivation_path: path,
-                })
-            }
-            _ => Err(HeirError::InvalidXpub(
-                "Expected xpub, got single key".into(),
-            )),
-        }
+        // Extract origin (fingerprint + path) and xpub from either XPub or MultiXPub
+        let (origin, xpub) = match desc_key {
+            DescriptorPublicKey::XPub(xkey) => (xkey.origin, xkey.xkey),
+            DescriptorPublicKey::MultiXPub(xkey) => (xkey.origin, xkey.xkey),
+            _ => return Err(HeirError::InvalidXpub("Expected xpub, got single key".into())),
+        };
+
+        let (fingerprint, derivation_path) = origin.ok_or(HeirError::MissingFingerprint)?;
+
+        Ok(Self {
+            label: label.into(),
+            fingerprint,
+            xpub,
+            derivation_path,
+        })
     }
 
     /// Convert to a descriptor public key with multipath for receive/change

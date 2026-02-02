@@ -189,6 +189,13 @@ pub fn combine_shares(shares: &[Slip39Share]) -> Result<Vec<u8>, ShamirError> {
     reconstruct_secret(&raw_shares)
 }
 
+/// Push `num_bits` bits of a value to the bit vector (MSB first)
+fn push_bits(bits: &mut Vec<bool>, value: u16, num_bits: usize) {
+    for i in (0..num_bits).rev() {
+        bits.push((value >> i) & 1 != 0);
+    }
+}
+
 /// Encode share data to mnemonic words
 fn encode_share_to_words(
     identifier: u16,
@@ -199,60 +206,30 @@ fn encode_share_to_words(
     member_threshold: u8,
     share_data: &[u8],
 ) -> Vec<String> {
-    // Build the share data structure
-    // SLIP-39 format:
+    // Build the share data structure per SLIP-39 format:
     // - ID: 15 bits
     // - Iteration exponent: 4 bits
     // - Group index: 4 bits
-    // - Group threshold: 4 bits
-    // - Group count: 4 bits
+    // - Group threshold - 1: 4 bits
+    // - Group count - 1: 4 bits
     // - Member index: 4 bits
-    // - Member threshold: 4 bits
-    // - Share value: variable
+    // - Member threshold - 1: 4 bits
+    // - Share value: variable (8 bits per byte)
     // - Checksum: 30 bits
 
     let mut bits = Vec::new();
 
-    // Identifier (15 bits)
-    for i in (0..15).rev() {
-        bits.push((identifier >> i) & 1 != 0);
-    }
-
-    // Iteration exponent (4 bits, we use 0 for no PBKDF2)
-    for _ in 0..4 {
-        bits.push(false);
-    }
-
-    // Group index (4 bits)
-    for i in (0..4).rev() {
-        bits.push((group_index >> i) & 1 != 0);
-    }
-
-    // Group threshold - 1 (4 bits)
-    for i in (0..4).rev() {
-        bits.push(((group_threshold - 1) >> i) & 1 != 0);
-    }
-
-    // Group count - 1 (4 bits)
-    for i in (0..4).rev() {
-        bits.push(((group_count - 1) >> i) & 1 != 0);
-    }
-
-    // Member index (4 bits)
-    for i in (0..4).rev() {
-        bits.push((member_index >> i) & 1 != 0);
-    }
-
-    // Member threshold - 1 (4 bits)
-    for i in (0..4).rev() {
-        bits.push(((member_threshold - 1) >> i) & 1 != 0);
-    }
+    push_bits(&mut bits, identifier, 15);
+    push_bits(&mut bits, 0, 4); // Iteration exponent (0 = no PBKDF2)
+    push_bits(&mut bits, group_index as u16, 4);
+    push_bits(&mut bits, (group_threshold - 1) as u16, 4);
+    push_bits(&mut bits, (group_count - 1) as u16, 4);
+    push_bits(&mut bits, member_index as u16, 4);
+    push_bits(&mut bits, (member_threshold - 1) as u16, 4);
 
     // Share value (8 bits per byte)
     for &byte in share_data {
-        for i in (0..8).rev() {
-            bits.push((byte >> i) & 1 != 0);
-        }
+        push_bits(&mut bits, byte as u16, 8);
     }
 
     // Pad to 10-bit boundary
@@ -342,24 +319,28 @@ pub fn parse_mnemonic(words: &[String]) -> Result<Slip39Share, ShamirError> {
     })
 }
 
-fn bits_to_u16(bits: &[bool]) -> u16 {
-    let mut val = 0u16;
+/// Convert a slice of bits to an integer (generic over output type)
+fn bits_to_int<T>(bits: &[bool]) -> T
+where
+    T: From<u8> + std::ops::BitOrAssign + std::ops::Shl<usize, Output = T> + Default + Copy,
+{
+    let mut val = T::default();
     for (i, &bit) in bits.iter().enumerate() {
         if bit {
-            val |= 1 << (bits.len() - 1 - i);
+            val |= T::from(1) << (bits.len() - 1 - i);
         }
     }
     val
 }
 
+#[inline]
+fn bits_to_u16(bits: &[bool]) -> u16 {
+    bits_to_int(bits)
+}
+
+#[inline]
 fn bits_to_u8(bits: &[bool]) -> u8 {
-    let mut val = 0u8;
-    for (i, &bit) in bits.iter().enumerate() {
-        if bit {
-            val |= 1 << (bits.len() - 1 - i);
-        }
-    }
-    val
+    bits_to_int(bits)
 }
 
 #[cfg(test)]
