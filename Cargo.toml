@@ -5,6 +5,7 @@ members = [
     "crates/nostring-email",
     "crates/nostring-electrum",
     "crates/nostring-inherit",
+    "crates/nostring-notify",
     "crates/nostring-shamir",
     "tauri-app/src-tauri",
 ]

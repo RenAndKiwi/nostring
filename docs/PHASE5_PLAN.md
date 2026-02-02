@@ -16,24 +16,36 @@ Transform NoString from library code into a production-ready desktop application
 ### Requirements
 - Alert users before timelock expiry
 - Multiple reminder thresholds: 30 days, 7 days, 1 day, urgent
-- Delivery via email and/or Telegram
+- Delivery via Email AND/OR Nostr DM (user chooses)
 
 ### Implementation
 1. **Timelock Monitor Service**
-   - Track inheritance UTXOs
+   - Track inheritance UTXOs via Electrum
    - Calculate blocks until expiry
    - Trigger alerts at configured thresholds
 
 2. **Email Notifications**
    - SMTP integration via `lettre` crate
    - Template: "Your NoString check-in expires in X days"
+   - User provides SMTP config (server, credentials)
 
-3. **Telegram Notifications**
-   - Use existing OpenClaw Telegram integration
-   - Or standalone bot via `teloxide` crate
+3. **Nostr DM Notifications**
+   - Send encrypted DM via `nostr-sdk`
+   - Uses owner's Nostr identity from seed
+   - Fully sovereign, no external services
+
+4. **User Configuration**
+   - Enable/disable each channel
+   - Set reminder thresholds (default: 30, 7, 1, 0 days)
+   - Provide recipient addresses/npubs
 
 ### Files
 - `crates/nostring-notify/` — new crate
+  - `lib.rs` — NotificationService
+  - `templates.rs` — Message templates
+  - `smtp.rs` — Email via lettre
+  - `nostr.rs` — DM via nostr-sdk
+  - `config.rs` — User preferences
 
 ---
 
