@@ -1,19 +1,50 @@
-/* NoString Desktop App - Styles */
+/* NoString Desktop App - Styles
+ * Brand colors aligned with Bitcoin Butlers
+ * Primary: #FBDC7B (light gold)
+ * Secondary: #FDA24A (gold) 
+ * Accent: #FF9125 (gold dark)
+ * Sidebar: #262834 (charcoal)
+ */
 
 :root {
-    --bg-primary: #1a1a2e;
-    --bg-secondary: #16213e;
-    --bg-card: #0f3460;
-    --text-primary: #e8e8e8;
-    --text-secondary: #a0a0a0;
-    --accent: #e94560;
-    --accent-hover: #ff6b6b;
+    /* Brand Colors */
+    --brand-gold-light: #FBDC7B;
+    --brand-gold: #FDA24A;
+    --brand-gold-dark: #FF9125;
+    --brand-sidebar: #262834;
+    
+    /* Backgrounds */
+    --bg-primary: #1a1b23;
+    --bg-secondary: #262834;
+    --bg-card: #2d2f3d;
+    --bg-hover: #363849;
+    
+    /* Text */
+    --text-primary: #f5f5f5;
+    --text-secondary: #a0a5b5;
+    --text-muted: #6b7280;
+    
+    /* Accent (using brand gold) */
+    --accent: #FBDC7B;
+    --accent-hover: #FDA24A;
+    --accent-active: #FF9125;
+    
+    /* Status */
     --success: #4ade80;
     --warning: #fbbf24;
     --error: #f87171;
-    --border: #374151;
+    
+    /* Borders */
+    --border: #3d4051;
+    --border-light: #4a4d5e;
+    
+    /* Shadows */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.5);
 }
 
+/* Reset */
 * {
     margin: 0;
     padding: 0;
@@ -25,6 +56,7 @@ body {
     background: var(--bg-primary);
     color: var(--text-primary);
     min-height: 100vh;
+    line-height: 1.5;
 }
 
 #app {
@@ -33,16 +65,23 @@ body {
     min-height: 100vh;
 }
 
-/* Header */
+/* ============================================================================
+   Header
+   ============================================================================ */
 header {
-    background: var(--bg-secondary);
+    background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--brand-sidebar) 100%);
     padding: 1.5rem 2rem;
     border-bottom: 1px solid var(--border);
+    box-shadow: var(--shadow-sm);
 }
 
 header h1 {
-    font-size: 1.5rem;
-    color: var(--accent);
+    font-size: 1.75rem;
+    font-weight: 700;
+    background: linear-gradient(90deg, var(--brand-gold-light), var(--brand-gold));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
     margin-bottom: 0.25rem;
 }
 
@@ -51,68 +90,99 @@ header p {
     font-size: 0.9rem;
 }
 
-/* Navigation */
+/* ============================================================================
+   Navigation
+   ============================================================================ */
 nav#tabs {
     display: flex;
     gap: 0.5rem;
-    padding: 1rem 2rem;
+    padding: 0.75rem 2rem;
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border);
 }
 
 nav button {
-    padding: 0.75rem 1.5rem;
+    padding: 0.625rem 1.25rem;
     background: transparent;
-    border: 1px solid var(--border);
+    border: 1px solid transparent;
     color: var(--text-secondary);
-    border-radius: 6px;
+    border-radius: 8px;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.2s ease;
+    font-size: 0.9rem;
+    font-weight: 500;
 }
 
 nav button:hover {
-    background: var(--bg-card);
+    background: var(--bg-hover);
     color: var(--text-primary);
 }
 
 nav button.active {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: white;
+    background: linear-gradient(135deg, var(--brand-gold-light) 0%, var(--brand-gold) 100%);
+    color: var(--brand-sidebar);
+    font-weight: 600;
+    box-shadow: var(--shadow-sm);
 }
 
-/* Main Content */
+/* ============================================================================
+   Main Content
+   ============================================================================ */
 main#content {
     flex: 1;
     padding: 2rem;
+    max-width: 1200px;
+    margin: 0 auto;
+    width: 100%;
 }
 
 .tab-content {
     display: none;
+    animation: fadeIn 0.2s ease;
 }
 
 .tab-content.active {
     display: block;
 }
 
-/* Cards */
-.status-card, .checkin-card, .setting {
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* ============================================================================
+   Cards
+   ============================================================================ */
+.status-card, .checkin-card, .heir-card, .backup-card, .setting {
     background: var(--bg-card);
     border-radius: 12px;
     padding: 1.5rem;
-    margin-bottom: 1rem;
+    margin-bottom: 1.25rem;
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-sm);
 }
 
-.status-card h2, .checkin-card h3 {
+.status-card h2, .checkin-card h3, .heir-card h3, .backup-card h3 {
     margin-bottom: 1rem;
     color: var(--text-primary);
+    font-weight: 600;
 }
 
-/* Status Display */
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+/* ============================================================================
+   Status Display
+   ============================================================================ */
 .status-item {
     display: flex;
     justify-content: space-between;
-    padding: 0.75rem 0;
+    align-items: center;
+    padding: 0.875rem 0;
     border-bottom: 1px solid var(--border);
 }
 
@@ -122,33 +192,64 @@ main#content {
 
 .status-item .label {
     color: var(--text-secondary);
+    font-size: 0.9rem;
 }
 
 .status-item .value {
     font-weight: 600;
+    font-size: 1rem;
 }
 
-.status-ok .value { color: var(--success); }
-.status-warning .value { color: var(--warning); }
-.status-critical .value { color: var(--error); }
+.status-ok .value { 
+    color: var(--success); 
+}
 
-/* Buttons */
-button, .btn-primary, .btn-secondary {
+.status-warning .value { 
+    color: var(--warning);
+    animation: pulse 2s infinite;
+}
+
+.status-critical .value { 
+    color: var(--error);
+    animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+/* ============================================================================
+   Buttons
+   ============================================================================ */
+button, .btn-primary, .btn-secondary, .btn-danger {
     padding: 0.75rem 1.5rem;
-    border-radius: 6px;
+    border-radius: 8px;
     cursor: pointer;
-    font-size: 1rem;
-    transition: all 0.2s;
+    font-size: 0.95rem;
+    font-weight: 500;
+    transition: all 0.2s ease;
     border: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
 }
 
 .btn-primary {
-    background: var(--accent);
-    color: white;
+    background: linear-gradient(135deg, var(--brand-gold-light) 0%, var(--brand-gold) 100%);
+    color: var(--brand-sidebar);
+    box-shadow: var(--shadow-sm);
 }
 
 .btn-primary:hover {
-    background: var(--accent-hover);
+    background: linear-gradient(135deg, var(--brand-gold) 0%, var(--brand-gold-dark) 100%);
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+}
+
+.btn-primary:active {
+    transform: translateY(0);
 }
 
 .btn-secondary {
@@ -158,20 +259,50 @@ button, .btn-primary, .btn-secondary {
 }
 
 .btn-secondary:hover {
-    background: var(--bg-card);
+    background: var(--bg-hover);
+    border-color: var(--border-light);
 }
 
-/* Setup Screen */
+.btn-danger {
+    background: var(--error);
+    color: white;
+}
+
+.btn-danger:hover {
+    background: #ef4444;
+}
+
+.btn-icon {
+    padding: 0.5rem;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-secondary);
+}
+
+.btn-icon:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+/* ============================================================================
+   Setup Screen
+   ============================================================================ */
 .setup-screen, .lock-screen {
-    max-width: 600px;
-    margin: 0 auto;
+    max-width: 500px;
+    margin: 3rem auto;
     text-align: center;
     padding: 2rem;
 }
 
 .setup-screen h2, .lock-screen h2 {
     font-size: 2rem;
+    font-weight: 700;
     margin-bottom: 0.5rem;
+    background: linear-gradient(90deg, var(--brand-gold-light), var(--brand-gold));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
 }
 
 .setup-screen p, .lock-screen p {
@@ -182,12 +313,14 @@ button, .btn-primary, .btn-secondary {
 .setup-options {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 0.75rem;
     max-width: 300px;
     margin: 0 auto;
 }
 
-/* Mnemonic Display */
+/* ============================================================================
+   Mnemonic Display
+   ============================================================================ */
 .mnemonic-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -198,24 +331,32 @@ button, .btn-primary, .btn-secondary {
 
 .mnemonic-grid .word {
     background: var(--bg-secondary);
-    padding: 0.5rem 0.75rem;
-    border-radius: 4px;
-    font-family: monospace;
-    font-size: 0.9rem;
+    padding: 0.625rem 0.75rem;
+    border-radius: 6px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 0.85rem;
+    border: 1px solid var(--border);
 }
 
 .mnemonic-grid .word .num {
-    color: var(--text-secondary);
+    color: var(--brand-gold);
     margin-right: 0.5rem;
+    font-weight: 600;
 }
 
 .warning {
     color: var(--warning);
     font-weight: 600;
     margin-bottom: 1rem;
+    padding: 0.75rem;
+    background: rgba(251, 191, 36, 0.1);
+    border-radius: 8px;
+    border: 1px solid rgba(251, 191, 36, 0.3);
 }
 
-/* Password Setup */
+/* ============================================================================
+   Password Setup
+   ============================================================================ */
 .password-setup {
     display: flex;
     flex-direction: column;
@@ -227,88 +368,193 @@ button, .btn-primary, .btn-secondary {
 .password-setup label {
     text-align: left;
     color: var(--text-secondary);
-    font-size: 0.9rem;
+    font-size: 0.85rem;
+    font-weight: 500;
 }
 
-/* Inputs */
+/* ============================================================================
+   Inputs
+   ============================================================================ */
 input[type="text"],
 input[type="password"],
-textarea {
-    padding: 0.75rem;
-    border-radius: 6px;
+textarea,
+select {
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
     border: 1px solid var(--border);
     background: var(--bg-secondary);
     color: var(--text-primary);
-    font-size: 1rem;
+    font-size: 0.95rem;
+    transition: all 0.2s ease;
+    width: 100%;
 }
 
 input[type="text"]:focus,
 input[type="password"]:focus,
-textarea:focus {
+textarea:focus,
+select:focus {
     outline: none;
-    border-color: var(--accent);
+    border-color: var(--brand-gold);
+    box-shadow: 0 0 0 3px rgba(251, 220, 123, 0.2);
+}
+
+input::placeholder,
+textarea::placeholder {
+    color: var(--text-muted);
 }
 
 textarea {
     min-height: 100px;
     resize: vertical;
-    width: 100%;
-    font-family: monospace;
+    font-family: 'SF Mono', 'Fira Code', monospace;
 }
 
-/* Import Form */
-#import-form {
-    text-align: left;
+/* ============================================================================
+   Heirs Section
+   ============================================================================ */
+.heir-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
 }
 
-#import-form h3 {
-    margin-bottom: 1rem;
+.heir-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    border: 1px solid var(--border);
 }
 
-/* Settings */
+.heir-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.heir-label {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.heir-fingerprint {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.heir-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.add-heir-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 1rem;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    margin-top: 1rem;
+}
+
+.form-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.form-row label {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+/* ============================================================================
+   Backup Options
+   ============================================================================ */
+.backup-options {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.backup-option {
+    padding: 1.5rem;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.backup-option:hover {
+    border-color: var(--brand-gold);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+}
+
+.backup-option h4 {
+    color: var(--brand-gold);
+    margin-bottom: 0.5rem;
+}
+
+.backup-option p {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+/* ============================================================================
+   Settings
+   ============================================================================ */
 .setting {
     display: flex;
     align-items: center;
     gap: 1rem;
+    padding: 1rem;
 }
 
 .setting label {
     color: var(--text-secondary);
     min-width: 150px;
+    font-weight: 500;
 }
 
 .setting input {
     flex: 1;
 }
 
-/* Utility */
-.hidden {
-    display: none !important;
+.settings-group {
+    margin-bottom: 1.5rem;
 }
 
-.error {
-    color: var(--error);
+.settings-group h3 {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.75rem;
 }
 
-/* Backup Options */
-.backup-options {
-    display: flex;
-    gap: 1rem;
-    margin-top: 1rem;
-}
-
-/* Modal */
+/* ============================================================================
+   Modal
+   ============================================================================ */
 .modal {
     position: fixed;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(0, 0, 0, 0.8);
+    background: rgba(0, 0, 0, 0.85);
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 1000;
+    backdrop-filter: blur(4px);
 }
 
 .modal.hidden {
@@ -316,24 +562,28 @@ textarea {
 }
 
 .modal-content {
-    background: var(--bg-secondary);
-    border-radius: 12px;
+    background: var(--bg-card);
+    border-radius: 16px;
     max-width: 500px;
     width: 90%;
     max-height: 90vh;
     overflow: auto;
+    box-shadow: var(--shadow-lg);
+    border: 1px solid var(--border);
 }
 
 .modal-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 1rem 1.5rem;
+    padding: 1.25rem 1.5rem;
     border-bottom: 1px solid var(--border);
 }
 
 .modal-header h3 {
     margin: 0;
+    font-weight: 600;
+    color: var(--brand-gold);
 }
 
 .btn-close {
@@ -343,6 +593,7 @@ textarea {
     color: var(--text-secondary);
     cursor: pointer;
     padding: 0.25rem 0.5rem;
+    transition: color 0.2s;
 }
 
 .btn-close:hover {
@@ -354,13 +605,16 @@ textarea {
     text-align: center;
 }
 
-/* QR Code Display */
+/* ============================================================================
+   QR Code Display
+   ============================================================================ */
 #qr-container {
     background: white;
-    padding: 1rem;
-    border-radius: 8px;
+    padding: 1.25rem;
+    border-radius: 12px;
     display: inline-block;
     margin-bottom: 1rem;
+    box-shadow: var(--shadow-md);
 }
 
 #qr-container canvas {
@@ -371,39 +625,130 @@ textarea {
     color: var(--text-secondary);
     font-size: 0.9rem;
     margin-bottom: 1rem;
+    line-height: 1.5;
 }
 
 .qr-actions {
     display: flex;
-    gap: 1rem;
+    gap: 0.75rem;
     justify-content: center;
 }
 
-/* QR Scanner */
+/* ============================================================================
+   QR Scanner
+   ============================================================================ */
 #scanner-video {
     width: 100%;
     max-width: 400px;
-    border-radius: 8px;
+    border-radius: 12px;
     background: black;
 }
 
 #scanner-status {
     color: var(--text-secondary);
     margin-top: 1rem;
+    font-size: 0.9rem;
 }
 
 .scanner-success {
     color: var(--success) !important;
+    font-weight: 600;
 }
 
-/* Responsive */
+/* ============================================================================
+   Codex32 Shares Display
+   ============================================================================ */
+.share-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin: 1rem 0;
+}
+
+.share-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 0.8rem;
+}
+
+.share-index {
+    background: var(--brand-gold);
+    color: var(--brand-sidebar);
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-weight: 600;
+}
+
+.share-value {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ============================================================================
+   Utility Classes
+   ============================================================================ */
+.hidden {
+    display: none !important;
+}
+
+.error {
+    color: var(--error);
+}
+
+.success {
+    color: var(--success);
+}
+
+.text-center {
+    text-align: center;
+}
+
+.text-muted {
+    color: var(--text-muted);
+}
+
+.mt-1 { margin-top: 0.5rem; }
+.mt-2 { margin-top: 1rem; }
+.mt-3 { margin-top: 1.5rem; }
+.mb-1 { margin-bottom: 0.5rem; }
+.mb-2 { margin-bottom: 1rem; }
+.mb-3 { margin-bottom: 1.5rem; }
+
+/* ============================================================================
+   Responsive
+   ============================================================================ */
 @media (max-width: 768px) {
+    header {
+        padding: 1rem 1.5rem;
+    }
+    
+    header h1 {
+        font-size: 1.5rem;
+    }
+    
+    main#content {
+        padding: 1.5rem;
+    }
+    
     .mnemonic-grid {
         grid-template-columns: repeat(3, 1fr);
     }
     
     nav#tabs {
         flex-wrap: wrap;
+        padding: 0.5rem 1rem;
+    }
+    
+    nav button {
+        padding: 0.5rem 1rem;
+        font-size: 0.85rem;
     }
     
     .setting {
@@ -411,7 +756,35 @@ textarea {
         align-items: stretch;
     }
     
+    .setting label {
+        min-width: auto;
+    }
+    
     .qr-actions {
         flex-direction: column;
+    }
+    
+    .heir-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.75rem;
+    }
+    
+    .heir-actions {
+        width: 100%;
+    }
+    
+    .heir-actions button {
+        flex: 1;
+    }
+}
+
+@media (max-width: 480px) {
+    .mnemonic-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .setup-screen, .lock-screen {
+        padding: 1rem;
     }
 }
