@@ -1,0 +1,15 @@
+[package]
+name = "nostring-shamir"
+description = "Shamir secret sharing for NoString (SLIP-39 + Codex32)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+nostring-core = { path = "../nostring-core" }
+bip39.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+# TODO: Add SLIP-39 implementation crate when available
+# slip39 = "..."

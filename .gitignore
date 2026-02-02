@@ -1,0 +1,23 @@
+# Rust
+/target/
+Cargo.lock
+
+# Tauri
+/tauri-app/src-tauri/target/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets (never commit)
+*.seed
+*.mnemonic
+*.privkey
+.env
+.env.*

@@ -1,0 +1,14 @@
+[package]
+name = "nostring-inherit"
+description = "Bitcoin timelock inheritance for NoString (from Liana)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+nostring-core = { path = "../nostring-core" }
+bitcoin.workspace = true
+miniscript.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true

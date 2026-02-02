@@ -1,0 +1,17 @@
+[package]
+name = "nostring-core"
+description = "Core types and key derivation for NoString"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+bip39.workspace = true
+bitcoin.workspace = true
+secp256k1.workspace = true
+nostr-sdk.workspace = true
+aes-gcm.workspace = true
+argon2.workspace = true
+rand.workspace = true
+serde.workspace = true
+thiserror.workspace = true
