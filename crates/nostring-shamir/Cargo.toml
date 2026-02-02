@@ -10,6 +10,7 @@ nostring-core = { path = "../nostring-core" }
 bip39.workspace = true
 serde.workspace = true
 thiserror.workspace = true
+rand.workspace = true
 
-# TODO: Add SLIP-39 implementation crate when available
-# slip39 = "..."
+[dev-dependencies]
+serde_json.workspace = true
