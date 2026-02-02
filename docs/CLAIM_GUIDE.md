@@ -64,15 +64,22 @@ If the owner used Shamir secret sharing:
 
 **Codex32 shares look like:**
 ```
-ms1qqqqqqq...  (share 1)
-ms1qqqqqqs...  (share 2)
+MS12NAMEA320UXWFEP5CJC5M94...  (share A)
+MS12NAMES6XQGUZTTXKEQNJSJZ...  (share S)
 ```
+Each share starts with "MS1" + threshold + identifier + share index + data.
 
 ---
 
 ## Step 3: Import the Policy
 
-Open NoString and import the inheritance policy. The owner should have provided one of:
+Open NoString and import the inheritance policy. 
+
+> **Note:** The NoString desktop UI is under development. These steps describe 
+> the intended workflow. For current usage, you may need to use the command-line 
+> tools or integrate with Sparrow/Electrum for signing.
+
+The owner should have provided one of:
 
 **Option A: Descriptor String**
 ```
@@ -126,9 +133,9 @@ A JSON file containing the full policy configuration.
 ### Multi-Sig Signing
 If multiple heirs are required:
 1. First heir signs and exports partially-signed PSBT
-2. Pass to second heir
+2. Pass to second heir (via secure channel or in person)
 3. Second heir signs (now fully signed)
-4. Or: Use NoString's coordinator feature to collect signatures
+4. Any heir can then broadcast the fully-signed transaction
 
 ---
 

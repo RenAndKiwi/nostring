@@ -1,5 +1,8 @@
 # NoString Docker Build
-# Multi-stage build for minimal production image
+# 
+# NOTE: NoString is primarily a desktop application (Tauri).
+# This Dockerfile is for building the Rust libraries for custom integrations
+# or CI/CD pipelines. For the desktop app, build locally with `cargo tauri build`.
 
 # =============================================================================
 # Stage 1: Build
@@ -14,15 +17,19 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy manifests
-COPY Cargo.toml Cargo.lock ./
+# Copy source
+COPY Cargo.toml ./
 COPY crates ./crates
 
-# Build release binaries
-RUN cargo build --release --workspace --exclude nostring-app
+# Generate Cargo.lock and build
+RUN cargo generate-lockfile && \
+    cargo build --release --workspace --exclude nostring-app
+
+# Run tests to verify build
+RUN cargo test --release --workspace --exclude nostring-app
 
 # =============================================================================
-# Stage 2: Runtime
+# Stage 2: Runtime (minimal image for CI artifacts)
 # =============================================================================
 FROM debian:bookworm-slim AS runtime
 
@@ -37,16 +44,13 @@ RUN useradd --create-home --shell /bin/bash nostring
 USER nostring
 WORKDIR /home/nostring
 
-# Copy built libraries (for custom integrations)
-COPY --from=builder /app/target/release/libnostring*.so /usr/local/lib/ 2>/dev/null || true
-COPY --from=builder /app/target/release/libnostring*.rlib /usr/local/lib/ 2>/dev/null || true
-
 # Copy documentation
-COPY docs /home/nostring/docs
-COPY README.md /home/nostring/
+COPY --chown=nostring:nostring docs /home/nostring/docs
+COPY --chown=nostring:nostring README.md /home/nostring/
 
-# Default command (informational)
-CMD ["echo", "NoString libraries built. Use as base image or mount your integration."]
+# NoString libraries are Rust crates - link against them in your Rust project
+# or use the Tauri desktop application for end-user usage.
+CMD ["cat", "/home/nostring/README.md"]
 
 # =============================================================================
 # Labels

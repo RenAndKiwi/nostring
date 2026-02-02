@@ -174,10 +174,15 @@ For remote access, enable TLS:
 
 | Data | Location | Frequency |
 |------|----------|-----------|
-| Seed (encrypted) | Local app data | Once (at creation) |
-| Policy config | `~/.nostring/` | After changes |
-| Watch state | `~/.nostring/watch_state.json` | Daily |
+| Seed (encrypted) | App data directory* | Once (at creation) |
+| Policy config | App data directory* | After changes |
+| Watch state | App data directory* | Daily |
 | Bitcoin data | Docker volume | Optional (can resync) |
+
+*Default data directory varies by platform:
+- **Linux:** `~/.local/share/nostring/` or `~/.nostring/`
+- **macOS:** `~/Library/Application Support/nostring/`
+- **Windows:** `%APPDATA%\nostring\`
 
 ### Backup Commands
 

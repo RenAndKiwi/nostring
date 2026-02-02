@@ -89,8 +89,10 @@ A document explaining:
 ### 2. **Shamir Shares (Optional)**
 If the owner uses Shamir backup, they may give you one or more **Codex32 shares**. These are strings that look like:
 ```
-ms1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq
+MS12NAMEA320UXWFEP5CJC5M94LTXKTZCRQZZQ99...  (share A)
+MS12NAMES6XQGUZTTXKEQNJSJZV4JV3NZ5K3KWGSPHUH6EVW...  (share S)
 ```
+Each share starts with "MS1" followed by threshold digit, 4-character identifier, share index, and encoded data.
 
 **Important:** A single share cannot recover the Bitcoin. You need a threshold number of shares (e.g., 2 of 3) working together with other heirs.
 
