@@ -194,6 +194,83 @@ impl InheritancePolicy {
         Self::new(PathInfo::Single(owner), recovery)
     }
 
+    /// Create a cascade inheritance policy with multiple heirs at different timelocks
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Spouse can recover after 6 months, kids after 9 months, executor after 12 months
+    /// let policy = InheritancePolicy::cascade(
+    ///     owner_key,
+    ///     vec![
+    ///         (Timelock::six_months(), PathInfo::Single(spouse_key)),
+    ///         (Timelock::days(270).unwrap(), PathInfo::multi(2, vec![kid1, kid2, kid3]).unwrap()),
+    ///         (Timelock::one_year(), PathInfo::Single(executor_key)),
+    ///     ],
+    /// )?;
+    /// ```
+    pub fn cascade(
+        owner: DescriptorPublicKey,
+        heirs: Vec<(Timelock, PathInfo)>,
+    ) -> Result<Self, PolicyError> {
+        if heirs.is_empty() {
+            return Err(PolicyError::NoRecoveryPaths);
+        }
+
+        let mut recovery = BTreeMap::new();
+        for (timelock, path_info) in heirs {
+            if recovery.contains_key(&timelock) {
+                return Err(PolicyError::InvalidTimelock(timelock.blocks() as u32));
+            }
+            recovery.insert(timelock, path_info);
+        }
+
+        Self::new(PathInfo::Single(owner), recovery)
+    }
+
+    /// Create a multi-sig owner policy with cascade heirs
+    ///
+    /// Useful for corporate treasuries where multiple signatures are required
+    /// for normal spending, but heirs can recover with their own thresholds.
+    pub fn multisig_owner(
+        owner_threshold: usize,
+        owner_keys: Vec<DescriptorPublicKey>,
+        heirs: Vec<(Timelock, PathInfo)>,
+    ) -> Result<Self, PolicyError> {
+        let primary = PathInfo::multi(owner_threshold, owner_keys)?;
+
+        let mut recovery = BTreeMap::new();
+        for (timelock, path_info) in heirs {
+            recovery.insert(timelock, path_info);
+        }
+
+        Self::new(primary, recovery)
+    }
+
+    /// Get all timelocks in ascending order
+    pub fn timelocks(&self) -> Vec<Timelock> {
+        self.recovery.keys().copied().collect()
+    }
+
+    /// Get the earliest timelock (first recovery opportunity)
+    pub fn earliest_timelock(&self) -> Option<Timelock> {
+        self.recovery.keys().next().copied()
+    }
+
+    /// Get the latest timelock (final recovery opportunity)
+    pub fn latest_timelock(&self) -> Option<Timelock> {
+        self.recovery.keys().last().copied()
+    }
+
+    /// Count total recovery paths
+    pub fn recovery_path_count(&self) -> usize {
+        self.recovery.len()
+    }
+
+    /// Check if this is a cascade policy (multiple timelocks)
+    pub fn is_cascade(&self) -> bool {
+        self.recovery.len() > 1
+    }
+
     /// Build a concrete policy (for compilation to miniscript)
     pub fn to_concrete_policy(&self) -> Concrete<DescriptorPublicKey> {
         // Primary path (owner)
@@ -351,5 +428,175 @@ mod tests {
         // Should be a wsh descriptor
         assert!(desc_str.starts_with("wsh("));
         println!("Generated descriptor: {}", desc_str);
+    }
+
+    // === Phase 4: Multi-Heir + Cascade Tests ===
+
+    fn heir_key_2() -> DescriptorPublicKey {
+        let xpub = test_xpub();
+        DescriptorPublicKey::from_str(&format!("[00000003/84'/0'/2']{}/<0;1>/*", xpub)).unwrap()
+    }
+
+    fn heir_key_3() -> DescriptorPublicKey {
+        let xpub = test_xpub();
+        DescriptorPublicKey::from_str(&format!("[00000004/84'/0'/3']{}/<0;1>/*", xpub)).unwrap()
+    }
+
+    fn spouse_key() -> DescriptorPublicKey {
+        let xpub = test_xpub();
+        DescriptorPublicKey::from_str(&format!("[00000005/84'/0'/5']{}/<0;1>/*", xpub)).unwrap()
+    }
+
+    fn executor_key() -> DescriptorPublicKey {
+        let xpub = test_xpub();
+        DescriptorPublicKey::from_str(&format!("[00000006/84'/0'/6']{}/<0;1>/*", xpub)).unwrap()
+    }
+
+    #[test]
+    fn test_cascade_policy_creation() {
+        // Spouse at 6 months, executor at 12 months
+        let policy = InheritancePolicy::cascade(
+            owner_key(),
+            vec![
+                (Timelock::six_months(), PathInfo::Single(heir_key())),
+                (Timelock::one_year(), PathInfo::Single(heir_key_2())),
+            ],
+        )
+        .unwrap();
+
+        assert!(policy.is_cascade());
+        assert_eq!(policy.recovery_path_count(), 2);
+        assert_eq!(policy.earliest_timelock(), Some(Timelock::six_months()));
+        assert_eq!(policy.latest_timelock(), Some(Timelock::one_year()));
+    }
+
+    #[test]
+    fn test_cascade_timelocks_ordered() {
+        let policy = InheritancePolicy::cascade(
+            owner_key(),
+            vec![
+                // Add in random order - should be sorted by timelock
+                (Timelock::one_year(), PathInfo::Single(heir_key_3())),
+                (Timelock::six_months(), PathInfo::Single(heir_key())),
+                (Timelock::days(270).unwrap(), PathInfo::Single(heir_key_2())),
+            ],
+        )
+        .unwrap();
+
+        let timelocks = policy.timelocks();
+        assert_eq!(timelocks.len(), 3);
+        // Should be sorted ascending
+        assert!(timelocks[0].blocks() < timelocks[1].blocks());
+        assert!(timelocks[1].blocks() < timelocks[2].blocks());
+    }
+
+    #[test]
+    fn test_cascade_duplicate_timelock_rejected() {
+        let result = InheritancePolicy::cascade(
+            owner_key(),
+            vec![
+                (Timelock::six_months(), PathInfo::Single(heir_key())),
+                (Timelock::six_months(), PathInfo::Single(heir_key_2())), // Duplicate!
+            ],
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_multisig_heir_threshold() {
+        // Owner can spend, but after 6 months, 2-of-3 heirs can recover
+        let heirs = PathInfo::multi(2, vec![heir_key(), heir_key_2(), heir_key_3()]).unwrap();
+
+        let policy = InheritancePolicy::simple_with_multisig_heir(
+            owner_key(),
+            heirs,
+            Timelock::six_months(),
+        );
+
+        assert!(policy.is_ok());
+        let policy = policy.unwrap();
+        assert!(!policy.is_cascade()); // Single recovery path
+        assert_eq!(policy.recovery_path_count(), 1);
+    }
+
+    #[test]
+    fn test_cascade_with_multisig_heirs() {
+        // Complex cascade:
+        // - 6 months: spouse alone
+        // - 9 months: 2-of-3 kids
+        // - 12 months: executor alone
+
+        let kids = PathInfo::multi(2, vec![heir_key(), heir_key_2(), heir_key_3()]).unwrap();
+
+        let policy = InheritancePolicy::cascade(
+            owner_key(),
+            vec![
+                (Timelock::six_months(), PathInfo::Single(spouse_key())),
+                (Timelock::days(270).unwrap(), kids),
+                (Timelock::one_year(), PathInfo::Single(executor_key())),
+            ],
+        )
+        .unwrap();
+
+        assert!(policy.is_cascade());
+        assert_eq!(policy.recovery_path_count(), 3);
+    }
+
+    #[test]
+    fn test_cascade_compiles_to_wsh() {
+        let policy = InheritancePolicy::cascade(
+            owner_key(),
+            vec![
+                (Timelock::six_months(), PathInfo::Single(heir_key())),
+                (Timelock::one_year(), PathInfo::Single(heir_key_2())),
+            ],
+        )
+        .unwrap();
+
+        let descriptor = policy.to_wsh_descriptor();
+        assert!(descriptor.is_ok(), "Cascade policy should compile: {:?}", descriptor.err());
+
+        let desc_str = descriptor.unwrap().to_string();
+        assert!(desc_str.starts_with("wsh("));
+        println!("Cascade descriptor: {}", desc_str);
+    }
+
+    #[test]
+    fn test_multisig_owner_with_cascade() {
+        // 2-of-2 corporate owners, with cascade heirs
+        let policy = InheritancePolicy::multisig_owner(
+            2,
+            vec![owner_key(), heir_key()], // Using heir_key as second owner for test
+            vec![
+                (Timelock::six_months(), PathInfo::Single(heir_key_2())),
+                (Timelock::one_year(), PathInfo::Single(heir_key_3())),
+            ],
+        )
+        .unwrap();
+
+        assert!(policy.is_cascade());
+        
+        // Primary should be multi-sig
+        match &policy.primary {
+            PathInfo::Multi(thresh, keys) => {
+                assert_eq!(*thresh, 2);
+                assert_eq!(keys.len(), 2);
+            }
+            _ => panic!("Expected multi-sig primary path"),
+        }
+    }
+}
+
+impl InheritancePolicy {
+    /// Create a simple policy with a multi-sig heir group
+    pub fn simple_with_multisig_heir(
+        owner: DescriptorPublicKey,
+        heirs: PathInfo,
+        timelock: Timelock,
+    ) -> Result<Self, PolicyError> {
+        let mut recovery = BTreeMap::new();
+        recovery.insert(timelock, heirs);
+        Self::new(PathInfo::Single(owner), recovery)
     }
 }
