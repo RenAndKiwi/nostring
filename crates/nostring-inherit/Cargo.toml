@@ -12,3 +12,6 @@ miniscript.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

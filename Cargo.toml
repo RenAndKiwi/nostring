@@ -17,7 +17,7 @@ repository = "https://github.com/nostring/nostring"
 [workspace.dependencies]
 # Crypto
 bip39 = { version = "2.2", features = ["rand"] }
-bitcoin = "0.32"
+bitcoin = { version = "0.32", features = ["serde"] }
 secp256k1 = { version = "0.29", features = ["rand-std"] }
 nostr-sdk = "0.39"
 
