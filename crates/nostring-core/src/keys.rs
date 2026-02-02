@@ -40,15 +40,64 @@ pub fn derive_nostr_keys(seed: &[u8; 64]) -> Result<NostrKeys, KeyError> {
 }
 
 /// Derive Bitcoin master key from seed using BIP-84 path
+///
+/// Returns the xpriv at m/84'/0'/0' for mainnet.
 pub fn derive_bitcoin_master(seed: &[u8; 64]) -> Result<Xpriv, KeyError> {
-    let master = Xpriv::new_master(Network::Bitcoin, seed)
+    derive_bitcoin_master_for_network(seed, Network::Bitcoin)
+}
+
+/// Derive Bitcoin master key from seed using BIP-84 path for a specific network
+///
+/// - Mainnet: m/84'/0'/0'
+/// - Testnet: m/84'/1'/0'
+pub fn derive_bitcoin_master_for_network(seed: &[u8; 64], network: Network) -> Result<Xpriv, KeyError> {
+    let master = Xpriv::new_master(network, seed)
         .map_err(|e| KeyError::DerivationFailed(e.to_string()))?;
     
-    let path: DerivationPath = BIP84_PATH.parse()
+    // BIP-84 path differs by network
+    let path_str = match network {
+        Network::Bitcoin => BIP84_PATH,
+        _ => "m/84'/1'/0'",  // Testnet/Signet/Regtest use coin type 1
+    };
+    
+    let path: DerivationPath = path_str.parse()
         .map_err(|e: bitcoin::bip32::Error| KeyError::InvalidPath(e.to_string()))?;
     
     master.derive_priv(&bitcoin::secp256k1::Secp256k1::new(), &path)
         .map_err(|e| KeyError::DerivationFailed(e.to_string()))
+}
+
+/// Derive a specific Bitcoin address from the master key
+///
+/// # Arguments
+/// * `master` - The xpriv at m/84'/0'/0'
+/// * `change` - false for receive addresses (0), true for change addresses (1)
+/// * `index` - Address index
+///
+/// # Returns
+/// The derived P2WPKH address
+pub fn derive_bitcoin_address(
+    master: &Xpriv,
+    change: bool,
+    index: u32,
+    network: Network,
+) -> Result<bitcoin::Address, KeyError> {
+    let secp = bitcoin::secp256k1::Secp256k1::new();
+    
+    // Path: /change/index (e.g., /0/0 for first receive address)
+    let change_num = if change { 1 } else { 0 };
+    let path_str = format!("m/{}/{}", change_num, index);
+    let path: DerivationPath = path_str.parse()
+        .map_err(|e: bitcoin::bip32::Error| KeyError::InvalidPath(e.to_string()))?;
+    
+    let derived = master.derive_priv(&secp, &path)
+        .map_err(|e| KeyError::DerivationFailed(e.to_string()))?;
+    
+    // Get the compressed public key for P2WPKH
+    let secp_pubkey = derived.private_key.public_key(&secp);
+    let compressed = bitcoin::CompressedPublicKey(secp_pubkey);
+    
+    Ok(bitcoin::Address::p2wpkh(&compressed, network))
 }
 
 #[cfg(test)]
@@ -158,5 +207,73 @@ mod tests {
         
         // Same mnemonic, different passphrase → different keys
         assert_ne!(keys_no_pass.public_key(), keys_with_pass.public_key());
+    }
+
+    /// BIP-84 test: verify we can derive Bitcoin keys
+    #[test]
+    fn test_bip84_derivation() {
+        // Use the standard "abandon" test mnemonic
+        let mnemonic = parse_mnemonic(
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+        ).unwrap();
+        
+        let seed = derive_seed(&mnemonic, "");
+        let master = derive_bitcoin_master(&seed).unwrap();
+        
+        // Derive first receive address (m/84'/0'/0'/0/0)
+        let address = derive_bitcoin_address(&master, false, 0, Network::Bitcoin).unwrap();
+        
+        // BIP-84 first receive address for this mnemonic is known
+        // This is a well-known test vector
+        assert_eq!(
+            address.to_string(),
+            "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu"
+        );
+    }
+
+    /// Test receive vs change addresses are different
+    #[test]
+    fn test_bip84_receive_vs_change() {
+        let mnemonic = parse_mnemonic(
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+        ).unwrap();
+        
+        let seed = derive_seed(&mnemonic, "");
+        let master = derive_bitcoin_master(&seed).unwrap();
+        
+        // First receive address (m/84'/0'/0'/0/0)
+        let receive = derive_bitcoin_address(&master, false, 0, Network::Bitcoin).unwrap();
+        
+        // First change address (m/84'/0'/0'/1/0)
+        let change = derive_bitcoin_address(&master, true, 0, Network::Bitcoin).unwrap();
+        
+        // They should be different
+        assert_ne!(receive.to_string(), change.to_string());
+    }
+
+    /// Test sequential address derivation
+    #[test]
+    fn test_bip84_sequential_addresses() {
+        let mnemonic = parse_mnemonic(
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+        ).unwrap();
+        
+        let seed = derive_seed(&mnemonic, "");
+        let master = derive_bitcoin_master(&seed).unwrap();
+        
+        // Derive first few addresses
+        let addr0 = derive_bitcoin_address(&master, false, 0, Network::Bitcoin).unwrap();
+        let addr1 = derive_bitcoin_address(&master, false, 1, Network::Bitcoin).unwrap();
+        let addr2 = derive_bitcoin_address(&master, false, 2, Network::Bitcoin).unwrap();
+        
+        // All addresses should be unique
+        assert_ne!(addr0.to_string(), addr1.to_string());
+        assert_ne!(addr1.to_string(), addr2.to_string());
+        assert_ne!(addr0.to_string(), addr2.to_string());
+        
+        // All should be bech32 addresses (start with bc1q for P2WPKH)
+        assert!(addr0.to_string().starts_with("bc1q"));
+        assert!(addr1.to_string().starts_with("bc1q"));
+        assert!(addr2.to_string().starts_with("bc1q"));
     }
 }
