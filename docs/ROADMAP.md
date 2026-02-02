@@ -82,15 +82,37 @@ Encrypted email + Nostr identity + Bitcoin inheritance. One seed, sovereign comm
 
 ## Phase 5: UX Polish
 
-**Goal:** Frictionless check-ins, notifications, mobile
+**Goal:** Frictionless check-ins, notifications, desktop app
 
-- [ ] Auto check-in on any wallet transaction
-- [ ] Push notifications for check-in reminders
-- [ ] Heir onboarding wizard
-- [ ] Mobile app (Tauri Android)
-- [ ] Hardware wallet support for signing
+### 5.1 Notifications
+- [ ] Check-in reminder system (email + Telegram)
+- [ ] Configurable reminder schedule (30 days, 7 days, 1 day before expiry)
+- [ ] Urgent alerts when timelock is critical
 
-**Deliverable:** Production-ready UX
+### 5.2 Heir Onboarding
+- [ ] Heir onboarding wizard/documentation
+- [ ] Xpub collection flow
+- [ ] Inheritance explanation for non-technical heirs
+- [ ] Shamir share distribution guide
+
+### 5.3 Desktop App (Tauri)
+- [ ] Basic Tauri shell with Rust backend
+- [ ] Seed import/create flow
+- [ ] Policy status dashboard
+- [ ] Check-in button (manual)
+
+### 5.4 Auto Check-in
+- [ ] Watch inheritance UTXO
+- [ ] Detect any spend as check-in
+- [ ] Auto-rebuild UTXO with fresh timelock
+
+### 5.5 SeedSigner Integration
+- [ ] PSBT generation for check-in transactions
+- [ ] QR code display for SeedSigner scanning
+- [ ] QR code camera input for signed PSBT
+- [ ] Broadcast signed transaction
+
+**Deliverable:** Production-ready desktop app with SeedSigner signing
 
 ---
 
@@ -109,17 +131,26 @@ Encrypted email + Nostr identity + Bitcoin inheritance. One seed, sovereign comm
 
 ## Timeline Estimate
 
-| Phase | Duration | Cumulative |
-|-------|----------|------------|
-| 0: Foundation | 2 weeks | 2 weeks |
-| 1: Unified Seed | 3 weeks | 5 weeks |
-| 2: Inheritance MVP | 4 weeks | 9 weeks |
-| 3: Shamir Backup | 3 weeks | 12 weeks |
-| 4: Multi-Heir | 3 weeks | 15 weeks |
-| 5: UX Polish | 4 weeks | 19 weeks |
-| 6: Self-Hosting | 2 weeks | 21 weeks |
+| Phase | Duration | Cumulative | Status |
+|-------|----------|------------|--------|
+| 0: Foundation | 2 weeks | 2 weeks | ✅ Complete |
+| 1: Unified Seed | 3 weeks | 5 weeks | ✅ Complete |
+| 2: Inheritance MVP | 4 weeks | 9 weeks | ✅ Complete |
+| 3: Shamir Backup | 3 weeks | 12 weeks | ✅ Complete |
+| 4: Multi-Heir | 3 weeks | 15 weeks | ✅ Complete |
+| 5: UX Polish | 4 weeks | 19 weeks | 🔄 In Progress |
+| 6: Self-Hosting | 2 weeks | 21 weeks | Pending |
 
 **Total: ~5 months to production-ready**
+
+### Phase 5 Sub-tasks
+| Task | Estimate | Status |
+|------|----------|--------|
+| 5.1 Notifications | 1 week | Pending |
+| 5.2 Heir Onboarding | 0.5 week | Pending |
+| 5.3 Desktop App | 1.5 weeks | Pending |
+| 5.4 Auto Check-in | 0.5 week | Pending |
+| 5.5 SeedSigner | 0.5 week | Pending |
 
 ---
 

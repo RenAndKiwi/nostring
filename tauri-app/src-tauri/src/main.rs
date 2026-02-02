@@ -1,19 +1,35 @@
 //! NoString Desktop Application
 //!
-//! Tauri-based desktop app for encrypted email with inheritance.
+//! Tauri-based desktop app for encrypted communications with inheritance.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod commands;
+mod state;
+
+use state::AppState;
+
 fn main() {
     tauri::Builder::default()
+        .manage(AppState::new())
+        .invoke_handler(tauri::generate_handler![
+            // Seed management
+            commands::create_seed,
+            commands::validate_seed,
+            commands::import_seed,
+            commands::has_seed,
+            commands::unlock_seed,
+            commands::lock_wallet,
+            // Policy status
+            commands::get_policy_status,
+            commands::refresh_policy_status,
+            // Check-in
+            commands::initiate_checkin,
+            commands::complete_checkin,
+            // Settings
+            commands::get_electrum_url,
+            commands::set_electrum_url,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
-
-// TODO: Add Tauri commands:
-// - Seed management (generate, import, encrypt)
-// - Key derivation (Nostr, Bitcoin)
-// - Email operations (send, fetch, decrypt)
-// - Inheritance setup (policy, heirs, timelock)
-// - Check-in (reset timelock)
-// - Shamir (split, verify shares)
