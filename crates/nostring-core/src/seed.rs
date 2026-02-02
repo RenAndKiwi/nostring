@@ -17,9 +17,8 @@ pub enum SeedError {
 
 /// Generate a new BIP-39 mnemonic (24 words)
 pub fn generate_mnemonic() -> Result<Mnemonic, SeedError> {
-    let mnemonic = Mnemonic::generate_in(Language::English, 24)
-        .map_err(|e| SeedError::InvalidMnemonic(e.to_string()))?;
-    Ok(mnemonic)
+    Mnemonic::generate_in(Language::English, 24)
+        .map_err(|e: bip39::Error| SeedError::InvalidMnemonic(e.to_string()))
 }
 
 /// Parse a mnemonic from words

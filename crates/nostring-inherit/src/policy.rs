@@ -2,8 +2,11 @@
 //!
 //! Build miniscript policies for timelock inheritance.
 
-use miniscript::policy::Concrete;
 use bitcoin::secp256k1::PublicKey;
+
+// Will use miniscript::policy::Concrete when implementing policy compilation
+#[allow(unused_imports)]
+use miniscript as _;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
