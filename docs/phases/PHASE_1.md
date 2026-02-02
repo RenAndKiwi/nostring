@@ -183,4 +183,64 @@
 
 Beginning with Feature 1.1: BIP-39 Mnemonic Generation.
 
-*Entries will be added as work progresses...*
+### 2026-02-02 01:30 CST — Feature 1.1-1.2 Complete
+
+- Refactored `generate_mnemonic()` to accept WordCount enum
+- Added BIP-39 test vectors from Trezor reference implementation
+- All vectors pass with "TREZOR" passphrase
+
+### 2026-02-02 01:45 CST — Feature 1.3 Complete
+
+- Added official NIP-06 test vector
+- Verifies: hex privkey, nsec, hex pubkey, npub
+- Tests for passphrase affecting key derivation
+
+### 2026-02-02 02:00 CST — Feature 1.4 Complete
+
+- Added `derive_bitcoin_address()` for P2WPKH addresses
+- Verified against known BIP-84 test vector
+- First address matches: bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu
+
+### 2026-02-02 02:15 CST — Feature 1.5 Complete
+
+- Implemented Argon2id key derivation (64MB, 3 iterations, 4 threads)
+- Implemented AES-256-GCM encryption
+- Created `EncryptedSeed` type with serialization
+- All security tests pass (wrong password, tampering, etc.)
+
+---
+
+## Phase 1 Reflection
+
+**What we accomplished:**
+- Complete key derivation from BIP-39 seed
+- Both Nostr (NIP-06) and Bitcoin (BIP-84) paths working
+- Secure encrypted storage with industry-standard cryptography
+- 23 unit tests + 1 doc test all passing
+
+**Test coverage:**
+- BIP-39: 4 test vectors + validation tests
+- NIP-06: 1 official test vector + derivation tests
+- BIP-84: Address derivation tests, receive/change separation
+- Crypto: 6 comprehensive security tests
+
+**What worked well:**
+- Using official test vectors ensured correctness
+- The bitcoin crate handles BIP-32 derivation cleanly
+- nostr-sdk provides good bech32 encoding
+
+**Challenges encountered:**
+- bitcoin 0.32 changed the P2WPKH API (easy fix)
+- Had to verify exact test vector values carefully
+- Argon2 requires significant memory for tests (~6 seconds)
+
+**Code quality:**
+- Every function has documentation
+- No shortcuts taken — all tests use real cryptography
+- Security-critical code has comprehensive tests
+
+**Ready for Phase 2:** Yes — we have a solid unified seed implementation.
+
+---
+
+*Phase 1 completed: 2026-02-02 02:15 CST*
