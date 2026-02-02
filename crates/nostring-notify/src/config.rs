@@ -18,10 +18,10 @@ impl Default for NotifyConfig {
     fn default() -> Self {
         Self {
             thresholds: vec![
-                Threshold::days(30),  // Gentle reminder
-                Threshold::days(7),   // Warning
-                Threshold::days(1),   // Urgent
-                Threshold::days(0),   // Critical - heirs can claim!
+                Threshold::days(30), // Gentle reminder
+                Threshold::days(7),  // Warning
+                Threshold::days(1),  // Urgent
+                Threshold::days(0),  // Critical - heirs can claim!
             ],
             email: None,
             nostr: None,
@@ -50,7 +50,7 @@ impl Threshold {
         };
         Self { days, level }
     }
-    
+
     /// Create a custom threshold
     pub fn custom(days: u32, level: NotificationLevel) -> Self {
         Self { days, level }
@@ -125,7 +125,7 @@ impl NostrConfig {
             secret_key: None,
         }
     }
-    
+
     /// Set custom relays
     pub fn with_relays(mut self, relays: Vec<String>) -> Self {
         self.relays = relays;
@@ -153,7 +153,7 @@ mod tests {
 
         let t = Threshold::days(1);
         assert_eq!(t.level, NotificationLevel::Urgent);
-        
+
         let t = Threshold::days(0);
         assert_eq!(t.level, NotificationLevel::Critical);
     }

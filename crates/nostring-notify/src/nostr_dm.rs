@@ -42,17 +42,14 @@ pub async fn send_dm(
     tokio::time::sleep(Duration::from_secs(2)).await;
 
     // Format the message (subject + body for DMs)
-    let dm_content = format!(
-        "📢 {}\n\n{}",
-        notification.subject, notification.body
-    );
+    let dm_content = format!("📢 {}\n\n{}", notification.subject, notification.body);
 
     // Build and send the encrypted DM event (NIP-04 style for compatibility)
     // This creates a kind:4 encrypted direct message
     use nostr_sdk::nostr::nips::nip04;
     let encrypted = nip04::encrypt(keys.secret_key(), &recipient, &dm_content)
         .map_err(|e| NotifyError::NostrFailed(format!("Encryption failed: {}", e)))?;
-    
+
     let event = EventBuilder::new(Kind::EncryptedDirectMessage, encrypted)
         .tag(Tag::public_key(recipient))
         .sign_with_keys(&keys)
@@ -63,7 +60,7 @@ pub async fn send_dm(
         .send_event(event)
         .await
         .map_err(|e| NotifyError::NostrFailed(format!("Failed to send event: {}", e)))?;
-    
+
     let event_id = output.id();
 
     log::info!(
@@ -85,7 +82,7 @@ fn parse_pubkey(input: &str) -> Result<PublicKey, String> {
     if input.starts_with("npub") {
         return PublicKey::from_bech32(input).map_err(|e| e.to_string());
     }
-    
+
     // Try hex
     PublicKey::from_hex(input).map_err(|e| e.to_string())
 }

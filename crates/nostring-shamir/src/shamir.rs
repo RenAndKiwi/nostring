@@ -97,10 +97,7 @@ pub fn reconstruct_secret(shares: &[Share]) -> Result<Vec<u8>, ShamirError> {
     // Reconstruct each byte using Lagrange interpolation
     let mut secret = Vec::with_capacity(secret_len);
     for byte_idx in 0..secret_len {
-        let points: Vec<(u8, u8)> = shares
-            .iter()
-            .map(|s| (s.index, s.data[byte_idx]))
-            .collect();
+        let points: Vec<(u8, u8)> = shares.iter().map(|s| (s.index, s.data[byte_idx])).collect();
 
         let byte = lagrange_interpolate(&points);
         secret.push(byte);

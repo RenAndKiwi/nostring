@@ -401,7 +401,7 @@ mod tests {
     fn test_mnemonic_roundtrip() {
         // This test verifies that encoding a share to mnemonic words and parsing
         // it back recovers the original share data.
-        
+
         let master_secret = vec![0x42u8; 16];
         let config = Slip39Config::two_of_three();
 

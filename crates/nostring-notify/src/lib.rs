@@ -27,11 +27,11 @@
 //! ```
 
 mod config;
-mod smtp;
 mod nostr_dm;
+mod smtp;
 mod templates;
 
-pub use config::{NotifyConfig, EmailConfig, NostrConfig, Threshold};
+pub use config::{EmailConfig, NostrConfig, NotifyConfig, Threshold};
 pub use templates::NotificationLevel;
 
 use thiserror::Error;
@@ -41,13 +41,13 @@ use thiserror::Error;
 pub enum NotifyError {
     #[error("Email send failed: {0}")]
     EmailFailed(String),
-    
+
     #[error("Nostr DM failed: {0}")]
     NostrFailed(String),
-    
+
     #[error("Electrum error: {0}")]
     Electrum(#[from] nostring_electrum::Error),
-    
+
     #[error("Configuration error: {0}")]
     Config(String),
 }
@@ -62,7 +62,7 @@ impl NotificationService {
     pub fn new(config: NotifyConfig) -> Self {
         Self { config }
     }
-    
+
     /// Check timelock status and send notifications if needed
     ///
     /// # Arguments
@@ -78,23 +78,27 @@ impl NotificationService {
     ) -> Result<Option<NotificationLevel>, NotifyError> {
         // Convert blocks to approximate days (10 min/block)
         let days_remaining = blocks_remaining as f64 * 10.0 / 60.0 / 24.0;
-        
+
         // Find the first threshold that should trigger
-        let level = self.config.thresholds.iter()
+        let level = self
+            .config
+            .thresholds
+            .iter()
             .filter(|t| days_remaining <= t.days as f64)
             .map(|t| t.level)
             .max();
-        
+
         let Some(level) = level else {
             return Ok(None); // No threshold triggered
         };
-        
+
         // Generate notification content
-        let message = templates::generate_message(level, days_remaining, blocks_remaining, current_height);
-        
+        let message =
+            templates::generate_message(level, days_remaining, blocks_remaining, current_height);
+
         // Send via configured channels
         let mut sent_any = false;
-        
+
         if let Some(ref email_config) = self.config.email {
             if email_config.enabled {
                 match smtp::send_email(email_config, &message).await {
@@ -108,7 +112,7 @@ impl NotificationService {
                 }
             }
         }
-        
+
         if let Some(ref nostr_config) = self.config.nostr {
             if nostr_config.enabled {
                 match nostr_dm::send_dm(nostr_config, &message).await {
@@ -122,19 +126,21 @@ impl NotificationService {
                 }
             }
         }
-        
+
         if sent_any {
             Ok(Some(level))
         } else {
-            Err(NotifyError::Config("No notification channels enabled or all failed".into()))
+            Err(NotifyError::Config(
+                "No notification channels enabled or all failed".into(),
+            ))
         }
     }
-    
+
     /// Calculate days remaining from blocks
     pub fn blocks_to_days(blocks: i64) -> f64 {
         blocks as f64 * 10.0 / 60.0 / 24.0
     }
-    
+
     /// Calculate blocks from days
     pub fn days_to_blocks(days: f64) -> i64 {
         (days * 24.0 * 60.0 / 10.0) as i64
@@ -157,30 +163,46 @@ mod tests {
         assert_eq!(NotificationService::days_to_blocks(1.0), 144);
         assert_eq!(NotificationService::days_to_blocks(30.0), 4320);
     }
-    
+
     #[test]
     fn test_threshold_detection() {
         let config = NotifyConfig {
             thresholds: vec![
-                Threshold { days: 30, level: NotificationLevel::Reminder },
-                Threshold { days: 7, level: NotificationLevel::Warning },
-                Threshold { days: 1, level: NotificationLevel::Urgent },
-                Threshold { days: 0, level: NotificationLevel::Critical },
+                Threshold {
+                    days: 30,
+                    level: NotificationLevel::Reminder,
+                },
+                Threshold {
+                    days: 7,
+                    level: NotificationLevel::Warning,
+                },
+                Threshold {
+                    days: 1,
+                    level: NotificationLevel::Urgent,
+                },
+                Threshold {
+                    days: 0,
+                    level: NotificationLevel::Critical,
+                },
             ],
             email: None,
             nostr: None,
         };
-        
+
         // 45 days remaining - no notification
         let blocks_45 = NotificationService::days_to_blocks(45.0);
-        let level = config.thresholds.iter()
+        let level = config
+            .thresholds
+            .iter()
             .filter(|t| 45.0 <= t.days as f64)
             .map(|t| t.level)
             .max();
         assert!(level.is_none());
-        
+
         // 25 days remaining - reminder level
-        let level = config.thresholds.iter()
+        let level = config
+            .thresholds
+            .iter()
             .filter(|t| 25.0 <= t.days as f64)
             .map(|t| t.level)
             .max();

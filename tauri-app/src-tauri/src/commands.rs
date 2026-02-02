@@ -51,7 +51,7 @@ pub async fn create_seed(word_count: Option<usize>) -> CommandResult<String> {
         24 => WordCount::Words24,
         _ => return CommandResult::err("Word count must be 12, 15, 18, 21, or 24"),
     };
-    
+
     match generate_mnemonic(wc) {
         Ok(mnemonic) => CommandResult::ok(mnemonic.to_string()),
         Err(e) => CommandResult::err(format!("Failed to generate mnemonic: {}", e)),
@@ -168,39 +168,50 @@ pub async fn refresh_policy_status(
     // Connect to Electrum
     let client = match ElectrumClient::new(&electrum_url, network) {
         Ok(c) => c,
-        Err(e) => return Ok(CommandResult::err(format!("Failed to connect to Electrum: {}", e))),
+        Err(e) => {
+            return Ok(CommandResult::err(format!(
+                "Failed to connect to Electrum: {}",
+                e
+            )))
+        }
     };
 
     // Get current block height
     let current_block = match client.get_height() {
         Ok(h) => h as u64,
-        Err(e) => return Ok(CommandResult::err(format!("Failed to get block height: {}", e))),
+        Err(e) => {
+            return Ok(CommandResult::err(format!(
+                "Failed to get block height: {}",
+                e
+            )))
+        }
     };
 
     // Check if we have inheritance config
     let config_lock = state.inheritance_config.lock().unwrap();
-    let (expiry_block, blocks_remaining, days_remaining, urgency) = if let Some(config) = &*config_lock {
-        // Calculate based on config
-        // For simplicity, assume UTXO was created at current_block - timelock_blocks
-        // In production, track the actual UTXO confirmation height
-        let timelock = config.timelock_blocks as u64;
-        let expiry = current_block + timelock; // Simplified - should use actual UTXO height
-        let remaining = expiry.saturating_sub(current_block) as i64;
-        let days = remaining as f64 * 10.0 / 60.0 / 24.0; // ~10 min per block
+    let (expiry_block, blocks_remaining, days_remaining, urgency) =
+        if let Some(config) = &*config_lock {
+            // Calculate based on config
+            // For simplicity, assume UTXO was created at current_block - timelock_blocks
+            // In production, track the actual UTXO confirmation height
+            let timelock = config.timelock_blocks as u64;
+            let expiry = current_block + timelock; // Simplified - should use actual UTXO height
+            let remaining = expiry.saturating_sub(current_block) as i64;
+            let days = remaining as f64 * 10.0 / 60.0 / 24.0; // ~10 min per block
 
-        let urgency = if remaining > 4320 {
-            "ok" // > 30 days
-        } else if remaining > 1008 {
-            "warning" // > 7 days
+            let urgency = if remaining > 4320 {
+                "ok" // > 30 days
+            } else if remaining > 1008 {
+                "warning" // > 7 days
+            } else {
+                "critical"
+            };
+
+            (expiry, remaining, days, urgency.to_string())
         } else {
-            "critical"
+            // No config yet - return placeholder
+            (current_block + 26280, 26280, 182.5, "ok".to_string())
         };
-
-        (expiry, remaining, days, urgency.to_string())
-    } else {
-        // No config yet - return placeholder
-        (current_block + 26280, 26280, 182.5, "ok".to_string())
-    };
     drop(config_lock);
 
     let status = PolicyStatus {
@@ -236,7 +247,11 @@ pub async fn initiate_checkin(state: State<'_, AppState>) -> Result<CommandResul
         let config_lock = state.inheritance_config.lock().unwrap();
         match &*config_lock {
             Some(c) => c.clone(),
-            None => return Ok(CommandResult::err("No inheritance policy configured. Please set up your policy first.")),
+            None => {
+                return Ok(CommandResult::err(
+                    "No inheritance policy configured. Please set up your policy first.",
+                ))
+            }
         }
     };
 
@@ -247,15 +262,21 @@ pub async fn initiate_checkin(state: State<'_, AppState>) -> Result<CommandResul
     // Connect to Electrum
     let client = match ElectrumClient::new(&electrum_url, network) {
         Ok(c) => c,
-        Err(e) => return Ok(CommandResult::err(format!("Failed to connect to Electrum: {}", e))),
+        Err(e) => {
+            return Ok(CommandResult::err(format!(
+                "Failed to connect to Electrum: {}",
+                e
+            )))
+        }
     };
 
     // Parse the descriptor to get the script
-    use miniscript::Descriptor;
     use miniscript::descriptor::DescriptorPublicKey;
+    use miniscript::Descriptor;
     use std::str::FromStr;
-    
-    let descriptor: Descriptor<DescriptorPublicKey> = match Descriptor::from_str(&config.descriptor) {
+
+    let descriptor: Descriptor<DescriptorPublicKey> = match Descriptor::from_str(&config.descriptor)
+    {
         Ok(d) => d,
         Err(e) => return Ok(CommandResult::err(format!("Invalid descriptor: {}", e))),
     };
@@ -264,7 +285,12 @@ pub async fn initiate_checkin(state: State<'_, AppState>) -> Result<CommandResul
     use miniscript::descriptor::DefiniteDescriptorKey;
     let derived: Descriptor<DefiniteDescriptorKey> = match descriptor.at_derivation_index(0) {
         Ok(d) => d,
-        Err(e) => return Ok(CommandResult::err(format!("Failed to derive script: {}", e))),
+        Err(e) => {
+            return Ok(CommandResult::err(format!(
+                "Failed to derive script: {}",
+                e
+            )))
+        }
     };
     let script = derived.script_pubkey();
 
@@ -275,15 +301,17 @@ pub async fn initiate_checkin(state: State<'_, AppState>) -> Result<CommandResul
     };
 
     if utxos.is_empty() {
-        return Ok(CommandResult::err("No UTXOs found for inheritance address. Please deposit funds first."));
+        return Ok(CommandResult::err(
+            "No UTXOs found for inheritance address. Please deposit funds first.",
+        ));
     }
 
     // Use the first UTXO for check-in
     let utxo = &utxos[0];
 
     // Build the check-in PSBT using nostring-inherit
-    use nostring_inherit::checkin::{CheckinTxBuilder, InheritanceUtxo as InhUtxo};
     use bitcoin::ScriptBuf;
+    use nostring_inherit::checkin::{CheckinTxBuilder, InheritanceUtxo as InhUtxo};
 
     let inheritance_utxo = InhUtxo::new(
         utxo.outpoint,
@@ -296,7 +324,7 @@ pub async fn initiate_checkin(state: State<'_, AppState>) -> Result<CommandResul
     let fee_rate = 10;
 
     let builder = CheckinTxBuilder::new(inheritance_utxo, descriptor, fee_rate);
-    
+
     match builder.build_psbt_base64() {
         Ok(psbt_base64) => Ok(CommandResult::ok(psbt_base64)),
         Err(e) => Ok(CommandResult::err(format!("Failed to build PSBT: {}", e))),
@@ -304,7 +332,7 @@ pub async fn initiate_checkin(state: State<'_, AppState>) -> Result<CommandResul
 }
 
 /// Complete a check-in with signed PSBT
-/// 
+///
 /// This is an alias for broadcast_signed_psbt - kept for API compatibility.
 #[tauri::command]
 pub async fn complete_checkin(
@@ -354,7 +382,12 @@ pub async fn broadcast_signed_psbt(
 
     let client = match ElectrumClient::new(&electrum_url, network) {
         Ok(c) => c,
-        Err(e) => return Ok(CommandResult::err(format!("Failed to connect to Electrum: {}", e))),
+        Err(e) => {
+            return Ok(CommandResult::err(format!(
+                "Failed to connect to Electrum: {}",
+                e
+            )))
+        }
     };
 
     // 5. Broadcast transaction
@@ -390,8 +423,8 @@ pub async fn set_electrum_url(url: String, state: State<'_, AppState>) -> Result
 // Heir Management Commands
 // ============================================================================
 
+use bitcoin::bip32::{DerivationPath, Fingerprint, Xpub};
 use nostring_inherit::heir::HeirKey;
-use bitcoin::bip32::{Fingerprint, Xpub, DerivationPath};
 use std::str::FromStr;
 
 /// Serializable heir info for frontend
@@ -415,7 +448,7 @@ impl From<&HeirKey> for HeirInfo {
 }
 
 /// Add a new heir
-/// 
+///
 /// Accepts either:
 /// - A full descriptor string: "[fingerprint/path]xpub..."
 /// - Just an xpub: "xpub..." (will use default fingerprint and BIP-84 path)
@@ -444,16 +477,16 @@ pub async fn add_heir(
             Ok(x) => x,
             Err(e) => return Ok(CommandResult::err(format!("Invalid xpub: {}", e))),
         };
-        
+
         // Use the xpub's fingerprint (first 4 bytes of hash160 of public key)
         let fingerprint = xpub.fingerprint();
         let derivation_path = DerivationPath::from_str("m/84'/0'/0'").unwrap();
-        
+
         HeirKey::new(&label, fingerprint, xpub, Some(derivation_path))
     };
 
     let heir_info = HeirInfo::from(&heir);
-    
+
     // Add to registry
     let mut registry = state.heir_registry.lock().unwrap();
     registry.add(heir);
@@ -521,7 +554,7 @@ pub async fn validate_xpub(xpub: String) -> CommandResult<bool> {
             Err(e) => return CommandResult::err(format!("Invalid descriptor: {}", e)),
         }
     }
-    
+
     // Try as plain xpub
     match Xpub::from_str(&xpub) {
         Ok(_) => CommandResult::ok(true),
@@ -533,10 +566,10 @@ pub async fn validate_xpub(xpub: String) -> CommandResult<bool> {
 // Shamir Share Commands (for heir distribution)
 // ============================================================================
 
-use nostring_shamir::codex32::{Codex32Config, Codex32Share, parse_share};
+use nostring_shamir::codex32::{parse_share, Codex32Config, Codex32Share};
 
 /// Generate Codex32 shares for a seed
-/// 
+///
 /// Note: This generates shares for the OWNER's seed, to distribute to heirs
 /// as a backup mechanism. The heirs combine shares to recover the seed.
 #[tauri::command]
@@ -565,7 +598,7 @@ pub async fn generate_codex32_shares(
 
     // Use provided identifier or generate a default
     let id = identifier.unwrap_or_else(|| "TEST".to_string());
-    
+
     // Create Codex32 config
     let config = match Codex32Config::new(threshold, &id, total_shares) {
         Ok(c) => c,
@@ -584,28 +617,29 @@ pub async fn generate_codex32_shares(
     // Note: In a real implementation, we'd need the password to decrypt
     // For now, this is a placeholder that shows the structure
     // TODO: Pass password or use cached decrypted seed
-    
+
     // For demo, use a test seed (in production, decrypt the actual seed)
     // This is a security limitation that needs proper session key management
     let demo_seed = [0u8; 32]; // Placeholder - need password management
-    
+
     use nostring_shamir::codex32::generate_shares;
-    
+
     match generate_shares(&demo_seed, &config) {
         Ok(shares) => {
             // Convert Codex32Share objects to their encoded strings
             let share_strings: Vec<String> = shares.iter().map(|s| s.encoded.clone()).collect();
             Ok(CommandResult::ok(share_strings))
         }
-        Err(e) => Ok(CommandResult::err(format!("Failed to generate shares: {}", e))),
+        Err(e) => Ok(CommandResult::err(format!(
+            "Failed to generate shares: {}",
+            e
+        ))),
     }
 }
 
 /// Combine Codex32 shares to recover a seed
 #[tauri::command]
-pub async fn combine_codex32_shares(
-    shares: Vec<String>,
-) -> CommandResult<String> {
+pub async fn combine_codex32_shares(shares: Vec<String>) -> CommandResult<String> {
     if shares.len() < 2 {
         return CommandResult::err("Need at least 2 shares to recover");
     }
@@ -618,9 +652,9 @@ pub async fn combine_codex32_shares(
             Err(e) => return CommandResult::err(format!("Invalid share '{}': {}", share_str, e)),
         }
     }
-    
+
     use nostring_shamir::codex32::combine_shares;
-    
+
     match combine_shares(&parsed_shares) {
         Ok(seed_bytes) => {
             // Convert recovered seed to hex for display

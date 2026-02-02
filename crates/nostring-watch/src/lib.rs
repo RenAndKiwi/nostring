@@ -85,8 +85,8 @@ impl Default for WatchConfig {
     fn default() -> Self {
         Self {
             state_path: PathBuf::from("watch_state.json"),
-            poll_interval_secs: 600,      // 10 minutes
-            min_poll_interval_secs: 60,   // 1 minute minimum
+            poll_interval_secs: 600,        // 10 minutes
+            min_poll_interval_secs: 60,     // 1 minute minimum
             warning_threshold_blocks: 4320, // ~30 days
         }
     }
@@ -97,7 +97,7 @@ pub struct WatchService {
     client: ElectrumClient,
     config: WatchConfig,
     state: WatchState,
-    network: Network,
+    _network: Network,
 }
 
 impl WatchService {
@@ -110,7 +110,7 @@ impl WatchService {
             client,
             config,
             state,
-            network,
+            _network: network,
         })
     }
 
@@ -283,7 +283,8 @@ impl WatchService {
         // Check timelock warning
         if let Some(policy) = self.state.get_policy(policy_id) {
             if let Some(blocks_remaining) = policy.blocks_until_expiry(current_height) {
-                if blocks_remaining <= self.config.warning_threshold_blocks && blocks_remaining > 0 {
+                if blocks_remaining <= self.config.warning_threshold_blocks && blocks_remaining > 0
+                {
                     let days_remaining = blocks_remaining as f64 * 10.0 / 60.0 / 24.0;
                     events.push(WatchEvent::TimelockWarning {
                         policy_id: policy_id.to_string(),
@@ -329,11 +330,11 @@ fn derive_script(
     index: u32,
 ) -> Result<ScriptBuf, WatchError> {
     use miniscript::descriptor::DefiniteDescriptorKey;
-    
+
     let derived: Descriptor<DefiniteDescriptorKey> = descriptor
         .at_derivation_index(index)
         .map_err(|e| WatchError::InvalidDescriptor(e.to_string()))?;
-    
+
     Ok(derived.script_pubkey())
 }
 
@@ -374,8 +375,7 @@ mod tests {
     fn test_derive_script() {
         // Test with a simple pk descriptor
         let desc_str = "wsh(pk(xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8NqtwybGhePY2gZ29ESFjqJoCu1Rupje8YtGqsefD265TMg7usUDFdp6W1EGMcet8/0/*))";
-        let descriptor: Descriptor<DescriptorPublicKey> =
-            Descriptor::from_str(desc_str).unwrap();
+        let descriptor: Descriptor<DescriptorPublicKey> = Descriptor::from_str(desc_str).unwrap();
 
         let script = derive_script(&descriptor, 0).unwrap();
         assert!(!script.is_empty());
@@ -410,14 +410,14 @@ mod tests {
 
         // Create a mock-friendly service by loading state directly
         let mut state = WatchState::new();
-        
+
         // Add policy
         let descriptor = "wsh(pk(xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8NqtwybGhePY2gZ29ESFjqJoCu1Rupje8YtGqsefD265TMg7usUDFdp6W1EGMcet8/0/*))";
         state.add_policy(PolicyState::new("test-inheritance", descriptor, 26280));
-        
+
         assert_eq!(state.policy_ids().len(), 1);
         assert!(state.get_policy("test-inheritance").is_some());
-        
+
         // Remove policy
         let removed = state.remove_policy("test-inheritance");
         assert!(removed.is_some());
@@ -433,7 +433,7 @@ mod tests {
             min_poll_interval_secs: 60,
             warning_threshold_blocks: 4320,
         };
-        
+
         assert_eq!(config.min_poll_interval_secs, 60);
         // Actual rate limiting is tested in integration test below
     }
@@ -447,7 +447,7 @@ mod tests {
     #[ignore = "requires network access"]
     fn test_poll_mainnet() {
         use nostring_electrum::ElectrumClient;
-        
+
         let dir = tempdir().unwrap();
         let config = WatchConfig {
             state_path: dir.path().join("watch_state.json"),
@@ -460,21 +460,21 @@ mod tests {
         let client = ElectrumClient::new("ssl://blockstream.info:700", Network::Bitcoin)
             .expect("Failed to connect to Electrum");
 
-        let mut service = WatchService::new(client, config)
-            .expect("Failed to create WatchService");
+        let mut service = WatchService::new(client, config).expect("Failed to create WatchService");
 
         // Add a test policy (this xpub won't have real UTXOs)
         let descriptor = "wsh(pk(xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8NqtwybGhePY2gZ29ESFjqJoCu1Rupje8YtGqsefD265TMg7usUDFdp6W1EGMcet8/0/*))";
-        service.add_policy("test-policy", descriptor, 26280)
+        service
+            .add_policy("test-policy", descriptor, 26280)
             .expect("Failed to add policy");
 
         // Poll should succeed (even if no UTXOs found)
         let events = service.poll().expect("Poll failed");
-        
+
         // Should have polled successfully
         assert!(service.state().last_poll.is_some());
         assert!(service.state().last_height.is_some());
-        
+
         // Height should be reasonable (mainnet ~935k as of Feb 2026)
         let height = service.state().last_height.unwrap();
         assert!(height > 930000, "Height {} is too low", height);
@@ -493,7 +493,7 @@ mod tests {
     #[ignore = "requires network access"]
     fn test_poll_rate_limiting() {
         use nostring_electrum::ElectrumClient;
-        
+
         let dir = tempdir().unwrap();
         let config = WatchConfig {
             state_path: dir.path().join("watch_state.json"),
@@ -505,8 +505,7 @@ mod tests {
         let client = ElectrumClient::new("ssl://blockstream.info:700", Network::Bitcoin)
             .expect("Failed to connect to Electrum");
 
-        let mut service = WatchService::new(client, config)
-            .expect("Failed to create WatchService");
+        let mut service = WatchService::new(client, config).expect("Failed to create WatchService");
 
         // First poll should succeed
         let result1 = service.poll();
@@ -515,7 +514,7 @@ mod tests {
         // Immediate second poll should fail (rate limited)
         let result2 = service.poll();
         assert!(result2.is_err(), "Second poll should be rate limited");
-        
+
         match result2 {
             Err(WatchError::PollTooFrequent { min }) => {
                 assert_eq!(min, 60);

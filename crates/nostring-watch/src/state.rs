@@ -116,7 +116,8 @@ impl PolicyState {
     pub fn add_utxo(&mut self, utxo: TrackedUtxo) {
         if !self.has_utxo(&utxo.outpoint) {
             // Update funding height if this is the first/earliest UTXO
-            if self.funding_height.is_none() || utxo.height < self.funding_height.unwrap_or(u32::MAX)
+            if self.funding_height.is_none()
+                || utxo.height < self.funding_height.unwrap_or(u32::MAX)
             {
                 self.funding_height = Some(utxo.height);
             }
@@ -225,10 +226,8 @@ mod tests {
     use tempfile::tempdir;
 
     fn test_outpoint() -> OutPoint {
-        OutPoint::from_str(
-            "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef:0",
-        )
-        .unwrap()
+        OutPoint::from_str("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef:0")
+            .unwrap()
     }
 
     #[test]
@@ -261,13 +260,13 @@ mod tests {
     #[test]
     fn test_blocks_until_expiry() {
         let mut policy = PolicyState::new("test", "wsh(...)", 26280); // ~6 months
-        
+
         // No funding yet
         assert!(policy.blocks_until_expiry(934000).is_none());
 
         // Add funding
         policy.funding_height = Some(930000);
-        
+
         // Current at 934000, funding at 930000, timelock 26280
         // Expiry at 930000 + 26280 = 956280
         // Remaining = 956280 - 934000 = 22280

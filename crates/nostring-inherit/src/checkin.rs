@@ -287,14 +287,14 @@ impl CheckinTxBuilder {
     /// The PSBT can be exported to SeedSigner or other hardware wallets for signing.
     pub fn build_psbt(&self) -> Result<Psbt, CheckinError> {
         let tx = self.build_unsigned_tx()?;
-        
-        let psbt = Psbt::from_unsigned_tx(tx)
-            .map_err(|e| CheckinError::PsbtError(e.to_string()))?;
-        
+
+        let psbt =
+            Psbt::from_unsigned_tx(tx).map_err(|e| CheckinError::PsbtError(e.to_string()))?;
+
         // TODO: Add UTXO information to PSBT inputs
         // psbt.inputs[0].witness_utxo = Some(TxOut { ... });
         // psbt.inputs[0].witness_script = Some(script);
-        
+
         Ok(psbt)
     }
 
@@ -412,15 +412,16 @@ mod tests {
 
         // Create test keys
         let test_xpub = Xpub::from_str("xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8NqtwybGhePY2gZ29ESFjqJoCu1Rupje8YtGqsefD265TMg7usUDFdp6W1EGMcet8").unwrap();
-        let owner_key = DescriptorPublicKey::from_str(&format!("[00000001/84'/0'/0']{}/<0;1>/*", test_xpub)).unwrap();
-        let heir_key = DescriptorPublicKey::from_str(&format!("[00000002/84'/0'/1']{}/<0;1>/*", test_xpub)).unwrap();
+        let owner_key =
+            DescriptorPublicKey::from_str(&format!("[00000001/84'/0'/0']{}/<0;1>/*", test_xpub))
+                .unwrap();
+        let heir_key =
+            DescriptorPublicKey::from_str(&format!("[00000002/84'/0'/1']{}/<0;1>/*", test_xpub))
+                .unwrap();
 
         // Create a simple inheritance policy
-        let policy = InheritancePolicy::simple(
-            owner_key,
-            heir_key,
-            Timelock::six_months(),
-        ).unwrap();
+        let policy =
+            InheritancePolicy::simple(owner_key, heir_key, Timelock::six_months()).unwrap();
 
         let descriptor = policy.to_wsh_descriptor().unwrap();
 
@@ -439,15 +440,19 @@ mod tests {
         // Build the PSBT
         let builder = CheckinTxBuilder::new(utxo, descriptor, 10);
         let psbt_result = builder.build_psbt();
-        
-        assert!(psbt_result.is_ok(), "PSBT creation failed: {:?}", psbt_result.err());
-        
+
+        assert!(
+            psbt_result.is_ok(),
+            "PSBT creation failed: {:?}",
+            psbt_result.err()
+        );
+
         // Test base64 encoding
         let base64_result = builder.build_psbt_base64();
         assert!(base64_result.is_ok());
         let base64_str = base64_result.unwrap();
         assert!(base64_str.starts_with("cHNidP8")); // PSBT magic in base64
-        
+
         // Test bytes encoding
         let bytes_result = builder.build_psbt_bytes();
         assert!(bytes_result.is_ok());

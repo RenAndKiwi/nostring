@@ -102,7 +102,7 @@ pub fn parse_share_string(input: &str) -> Result<AnyShare, ShamirError> {
     }
 
     // Try hex (raw)
-    if trimmed.chars().all(|c| c.is_ascii_hexdigit()) && trimmed.len() % 2 == 0 {
+    if trimmed.chars().all(|c| c.is_ascii_hexdigit()) && trimmed.len().is_multiple_of(2) {
         let data: Result<Vec<u8>, _> = (0..trimmed.len())
             .step_by(2)
             .map(|i| u8::from_str_radix(&trimmed[i..i + 2], 16))

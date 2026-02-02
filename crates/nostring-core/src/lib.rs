@@ -12,10 +12,10 @@
 //!
 //! Seeds are encrypted at rest using Argon2id + AES-256-GCM.
 
+pub mod crypto;
 pub mod keys;
 pub mod seed;
-pub mod crypto;
 
+pub use crypto::{decrypt_seed, encrypt_seed, CryptoError, EncryptedSeed};
 pub use keys::*;
 pub use seed::*;
-pub use crypto::{encrypt_seed, decrypt_seed, EncryptedSeed, CryptoError};

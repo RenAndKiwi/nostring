@@ -555,7 +555,11 @@ mod tests {
         .unwrap();
 
         let descriptor = policy.to_wsh_descriptor();
-        assert!(descriptor.is_ok(), "Cascade policy should compile: {:?}", descriptor.err());
+        assert!(
+            descriptor.is_ok(),
+            "Cascade policy should compile: {:?}",
+            descriptor.err()
+        );
 
         let desc_str = descriptor.unwrap().to_string();
         assert!(desc_str.starts_with("wsh("));
@@ -576,7 +580,7 @@ mod tests {
         .unwrap();
 
         assert!(policy.is_cascade());
-        
+
         // Primary should be multi-sig
         match &policy.primary {
             PathInfo::Multi(thresh, keys) => {

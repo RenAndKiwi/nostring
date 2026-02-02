@@ -20,9 +20,9 @@
 //! )
 //! ```
 
-pub mod policy;
 pub mod checkin;
 pub mod heir;
+pub mod policy;
 
 // TODO: Port from Liana:
 // - Miniscript policy construction

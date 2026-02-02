@@ -92,25 +92,25 @@ impl ElectrumClient {
     }
 
     /// Get current blockchain tip height
-    /// 
+    ///
     /// Uses binary search to find the actual tip height.
     pub fn get_height(&self) -> Result<u32, Error> {
         // Binary search for the tip
         // Start with known bounds as of Feb 2026
         let mut low: u32 = 930000; // Known to exist
         let mut high: u32 = 940000; // Probably doesn't exist yet
-        
+
         // Verify low exists
         if self.client.block_header(low as usize).is_err() {
             return Err(Error::Connection("Server data unavailable".into()));
         }
-        
+
         // Find upper bound that doesn't exist
         while self.client.block_header(high as usize).is_ok() {
             low = high;
             high += 5000;
         }
-        
+
         // Binary search for the exact tip
         while high - low > 1 {
             let mid = (low + high) / 2;
@@ -120,10 +120,10 @@ impl ElectrumClient {
                 high = mid;
             }
         }
-        
+
         Ok(low)
     }
-    
+
     /// Get the tip header via subscription (height may be unreliable)
     pub fn get_tip_header(&self) -> Result<bitcoin::block::Header, Error> {
         let notification = self.client.block_headers_subscribe()?;
@@ -206,7 +206,7 @@ impl ElectrumClient {
 }
 
 /// Default Electrum servers for each network
-/// 
+///
 /// Note: Blockstream uses non-standard ports:
 /// - Mainnet SSL: 700
 /// - Testnet SSL: 993 (or 143 TCP)
@@ -242,21 +242,24 @@ mod tests {
     fn test_mainnet_full() {
         let url = default_server(Network::Bitcoin);
         println!("Testing mainnet: {}", url);
-        
+
         // Test connection
         let client = match ElectrumClient::new(url, Network::Bitcoin) {
             Ok(c) => c,
             Err(e) => panic!("Failed to connect: {}", e),
         };
         println!("✓ Connected to mainnet");
-        
+
         // Test height
         let height = client.get_height().unwrap();
         println!("Current mainnet height: {}", height);
-        assert!(height > 930000 && height < 960000, 
-            "Height {} is unexpected (expected 930k-960k)", height);
+        assert!(
+            height > 930000 && height < 960000,
+            "Height {} is unexpected (expected 930k-960k)",
+            height
+        );
         println!("✓ Block height valid");
-        
+
         // Test tip header recency
         let tip = client.get_tip_header().unwrap();
         let now = std::time::SystemTime::now()
@@ -267,7 +270,7 @@ mod tests {
         println!("Tip header age: {} seconds", age);
         assert!(age < 7200, "Tip too old ({} sec)", age);
         println!("✓ Tip header recent");
-        
+
         println!("\n✓✓✓ Mainnet Electrum fully working ✓✓✓");
     }
 
@@ -277,15 +280,18 @@ mod tests {
         // Note: Blockstream testnet server (port 993) often has issues
         let url = default_server(Network::Testnet);
         println!("Testing testnet: {}", url);
-        
+
         let client = match ElectrumClient::new(url, Network::Testnet) {
             Ok(c) => c,
             Err(e) => {
-                println!("Testnet connection failed (expected - server unreliable): {}", e);
+                println!(
+                    "Testnet connection failed (expected - server unreliable): {}",
+                    e
+                );
                 return; // Don't fail test, testnet servers are often down
             }
         };
-        
+
         let height = client.get_height().unwrap();
         println!("Current testnet height: {}", height);
         assert!(height > 0);

@@ -14,6 +14,6 @@
 // - nostr.rs (DM sync, profile lookup)
 // - crypto.rs (NIP-44 encryption)
 
-pub mod send;
-pub mod fetch;
 pub mod contacts;
+pub mod fetch;
+pub mod send;

@@ -16,7 +16,7 @@
 //! - Always use the encrypted storage functions for persistence
 //! - Passphrases (optional 25th word) add an extra layer of security
 
-use bip39::{Mnemonic, Language};
+use bip39::{Language, Mnemonic};
 use thiserror::Error;
 
 /// Supported word counts for BIP-39 mnemonics
@@ -169,12 +169,12 @@ mod tests {
         let mnemonic = parse_mnemonic(
             "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
         ).unwrap();
-        
+
         let seed = derive_seed(&mnemonic, "TREZOR");
         let expected_seed = hex::decode(
             "c55257c360c07c72029aebc1b53c05ed0362ada38ead3e3e9efa3708e53495531f09a6987599d18264c1e1c92f2cf141630c7a3c4ab7c81b2f001698e7463b04"
         ).unwrap();
-        
+
         assert_eq!(seed.as_slice(), expected_seed.as_slice());
     }
 
@@ -184,12 +184,12 @@ mod tests {
         let mnemonic = parse_mnemonic(
             "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art"
         ).unwrap();
-        
+
         let seed = derive_seed(&mnemonic, "TREZOR");
         let expected_seed = hex::decode(
             "bda85446c68413707090a52022edd26a1c9462295029f2e60cd7c4f2bbd3097170af7a4d73245cafa9c3cca8d561a7c3de6f5d4a10be8ed2a5e608d68f92fcc8"
         ).unwrap();
-        
+
         assert_eq!(seed.as_slice(), expected_seed.as_slice());
     }
 
@@ -199,13 +199,13 @@ mod tests {
         let mnemonic = parse_mnemonic(
             "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
         ).unwrap();
-        
+
         // With empty passphrase
         let seed_no_pass = derive_seed(&mnemonic, "");
-        
+
         // With "TREZOR" passphrase
         let seed_with_pass = derive_seed(&mnemonic, "TREZOR");
-        
+
         // They should be different
         assert_ne!(seed_no_pass, seed_with_pass);
     }
@@ -213,15 +213,13 @@ mod tests {
     #[test]
     fn test_bip39_vector_zoo() {
         // Vector: ffffffffffffffffffffffffffffffff (12 words)
-        let mnemonic = parse_mnemonic(
-            "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong"
-        ).unwrap();
-        
+        let mnemonic = parse_mnemonic("zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong").unwrap();
+
         let seed = derive_seed(&mnemonic, "TREZOR");
         let expected_seed = hex::decode(
             "ac27495480225222079d7be181583751e86f571027b0497b5b5d11218e0a8a13332572917f0f8e5a589620c6f15b11c61dee327651a14c34e18231052e48c069"
         ).unwrap();
-        
+
         assert_eq!(seed.as_slice(), expected_seed.as_slice());
     }
 }

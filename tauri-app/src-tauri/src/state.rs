@@ -2,10 +2,10 @@
 //!
 //! Holds encrypted seed data and wallet state.
 
-use std::sync::Mutex;
 use bitcoin::Network;
 use nostring_inherit::heir::HeirRegistry;
 use serde::{Deserialize, Serialize};
+use std::sync::Mutex;
 
 /// Policy status for display
 #[derive(Debug, Clone, Serialize, Deserialize)]

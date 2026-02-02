@@ -84,7 +84,7 @@ impl Codex32Config {
 
     /// Create a new configuration
     pub fn new(threshold: u8, identifier: &str, total_shares: u8) -> Result<Self, ShamirError> {
-        if threshold < 2 || threshold > 9 {
+        if !(2..=9).contains(&threshold) {
             return Err(ShamirError::InvalidThreshold);
         }
         if identifier.len() != 4 {
@@ -247,7 +247,8 @@ pub fn ms32_recover(shares: &[Codex32Share]) -> Result<Codex32Share, ShamirError
     }
 
     // Convert shares to data arrays
-    let share_data: Result<Vec<Vec<u8>>, _> = shares.iter().map(|s| decode_data(&s.encoded)).collect();
+    let share_data: Result<Vec<Vec<u8>>, _> =
+        shares.iter().map(|s| decode_data(&s.encoded)).collect();
     let share_data = share_data?;
 
     // Interpolate to x=16 (which is 's' in bech32 - the secret index)
@@ -267,11 +268,12 @@ pub fn ms32_recover(shares: &[Codex32Share]) -> Result<Codex32Share, ShamirError
 ///
 /// # Returns
 /// Vector of Codex32 shares
-pub fn generate_shares(seed: &[u8], config: &Codex32Config) -> Result<Vec<Codex32Share>, ShamirError> {
+pub fn generate_shares(
+    seed: &[u8],
+    config: &Codex32Config,
+) -> Result<Vec<Codex32Share>, ShamirError> {
     if seed.len() < 16 || seed.len() > 64 {
-        return Err(ShamirError::InvalidShare(
-            "Seed must be 16-64 bytes".into(),
-        ));
+        return Err(ShamirError::InvalidShare("Seed must be 16-64 bytes".into()));
     }
 
     // First, create the secret share (index 's')
@@ -291,12 +293,8 @@ pub fn generate_shares(seed: &[u8], config: &Codex32Config) -> Result<Vec<Codex3
 
     for &idx_char in &available_indices {
         // Generate random payload of same length
-        let random_share = create_random_share(
-            &config.identifier,
-            config.threshold,
-            idx_char,
-            seed.len(),
-        )?;
+        let random_share =
+            create_random_share(&config.identifier, config.threshold, idx_char, seed.len())?;
         share_data.push(decode_data(&random_share.encoded)?);
         shares.push(random_share);
     }
@@ -372,7 +370,7 @@ fn create_random_share(
     use rand::RngCore;
 
     // Calculate payload length in 5-bit values
-    let payload_len = (seed_len * 8 + 4) / 5; // Ceiling division
+    let payload_len = (seed_len * 8).div_ceil(5); // Ceiling division
 
     // Generate random payload
     let mut rng = rand::thread_rng();
@@ -399,9 +397,10 @@ fn create_random_share(
         })?);
     }
 
-    data.push(char_to_value(index).ok_or_else(|| {
-        ShamirError::InvalidShare(format!("Invalid share index: {}", index))
-    })?);
+    data.push(
+        char_to_value(index)
+            .ok_or_else(|| ShamirError::InvalidShare(format!("Invalid share index: {}", index)))?,
+    );
 
     data.extend_from_slice(&payload);
 
@@ -497,9 +496,8 @@ fn decode_data(s: &str) -> Result<Vec<u8>, ShamirError> {
     let mut result = Vec::new();
 
     for c in data_part.chars() {
-        let v = char_to_value(c).ok_or_else(|| {
-            ShamirError::InvalidShare(format!("Invalid bech32 character: {}", c))
-        })?;
+        let v = char_to_value(c)
+            .ok_or_else(|| ShamirError::InvalidShare(format!("Invalid bech32 character: {}", c)))?;
         result.push(v);
     }
 
@@ -531,11 +529,12 @@ pub fn parse_share(encoded: &str) -> Result<Codex32Share, ShamirError> {
     // Get threshold from the ORIGINAL STRING character (it's a digit '0'-'9')
     let data_part = &encoded_lower[3..];
     let threshold_char = data_part.chars().next().unwrap();
-    let threshold = threshold_char.to_digit(10).ok_or_else(|| {
-        ShamirError::InvalidShare("Threshold must be a digit 0-9".into())
-    })? as u8;
+    let threshold = threshold_char
+        .to_digit(10)
+        .ok_or_else(|| ShamirError::InvalidShare("Threshold must be a digit 0-9".into()))?
+        as u8;
 
-    if threshold != 0 && (threshold < 2 || threshold > 9) {
+    if threshold != 0 && !(2..=9).contains(&threshold) {
         return Err(ShamirError::InvalidShare(
             "Threshold must be 0 or 2-9".into(),
         ));

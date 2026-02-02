@@ -94,7 +94,11 @@ impl HeirKey {
         let (origin, xpub) = match desc_key {
             DescriptorPublicKey::XPub(xkey) => (xkey.origin, xkey.xkey),
             DescriptorPublicKey::MultiXPub(xkey) => (xkey.origin, xkey.xkey),
-            _ => return Err(HeirError::InvalidXpub("Expected xpub, got single key".into())),
+            _ => {
+                return Err(HeirError::InvalidXpub(
+                    "Expected xpub, got single key".into(),
+                ))
+            }
         };
 
         let (fingerprint, derivation_path) = origin.ok_or(HeirError::MissingFingerprint)?;
@@ -199,10 +203,7 @@ mod tests {
         let heir = HeirKey::from_descriptor_str("Bob", &desc_str).unwrap();
 
         assert_eq!(heir.label, "Bob");
-        assert_eq!(
-            heir.fingerprint,
-            Fingerprint::from_str("00000001").unwrap()
-        );
+        assert_eq!(heir.fingerprint, Fingerprint::from_str("00000001").unwrap());
     }
 
     #[test]
