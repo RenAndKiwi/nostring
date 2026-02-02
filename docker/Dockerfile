@@ -57,5 +57,5 @@ CMD ["cat", "/home/nostring/README.md"]
 # =============================================================================
 LABEL org.opencontainers.image.title="NoString"
 LABEL org.opencontainers.image.description="Sovereign Bitcoin inheritance"
-LABEL org.opencontainers.image.source="https://github.com/nostring/nostring"
+LABEL org.opencontainers.image.source="https://github.com/RenAndKiwi/nostring"
 LABEL org.opencontainers.image.licenses="BSD-3-Clause"

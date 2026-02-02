@@ -29,7 +29,7 @@ NoString is a Bitcoin inheritance system that uses timelocked transactions to pa
 
 ```bash
 # Clone (replace with actual repo URL when published)
-git clone https://github.com/nostring/nostring
+git clone https://github.com/RenAndKiwi/nostring
 cd nostring
 
 # Build all crates

@@ -20,12 +20,12 @@ For most users, the desktop app is sufficient:
 
 ```bash
 # Build from source
-git clone https://github.com/nostring/nostring
+git clone https://github.com/RenAndKiwi/nostring
 cd nostring
 cargo build --release
 
 # Or download pre-built binaries
-# https://github.com/nostring/nostring/releases
+# https://github.com/RenAndKiwi/nostring/releases
 ```
 
 No server required. The app connects to public Electrum servers by default.
