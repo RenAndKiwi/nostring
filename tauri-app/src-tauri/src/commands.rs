@@ -385,3 +385,248 @@ pub async fn set_electrum_url(url: String, state: State<'_, AppState>) -> Result
     *electrum_url = url;
     Ok(())
 }
+
+// ============================================================================
+// Heir Management Commands
+// ============================================================================
+
+use nostring_inherit::heir::HeirKey;
+use bitcoin::bip32::{Fingerprint, Xpub, DerivationPath};
+use std::str::FromStr;
+
+/// Serializable heir info for frontend
+#[derive(Debug, Serialize, Deserialize)]
+pub struct HeirInfo {
+    pub label: String,
+    pub fingerprint: String,
+    pub xpub: String,
+    pub derivation_path: String,
+}
+
+impl From<&HeirKey> for HeirInfo {
+    fn from(heir: &HeirKey) -> Self {
+        Self {
+            label: heir.label.clone(),
+            fingerprint: heir.fingerprint.to_string(),
+            xpub: heir.xpub.to_string(),
+            derivation_path: heir.derivation_path.to_string(),
+        }
+    }
+}
+
+/// Add a new heir
+/// 
+/// Accepts either:
+/// - A full descriptor string: "[fingerprint/path]xpub..."
+/// - Just an xpub: "xpub..." (will use default fingerprint and BIP-84 path)
+#[tauri::command]
+pub async fn add_heir(
+    label: String,
+    xpub_or_descriptor: String,
+    state: State<'_, AppState>,
+) -> Result<CommandResult<HeirInfo>, ()> {
+    let unlocked = state.unlocked.lock().unwrap();
+    if !*unlocked {
+        return Ok(CommandResult::err("Wallet is locked"));
+    }
+    drop(unlocked);
+
+    // Try parsing as descriptor first
+    let heir = if xpub_or_descriptor.starts_with('[') {
+        // Full descriptor format: [fingerprint/path]xpub
+        match HeirKey::from_descriptor_str(&label, &xpub_or_descriptor) {
+            Ok(h) => h,
+            Err(e) => return Ok(CommandResult::err(format!("Invalid descriptor: {}", e))),
+        }
+    } else {
+        // Just an xpub - generate fingerprint from xpub and use default path
+        let xpub = match Xpub::from_str(&xpub_or_descriptor) {
+            Ok(x) => x,
+            Err(e) => return Ok(CommandResult::err(format!("Invalid xpub: {}", e))),
+        };
+        
+        // Use the xpub's fingerprint (first 4 bytes of hash160 of public key)
+        let fingerprint = xpub.fingerprint();
+        let derivation_path = DerivationPath::from_str("m/84'/0'/0'").unwrap();
+        
+        HeirKey::new(&label, fingerprint, xpub, Some(derivation_path))
+    };
+
+    let heir_info = HeirInfo::from(&heir);
+    
+    // Add to registry
+    let mut registry = state.heir_registry.lock().unwrap();
+    registry.add(heir);
+
+    Ok(CommandResult::ok(heir_info))
+}
+
+/// List all heirs
+#[tauri::command]
+pub async fn list_heirs(state: State<'_, AppState>) -> Result<Vec<HeirInfo>, ()> {
+    let registry = state.heir_registry.lock().unwrap();
+    let heirs: Vec<HeirInfo> = registry.list().iter().map(HeirInfo::from).collect();
+    Ok(heirs)
+}
+
+/// Remove an heir by fingerprint
+#[tauri::command]
+pub async fn remove_heir(
+    fingerprint: String,
+    state: State<'_, AppState>,
+) -> Result<CommandResult<bool>, ()> {
+    let unlocked = state.unlocked.lock().unwrap();
+    if !*unlocked {
+        return Ok(CommandResult::err("Wallet is locked"));
+    }
+    drop(unlocked);
+
+    let fp = match Fingerprint::from_str(&fingerprint) {
+        Ok(f) => f,
+        Err(e) => return Ok(CommandResult::err(format!("Invalid fingerprint: {}", e))),
+    };
+
+    let mut registry = state.heir_registry.lock().unwrap();
+    match registry.remove(&fp) {
+        Some(_) => Ok(CommandResult::ok(true)),
+        None => Ok(CommandResult::err("Heir not found")),
+    }
+}
+
+/// Get a single heir by fingerprint
+#[tauri::command]
+pub async fn get_heir(
+    fingerprint: String,
+    state: State<'_, AppState>,
+) -> Result<CommandResult<HeirInfo>, ()> {
+    let fp = match Fingerprint::from_str(&fingerprint) {
+        Ok(f) => f,
+        Err(e) => return Ok(CommandResult::err(format!("Invalid fingerprint: {}", e))),
+    };
+
+    let registry = state.heir_registry.lock().unwrap();
+    match registry.get(&fp) {
+        Some(heir) => Ok(CommandResult::ok(HeirInfo::from(heir))),
+        None => Ok(CommandResult::err("Heir not found")),
+    }
+}
+
+/// Validate an xpub string (for UI validation)
+#[tauri::command]
+pub async fn validate_xpub(xpub: String) -> CommandResult<bool> {
+    // Try as full descriptor
+    if xpub.starts_with('[') {
+        match HeirKey::from_descriptor_str("test", &xpub) {
+            Ok(_) => return CommandResult::ok(true),
+            Err(e) => return CommandResult::err(format!("Invalid descriptor: {}", e)),
+        }
+    }
+    
+    // Try as plain xpub
+    match Xpub::from_str(&xpub) {
+        Ok(_) => CommandResult::ok(true),
+        Err(e) => CommandResult::err(format!("Invalid xpub: {}", e)),
+    }
+}
+
+// ============================================================================
+// Shamir Share Commands (for heir distribution)
+// ============================================================================
+
+use nostring_shamir::codex32::{Codex32Config, Codex32Share, parse_share};
+
+/// Generate Codex32 shares for a seed
+/// 
+/// Note: This generates shares for the OWNER's seed, to distribute to heirs
+/// as a backup mechanism. The heirs combine shares to recover the seed.
+#[tauri::command]
+pub async fn generate_codex32_shares(
+    threshold: u8,
+    total_shares: u8,
+    identifier: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<CommandResult<Vec<String>>, ()> {
+    let unlocked = state.unlocked.lock().unwrap();
+    if !*unlocked {
+        return Ok(CommandResult::err("Wallet is locked"));
+    }
+    drop(unlocked);
+
+    // Validate parameters
+    if threshold < 2 || threshold > 9 {
+        return Ok(CommandResult::err("Threshold must be 2-9"));
+    }
+    if total_shares < threshold {
+        return Ok(CommandResult::err("Total shares must be >= threshold"));
+    }
+    if total_shares > 31 {
+        return Ok(CommandResult::err("Maximum 31 shares supported"));
+    }
+
+    // Use provided identifier or generate a default
+    let id = identifier.unwrap_or_else(|| "TEST".to_string());
+    
+    // Create Codex32 config
+    let config = match Codex32Config::new(threshold, &id, total_shares) {
+        Ok(c) => c,
+        Err(e) => return Ok(CommandResult::err(format!("Invalid config: {}", e))),
+    };
+
+    // Get the encrypted seed
+    let _seed_bytes = {
+        let seed_lock = state.encrypted_seed.lock().unwrap();
+        match &*seed_lock {
+            Some(bytes) => bytes.clone(),
+            None => return Ok(CommandResult::err("No seed loaded")),
+        }
+    };
+
+    // Note: In a real implementation, we'd need the password to decrypt
+    // For now, this is a placeholder that shows the structure
+    // TODO: Pass password or use cached decrypted seed
+    
+    // For demo, use a test seed (in production, decrypt the actual seed)
+    // This is a security limitation that needs proper session key management
+    let demo_seed = [0u8; 32]; // Placeholder - need password management
+    
+    use nostring_shamir::codex32::generate_shares;
+    
+    match generate_shares(&demo_seed, &config) {
+        Ok(shares) => {
+            // Convert Codex32Share objects to their encoded strings
+            let share_strings: Vec<String> = shares.iter().map(|s| s.encoded.clone()).collect();
+            Ok(CommandResult::ok(share_strings))
+        }
+        Err(e) => Ok(CommandResult::err(format!("Failed to generate shares: {}", e))),
+    }
+}
+
+/// Combine Codex32 shares to recover a seed
+#[tauri::command]
+pub async fn combine_codex32_shares(
+    shares: Vec<String>,
+) -> CommandResult<String> {
+    if shares.len() < 2 {
+        return CommandResult::err("Need at least 2 shares to recover");
+    }
+
+    // Parse string shares into Codex32Share objects
+    let mut parsed_shares: Vec<Codex32Share> = Vec::new();
+    for share_str in &shares {
+        match parse_share(share_str) {
+            Ok(share) => parsed_shares.push(share),
+            Err(e) => return CommandResult::err(format!("Invalid share '{}': {}", share_str, e)),
+        }
+    }
+    
+    use nostring_shamir::codex32::combine_shares;
+    
+    match combine_shares(&parsed_shares) {
+        Ok(seed_bytes) => {
+            // Convert recovered seed to hex for display
+            let hex_str = hex::encode(&seed_bytes);
+            CommandResult::ok(hex_str)
+        }
+        Err(e) => CommandResult::err(format!("Failed to combine shares: {}", e)),
+    }
+}

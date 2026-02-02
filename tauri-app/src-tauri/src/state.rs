@@ -4,6 +4,7 @@
 
 use std::sync::Mutex;
 use bitcoin::Network;
+use nostring_inherit::heir::HeirRegistry;
 use serde::{Deserialize, Serialize};
 
 /// Policy status for display
@@ -61,6 +62,8 @@ pub struct AppState {
     /// Cached UTXOs for inheritance address (TODO: use for caching)
     #[allow(dead_code)]
     pub cached_utxos: Mutex<Vec<InheritanceUtxo>>,
+    /// Registry of designated heirs
+    pub heir_registry: Mutex<HeirRegistry>,
 }
 
 impl Default for AppState {
@@ -73,6 +76,7 @@ impl Default for AppState {
             network: Mutex::new(Network::Bitcoin),
             inheritance_config: Mutex::new(None),
             cached_utxos: Mutex::new(Vec::new()),
+            heir_registry: Mutex::new(HeirRegistry::new()),
         }
     }
 }

@@ -27,6 +27,15 @@ fn main() {
             commands::initiate_checkin,
             commands::complete_checkin,
             commands::broadcast_signed_psbt,
+            // Heir management
+            commands::add_heir,
+            commands::list_heirs,
+            commands::remove_heir,
+            commands::get_heir,
+            commands::validate_xpub,
+            // Shamir shares
+            commands::generate_codex32_shares,
+            commands::combine_codex32_shares,
             // Settings
             commands::get_electrum_url,
             commands::set_electrum_url,
