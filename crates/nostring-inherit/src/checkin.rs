@@ -333,13 +333,11 @@ impl CheckinTxBuilder {
 
         let derived = receive_desc
             .derived_descriptor(&secp, self.derivation_index)
-            .map_err(|e| {
-                CheckinError::PsbtError(format!("descriptor derivation failed: {}", e))
-            })?;
+            .map_err(|e| CheckinError::PsbtError(format!("descriptor derivation failed: {}", e)))?;
 
-        let witness_script = derived
-            .explicit_script()
-            .map_err(|e| CheckinError::PsbtError(format!("witness script extraction failed: {}", e)))?;
+        let witness_script = derived.explicit_script().map_err(|e| {
+            CheckinError::PsbtError(format!("witness script extraction failed: {}", e))
+        })?;
 
         psbt.inputs[0].witness_script = Some(witness_script);
 
@@ -452,10 +450,7 @@ mod tests {
     }
 
     /// Helper: derive the script_pubkey for a descriptor at a given index
-    fn derive_script_pubkey(
-        descriptor: &Descriptor<DescriptorPublicKey>,
-        index: u32,
-    ) -> ScriptBuf {
+    fn derive_script_pubkey(descriptor: &Descriptor<DescriptorPublicKey>, index: u32) -> ScriptBuf {
         let secp = bitcoin::secp256k1::Secp256k1::verification_only();
         let single_descs = descriptor.clone().into_single_descriptors().unwrap();
         let receive_desc = &single_descs[0];
@@ -497,9 +492,7 @@ mod tests {
 
         // Build the PSBT (derivation_index = 0)
         let builder = CheckinTxBuilder::new(utxo, descriptor, 10, 0);
-        let psbt = builder
-            .build_psbt()
-            .expect("PSBT creation should succeed");
+        let psbt = builder.build_psbt().expect("PSBT creation should succeed");
 
         // --- Verify witness_utxo is populated ---
         let witness_utxo = psbt.inputs[0]
@@ -572,8 +565,7 @@ mod tests {
                 txid: Txid::all_zeros(),
                 vout: 0,
             };
-            let utxo =
-                InheritanceUtxo::new(outpoint, Amount::from_sat(50_000), 800_000, spk);
+            let utxo = InheritanceUtxo::new(outpoint, Amount::from_sat(50_000), 800_000, spk);
 
             let builder = CheckinTxBuilder::new(utxo, descriptor.clone(), 5, idx);
             let psbt = builder
@@ -590,8 +582,7 @@ mod tests {
                 .expect("witness_utxo must be set");
 
             // Verify witness_script hashes to script_pubkey
-            let expected_wsh =
-                ScriptBuf::new_p2wsh(&bitcoin::WScriptHash::hash(ws.as_bytes()));
+            let expected_wsh = ScriptBuf::new_p2wsh(&bitcoin::WScriptHash::hash(ws.as_bytes()));
             assert_eq!(
                 wu.script_pubkey, expected_wsh,
                 "witness_script/script_pubkey mismatch at index {}",
