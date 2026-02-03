@@ -8,6 +8,10 @@ publish = false
 name = "e2e_integration"
 path = "../e2e_integration.rs"
 
+[[test]]
+name = "security_tests"
+path = "security_tests.rs"
+
 [dependencies]
 nostring-core = { path = "../../crates/nostring-core" }
 nostring-inherit = { path = "../../crates/nostring-inherit" }
