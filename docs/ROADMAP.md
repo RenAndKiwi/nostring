@@ -206,13 +206,25 @@ Sovereign Bitcoin inheritance with optional Nostr identity inheritance. Watch-on
 
 ## Phase 10: Release & Hardening
 
-- [ ] Build release binaries (macOS/Win/Linux)
-- [ ] Security audit preparation
+### 10.1 Production Readiness ✅ (2026-02-03)
+- [x] README polish (badges, screenshots, clear value prop)
+- [x] Security threat model (THREAT_MODEL.md)
+- [x] CI hardening (MSRV 1.75, clippy --deny, cargo-deny)
+- [x] Cargo-fuzz infrastructure (3 targets: codex32, mnemonic, encrypted seed)
+- [x] Email notification testing (MailHog — all levels verified)
+- [x] Real testnet check-in broadcast (tx live on mempool.space)
+- [x] Landing page (nostring-site/)
+- [x] Email capture (Buttondown)
+- [x] GitHub release workflow (cross-platform on tag push)
 - [x] Docker compose for self-hosting (nostring-server daemon)
-- [ ] Mobile consideration (Tauri mobile or separate app)
 - [x] nsec revocation / re-split flow
-- [ ] Dashboard UI: spend type icons (✅ Owner check-in vs ⚠️ Heir claim)
-- [ ] Heir claim alert banner in dashboard
+
+### 10.2 Remaining
+- [x] Build release binaries (macOS/Win/Linux) — via GitHub Actions on tag
+- [ ] Docker build optimization (times out — needs dep cache layer)
+- [ ] Code signing (budget decision)
+- [ ] External security audit (budget decision)
+- [ ] Mobile consideration (Tauri mobile or separate app)
 
 ---
 
@@ -243,18 +255,18 @@ nostring/
 | nostring-app (Tauri) | 25 | ✅ |
 | nostring-core | 22 | ✅ |
 | nostring-inherit | 25 | ✅ |
-| nostring-shamir | 39 | ✅ |
+| nostring-shamir | 43 | ✅ |
 | nostring-electrum | 3 | ✅ (2 ignored) |
 | nostring-notify | 27 | ✅ (2 ignored) |
 | nostring-watch | 29 | ✅ (2 ignored) |
 | nostring-server | 10 | ✅ |
-| e2e integration | 25 | ✅ |
+| e2e integration | 26 | ✅ |
 | security tests | 31 | ✅ |
-| doc-tests | 1 | ✅ (4 ignored) |
-| **Total** | **232** | ✅ |
+| doc-tests | 2 | ✅ (4 ignored) |
+| **Total** | **243** | ✅ |
 
 *Ignored tests require network access or are doc-test placeholders. Run with `--ignored`.*
 
 ---
 
-*Last updated: 2026-02-03*
+*Last updated: 2026-02-03 (evening — production readiness sprint complete)*
