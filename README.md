@@ -70,7 +70,7 @@ First run takes a few minutes to compile. The app window opens automatically.
 
 ### Prerequisites
 
-- **Rust 1.85+** — `rustup update stable` (edition 2024 required)
+- **Rust (latest stable)** — `rustup update stable`
 - **Tauri deps** — see [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your OS
 
 ### Build from Source

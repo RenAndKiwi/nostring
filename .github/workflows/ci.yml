@@ -52,27 +52,6 @@ jobs:
       - name: Test
         run: cargo test --workspace --exclude nostring-app
 
-  # MSRV check
-  msrv:
-    name: MSRV (${{ matrix.rust }})
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        rust: ["1.85.0"]
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Install Rust ${{ matrix.rust }}
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ matrix.rust }}
-      
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-      
-      - name: Check MSRV
-        run: cargo check --workspace --exclude nostring-app
-
   # Integration tests (network required)
   integration:
     name: Integration Tests
@@ -120,7 +99,7 @@ jobs:
   # All jobs must pass
   ci-success:
     name: CI Success
-    needs: [lint, test, msrv, security]
+    needs: [lint, test, security]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -128,7 +107,6 @@ jobs:
         run: |
           if [[ "${{ needs.lint.result }}" != "success" ]] || \
              [[ "${{ needs.test.result }}" != "success" ]] || \
-             [[ "${{ needs.msrv.result }}" != "success" ]] || \
              [[ "${{ needs.security.result }}" != "success" ]]; then
             echo "One or more required jobs failed"
             exit 1
