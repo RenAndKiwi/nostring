@@ -832,3 +832,174 @@ textarea {
     color: var(--text);
     font-size: 0.95rem;
 }
+
+/* Setup Wizard */
+.wizard {
+    max-width: 500px;
+    margin: 0 auto;
+    padding: 2rem;
+}
+
+.wizard h2 {
+    margin-bottom: 0.5rem;
+}
+
+.wizard-progress {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    margin-bottom: 2rem;
+}
+
+.wizard-progress .step {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 2px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    color: var(--text-muted);
+}
+
+.wizard-progress .step.active {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: var(--bg);
+}
+
+.wizard-progress .step.done {
+    background: var(--success);
+    border-color: var(--success);
+    color: white;
+}
+
+.wizard-progress .step-line {
+    width: 40px;
+    height: 2px;
+    background: var(--border);
+}
+
+.wizard-progress .step-line.done {
+    background: var(--success);
+}
+
+.wizard-form {
+    margin-top: 1.5rem;
+}
+
+.wizard-form .form-row {
+    margin-bottom: 1.25rem;
+}
+
+.wizard-form label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+}
+
+.wizard-form input,
+.wizard-form textarea,
+.wizard-form select {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
+    font-size: 1rem;
+}
+
+.wizard-form textarea {
+    min-height: 80px;
+    font-family: monospace;
+    font-size: 0.9rem;
+}
+
+.wizard-form .hint {
+    margin-top: 0.4rem;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.wizard-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 2rem;
+}
+
+.wizard-actions .btn-primary {
+    flex: 1;
+}
+
+.policy-preview {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+    margin: 1.5rem 0;
+}
+
+.policy-rule {
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.policy-rule:last-child {
+    border-bottom: none;
+}
+
+.heir-preview {
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+}
+
+.heir-preview:last-child {
+    border-bottom: none;
+}
+
+.heir-label {
+    font-weight: 500;
+}
+
+.heir-timelock {
+    color: var(--text-muted);
+}
+
+.wizard-complete {
+    text-align: center;
+    margin-top: 2rem;
+}
+
+.wizard-complete .next-steps {
+    text-align: left;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.wizard-complete .next-steps h3 {
+    margin-top: 0;
+    margin-bottom: 1rem;
+}
+
+.wizard-complete .next-steps ul {
+    margin: 0;
+    padding-left: 1.25rem;
+}
+
+.wizard-complete .next-steps li {
+    margin-bottom: 0.5rem;
+}
+
+.btn-large {
+    padding: 1rem 2rem;
+    font-size: 1.1rem;
+}

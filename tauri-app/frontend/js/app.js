@@ -64,6 +64,8 @@ let currentTab = 'status';
 let isUnlocked = false;
 let policyStatus = null;
 let heirs = [];
+let wizardStep = 1;
+let wizardHeirs = [];
 
 // ============================================================================
 // Initialization
@@ -210,7 +212,7 @@ async function confirmNewSeed() {
         
         if (result.success) {
             isUnlocked = true;
-            showMainApp();
+            showSetupWizard();  // First-time setup → wizard
         } else {
             showError('Error: ' + result.error);
         }
@@ -264,7 +266,7 @@ async function importExistingSeed() {
         
         if (result.success) {
             isUnlocked = true;
-            showMainApp();
+            showSetupWizard();  // First-time setup → wizard
         } else {
             showError('Error: ' + result.error);
         }
@@ -311,6 +313,190 @@ async function unlockWallet() {
     } catch (err) {
         console.error('Failed to unlock:', err);
         showError('Failed to unlock wallet');
+    }
+}
+
+// ============================================================================
+// Setup Wizard (first-time setup after seed creation)
+// ============================================================================
+function showSetupWizard() {
+    wizardStep = 1;
+    wizardHeirs = [];
+    renderWizardStep();
+}
+
+function renderWizardStep() {
+    const content = document.getElementById('content');
+    document.querySelector('#tabs').innerHTML = '';
+    
+    if (wizardStep === 1) {
+        content.innerHTML = `
+            <div class="wizard">
+                <div class="wizard-progress">
+                    <span class="step active">1</span>
+                    <span class="step-line"></span>
+                    <span class="step">2</span>
+                    <span class="step-line"></span>
+                    <span class="step">3</span>
+                </div>
+                
+                <h2>👥 Add Your First Heir</h2>
+                <p class="text-muted">Who should inherit your Bitcoin if something happens to you?</p>
+                
+                <div class="wizard-form">
+                    <div class="form-row">
+                        <label>Label (e.g., "Spouse", "Child")</label>
+                        <input type="text" id="wizard-heir-label" placeholder="Spouse">
+                    </div>
+                    
+                    <div class="form-row">
+                        <label>Their Bitcoin Address or xpub</label>
+                        <textarea id="wizard-heir-address" placeholder="bc1q... or xpub..."></textarea>
+                        <p class="hint">Ask your heir to generate an address in their wallet (Electrum, BlueWallet, hardware wallet, etc.)</p>
+                    </div>
+                    
+                    <div class="form-row">
+                        <label>Time Before They Can Claim</label>
+                        <select id="wizard-heir-timelock">
+                            <option value="6">6 months of inactivity</option>
+                            <option value="12">12 months of inactivity</option>
+                            <option value="18">18 months of inactivity</option>
+                            <option value="24">24 months of inactivity</option>
+                        </select>
+                        <p class="hint">They can only claim if you stop checking in for this long</p>
+                    </div>
+                    
+                    <div class="wizard-actions">
+                        <button type="button" id="btn-wizard-skip" class="btn-secondary">Skip for Now</button>
+                        <button type="button" id="btn-wizard-next" class="btn-primary">Add Heir & Continue →</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.getElementById('btn-wizard-next').addEventListener('click', wizardAddHeir);
+        document.getElementById('btn-wizard-skip').addEventListener('click', () => {
+            wizardStep = 3;
+            renderWizardStep();
+        });
+        
+    } else if (wizardStep === 2) {
+        const heirList = wizardHeirs.map(h => `
+            <div class="heir-preview">
+                <span class="heir-label">${escapeHtml(h.label)}</span>
+                <span class="heir-timelock">can claim after ${h.timelock} months</span>
+            </div>
+        `).join('');
+        
+        content.innerHTML = `
+            <div class="wizard">
+                <div class="wizard-progress">
+                    <span class="step done">✓</span>
+                    <span class="step-line done"></span>
+                    <span class="step active">2</span>
+                    <span class="step-line"></span>
+                    <span class="step">3</span>
+                </div>
+                
+                <h2>📋 Review Your Policy</h2>
+                <p class="text-muted">Here's how your inheritance will work:</p>
+                
+                <div class="policy-preview">
+                    <div class="policy-rule">
+                        <strong>You</strong> can spend anytime (with your password)
+                    </div>
+                    ${heirList}
+                </div>
+                
+                <div class="wizard-actions">
+                    <button type="button" id="btn-wizard-add-more" class="btn-secondary">+ Add Another Heir</button>
+                    <button type="button" id="btn-wizard-next" class="btn-primary">Looks Good →</button>
+                </div>
+            </div>
+        `;
+        
+        document.getElementById('btn-wizard-next').addEventListener('click', () => {
+            wizardStep = 3;
+            renderWizardStep();
+        });
+        document.getElementById('btn-wizard-add-more').addEventListener('click', () => {
+            wizardStep = 1;
+            renderWizardStep();
+        });
+        
+    } else if (wizardStep === 3) {
+        content.innerHTML = `
+            <div class="wizard">
+                <div class="wizard-progress">
+                    <span class="step done">✓</span>
+                    <span class="step-line done"></span>
+                    <span class="step done">✓</span>
+                    <span class="step-line done"></span>
+                    <span class="step active">3</span>
+                </div>
+                
+                <h2>🎉 You're All Set!</h2>
+                <p class="text-muted">${wizardHeirs.length > 0 ? 'Your inheritance policy is ready.' : 'You can add heirs later in the Heirs tab.'}</p>
+                
+                <div class="wizard-complete">
+                    <div class="next-steps">
+                        <h3>What's Next?</h3>
+                        <ul>
+                            <li><strong>Check in periodically</strong> — proves you're still in control</li>
+                            <li><strong>Add more heirs</strong> — create a cascade (spouse → children → executor)</li>
+                            <li><strong>Backup your seed</strong> — use Shamir splits for extra security</li>
+                        </ul>
+                    </div>
+                    
+                    <button type="button" id="btn-wizard-finish" class="btn-primary btn-large">Go to Dashboard →</button>
+                </div>
+            </div>
+        `;
+        
+        document.getElementById('btn-wizard-finish').addEventListener('click', () => {
+            showMainApp();
+        });
+    }
+}
+
+async function wizardAddHeir() {
+    const label = document.getElementById('wizard-heir-label').value.trim();
+    const address = document.getElementById('wizard-heir-address').value.trim();
+    const timelock = document.getElementById('wizard-heir-timelock').value;
+    
+    if (!label) {
+        showError('Please enter a label for this heir');
+        return;
+    }
+    
+    if (!address) {
+        showError('Please enter their Bitcoin address or xpub');
+        return;
+    }
+    
+    // Basic validation - starts with bc1, 1, 3, xpub, or ypub/zpub
+    if (!/^(bc1|1|3|xpub|ypub|zpub|tpub)/i.test(address)) {
+        showError('Please enter a valid Bitcoin address or xpub');
+        return;
+    }
+    
+    try {
+        const result = await invoke('add_heir', { 
+            label, 
+            xpubOrDescriptor: address,
+            timelockMonths: parseInt(timelock)
+        });
+        
+        if (result.success) {
+            wizardHeirs.push({ label, address, timelock });
+            wizardStep = 2;
+            renderWizardStep();
+        } else {
+            showError('Failed to add heir: ' + (result.error || 'Unknown error'));
+        }
+    } catch (err) {
+        console.error('Failed to add heir:', err);
+        showError('Failed to add heir');
     }
 }
 
@@ -726,18 +912,20 @@ function showPsbtQrCode(psbtBase64) {
     
     container.innerHTML = '';
     
-    QRCode.toCanvas(psbtBase64.toUpperCase(), {
-        width: 350,
-        margin: 2,
-        errorCorrectionLevel: 'L'
-    }, (error, canvas) => {
-        if (error) {
-            console.error('QR generation error:', error);
-            container.innerHTML = `<p style="color: var(--error);">PSBT too large for QR. Use the copy button below.</p>`;
-        } else {
-            container.appendChild(canvas);
-        }
-    });
+    try {
+        // Use QRious (browser-native, no require)
+        const canvas = document.createElement('canvas');
+        new QRious({
+            element: canvas,
+            value: psbtBase64.toUpperCase(),
+            size: 350,
+            level: 'L'
+        });
+        container.appendChild(canvas);
+    } catch (error) {
+        console.error('QR generation error:', error);
+        container.innerHTML = `<p style="color: var(--error);">PSBT too large for QR. Use the copy button below.</p>`;
+    }
     
     instructions.textContent = 'Scan this QR code with Electrum (watch-only wallet) or your hardware wallet to sign the check-in transaction.';
     
