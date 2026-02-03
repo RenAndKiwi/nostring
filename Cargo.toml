@@ -9,6 +9,7 @@ members = [
     "crates/nostring-shamir",
     "crates/nostring-watch",
     "tauri-app/src-tauri",
+    "tests/e2e",
 ]
 
 [workspace.package]

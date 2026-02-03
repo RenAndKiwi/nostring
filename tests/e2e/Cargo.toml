@@ -1,0 +1,19 @@
+[package]
+name = "nostring-e2e"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[test]]
+name = "e2e_integration"
+path = "../e2e_integration.rs"
+
+[dependencies]
+nostring-core = { path = "../../crates/nostring-core" }
+nostring-inherit = { path = "../../crates/nostring-inherit" }
+nostring-shamir = { path = "../../crates/nostring-shamir" }
+nostring-electrum = { path = "../../crates/nostring-electrum" }
+nostring-notify = { path = "../../crates/nostring-notify" }
+bitcoin = { version = "0.32", features = ["serde"] }
+miniscript = { version = "12.3", features = ["compiler"] }
+nostr-sdk = "0.39"
