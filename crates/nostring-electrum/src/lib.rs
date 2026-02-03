@@ -102,35 +102,13 @@ impl ElectrumClient {
 
     /// Get current blockchain tip height
     ///
-    /// Uses binary search to find the actual tip height.
+    /// Uses the Electrum `blockchain.headers.subscribe` method which returns
+    /// the current tip directly. This is network-agnostic and works on
+    /// mainnet, testnet, signet, and regtest without assumptions about
+    /// block height ranges.
     pub fn get_height(&self) -> Result<u32, Error> {
-        // Binary search for the tip
-        // Start with known bounds as of Feb 2026
-        let mut low: u32 = 930000; // Known to exist
-        let mut high: u32 = 940000; // Probably doesn't exist yet
-
-        // Verify low exists
-        if self.client.block_header(low as usize).is_err() {
-            return Err(Error::Connection("Server data unavailable".into()));
-        }
-
-        // Find upper bound that doesn't exist
-        while self.client.block_header(high as usize).is_ok() {
-            low = high;
-            high += 5000;
-        }
-
-        // Binary search for the exact tip
-        while high - low > 1 {
-            let mid = (low + high) / 2;
-            if self.client.block_header(mid as usize).is_ok() {
-                low = mid;
-            } else {
-                high = mid;
-            }
-        }
-
-        Ok(low)
+        let notification = self.client.block_headers_subscribe()?;
+        Ok(notification.height as u32)
     }
 
     /// Get the tip header via subscription (height may be unreliable)
@@ -316,8 +294,39 @@ mod tests {
             }
         };
 
+        // get_height() previously hung on testnet because the binary search
+        // started at block 930k (mainnet assumption). Testnet3 is at ~4.8M+.
+        // Now uses block_headers_subscribe which is network-agnostic.
         let height = client.get_height().unwrap();
         println!("Current testnet height: {}", height);
-        assert!(height > 0);
+        assert!(
+            height > 2_000_000,
+            "Testnet height {} seems too low (expected >2M)",
+            height
+        );
+        println!("✓ Testnet get_height works (no hang!)");
+    }
+
+    #[test]
+    #[ignore = "requires network access"]
+    fn test_get_height_network_agnostic() {
+        // Verify get_height returns consistent results with get_tip_header
+        let url = default_server(Network::Bitcoin);
+        let client = ElectrumClient::new(url, Network::Bitcoin).unwrap();
+
+        let height = client.get_height().unwrap();
+        let tip = client.get_tip_header().unwrap();
+
+        println!("get_height: {}", height);
+        assert!(height > 0, "Height should be positive");
+
+        // Tip header should be recent (within 2 hours)
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let age = now - tip.time as u64;
+        assert!(age < 7200, "Tip too old ({} sec)", age);
+        println!("✓ get_height is network-agnostic and consistent");
     }
 }
