@@ -181,6 +181,7 @@ impl AppState {
     }
 
     /// Delete a config key.
+    #[allow(dead_code)]
     pub fn delete_config(&self, key: &str) {
         let conn = self.db.lock().unwrap();
         let _ = db::config_delete(&conn, key);
@@ -266,6 +267,7 @@ impl AppState {
     }
 
     /// Set inheritance config and persist.
+    #[allow(dead_code)]
     pub fn set_inheritance_config(&self, config: InheritanceConfig) {
         self.persist_config("inheritance_descriptor", &config.descriptor);
         self.persist_config("inheritance_timelock", &config.timelock_blocks.to_string());

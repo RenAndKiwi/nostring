@@ -65,6 +65,7 @@ pub fn config_set(conn: &Connection, key: &str, value: &str) -> SqlResult<()> {
 }
 
 /// Delete a config value.
+#[allow(dead_code)]
 pub fn config_delete(conn: &Connection, key: &str) -> SqlResult<()> {
     conn.execute("DELETE FROM config WHERE key = ?1", params![key])?;
     Ok(())
@@ -121,6 +122,7 @@ pub fn heir_remove(conn: &Connection, fingerprint: &str) -> SqlResult<bool> {
 }
 
 /// Get a single heir by fingerprint.
+#[allow(dead_code)]
 pub fn heir_get(conn: &Connection, fingerprint: &str) -> SqlResult<Option<HeirRow>> {
     let mut stmt = conn.prepare(
         "SELECT fingerprint, label, xpub, derivation_path FROM heirs WHERE fingerprint = ?1",
