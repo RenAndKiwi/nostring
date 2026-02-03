@@ -232,9 +232,22 @@ function showImportForm() {
 }
 
 async function importExistingSeed() {
-    const mnemonic = document.getElementById('import-mnemonic').value.trim();
+    const rawMnemonic = document.getElementById('import-mnemonic').value;
     const password = document.getElementById('import-password').value;
     const confirm = document.getElementById('import-password-confirm').value;
+    
+    // Validate mnemonic first
+    const validation = validateMnemonic(rawMnemonic);
+    if (!validation.valid) {
+        showError(validation.error);
+        return;
+    }
+    const mnemonic = validation.mnemonic;
+    
+    if (!password) {
+        showError('Please enter a password');
+        return;
+    }
     
     if (password !== confirm) {
         showError('Passwords do not match');
@@ -871,13 +884,56 @@ async function saveElectrumUrl() {
 // ============================================================================
 // Utility Functions
 // ============================================================================
+function showToast(message, type = 'info') {
+    // Remove existing toasts
+    document.querySelectorAll('.toast').forEach(t => t.remove());
+    
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.innerHTML = `
+        <span class="toast-icon">${type === 'error' ? '❌' : type === 'success' ? '✅' : 'ℹ️'}</span>
+        <span class="toast-message">${escapeHtml(message)}</span>
+    `;
+    document.body.appendChild(toast);
+    
+    // Trigger animation
+    setTimeout(() => toast.classList.add('show'), 10);
+    
+    // Auto-remove after 4 seconds
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+    }, 4000);
+}
+
 function showError(message) {
-    // Simple alert for now, could be replaced with toast notification
-    alert('❌ ' + message);
+    showToast(message, 'error');
 }
 
 function showSuccess(message) {
-    alert('✅ ' + message);
+    showToast(message, 'success');
+}
+
+function validateMnemonic(mnemonic) {
+    // Basic validation: words and spaces only, 12 or 24 words
+    const trimmed = mnemonic.trim().toLowerCase();
+    
+    if (!trimmed) {
+        return { valid: false, error: 'Please enter your recovery phrase' };
+    }
+    
+    // Check for invalid characters (only letters and spaces allowed)
+    if (!/^[a-z\s]+$/.test(trimmed)) {
+        return { valid: false, error: 'Recovery phrase should contain only words and spaces' };
+    }
+    
+    const words = trimmed.split(/\s+/);
+    
+    if (words.length !== 12 && words.length !== 24) {
+        return { valid: false, error: `Expected 12 or 24 words, got ${words.length}` };
+    }
+    
+    return { valid: true, mnemonic: words.join(' ') };
 }
 
 function escapeHtml(text) {
