@@ -1,10 +1,10 @@
 //! Generate a testnet address for testing
 //! Run with: cargo run --example testnet_address
 
+use bip39::{Language, Mnemonic};
 use bitcoin::bip32::{DerivationPath, Xpriv, Xpub};
 use bitcoin::secp256k1::Secp256k1;
 use bitcoin::{Address, CompressedPublicKey, Network};
-use bip39::{Language, Mnemonic};
 
 fn main() {
     // Generate a new mnemonic for testing
