@@ -98,7 +98,7 @@ cargo tauri build
 
 ### Download Binary
 
-Pre-built binaries for macOS (arm64 + x64) and Linux are available on the [Releases](https://github.com/RenAndKiwi/nostring/releases) page.
+Pre-built binaries will be available on the [Releases](https://github.com/RenAndKiwi/nostring/releases) page once v0.4.0 is tagged.
 
 ### Docker (Headless Server)
 
@@ -213,18 +213,21 @@ nostring/
 - nsec revocation and re-split flow
 - Spend type detection (witness analysis: owner check-in vs heir claim)
 - 31 security audit tests (crypto fuzzing, input validation, zeroization)
+- Seed/key memory zeroization after use
+- GF(256) panic-to-error conversion (malformed shares no longer crash)
+- PSBT witness_utxo + witness_script fields populated (hardware wallet validation)
+- Full 128-bit entropy for Argon2 salt
 
-### v0.3 🔄 — Infrastructure
+### v0.3 ✅ — Infrastructure
 - [x] Docker self-hosting (headless `nostring-server` daemon)
-- [ ] Nostr relay storage for locked shares (encrypted redundancy)
-- [ ] Auto check-in (pre-signed PSBT stack)
-- [ ] Full security audit preparation
+- [x] Nostr relay storage for locked shares (encrypted redundancy)
 
-### Future
-- Mobile app (Tauri mobile or standalone)
-- NIP-26 delegation (post as deceased without full nsec)
-- Multi-sig heir consensus (2-of-3 heirs agree before claiming)
-- Testnet mode toggle in UI
+### v0.4 🔄 — Polish & Release
+- [ ] Dashboard UI: spend type icons, heir claim alert banner
+- [ ] Tagged release binaries (macOS/Win/Linux)
+- [ ] External security audit preparation
+- [ ] Multi-sig heir consensus (2-of-3 heirs agree before claiming)
+- [ ] Testnet mode toggle in UI
 
 See [ROADMAP.md](docs/ROADMAP.md) for details.
 
