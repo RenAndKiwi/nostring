@@ -1,0 +1,1 @@
+{"rustc":2803884849092317935,"features":"[\"std\"]","declared_features":"[\"default\", \"std\"]","target":9516665634627074687,"profile":5347358027863023418,"path":7787516740166382937,"deps":[],"local":[{"CheckDepInfo":{"dep_info":"debug/.fingerprint/negentropy-cd32fc11ae7bc567/dep-lib-negentropy","checksum":false}}],"rustflags":[],"config":8247474407144887393,"compile_kind":0}

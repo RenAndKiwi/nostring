@@ -671,9 +671,9 @@ fn test4_psbt_checkin_flow() {
 #[tokio::test]
 #[ignore = "requires MailHog on localhost:1025"]
 async fn test_email_notification_mailhog() {
+    use nostring_notify::smtp::send_email;
     use nostring_notify::templates::{generate_message, NotificationLevel};
     use nostring_notify::{EmailConfig, NotificationService, NotifyConfig, Threshold};
-    use nostring_notify::smtp::send_email;
 
     println!("\n=== TEST 5: Email Notification via MailHog ===\n");
 
@@ -692,12 +692,7 @@ async fn test_email_notification_mailhog() {
     };
 
     // Generate a warning-level notification
-    let message = generate_message(
-        NotificationLevel::Warning,
-        7.5,
-        1080,
-        934000,
-    );
+    let message = generate_message(NotificationLevel::Warning, 7.5, 1080, 934000);
 
     println!("  Subject: {}", message.subject);
     println!("  Level: {:?}", message.level);
@@ -773,19 +768,16 @@ async fn test_email_notification_mailhog() {
     // --- Part D: Test heir descriptor delivery ---
     println!("\n[5d] Testing heir descriptor delivery email...");
 
-    use nostring_notify::templates::generate_heir_delivery_message;
     use nostring_notify::smtp::send_email_to_recipient;
+    use nostring_notify::templates::generate_heir_delivery_message;
 
     let heir_message = generate_heir_delivery_message(
         "Alice",
         r#"{"descriptor":"wsh(or_d(pk([deadbeef/84h/0h/0h]xpub.../0/*),and_v(v:pk([cafebabe/84h/0h/0h]xpub.../0/*),older(25920))))","network":"testnet"}"#,
     );
 
-    let result = send_email_to_recipient(
-        &email_config,
-        "alice_heir@example.com",
-        &heir_message,
-    ).await;
+    let result =
+        send_email_to_recipient(&email_config, "alice_heir@example.com", &heir_message).await;
     assert!(result.is_ok(), "heir delivery failed: {:?}", result.err());
     println!("  ✅ Heir descriptor delivery email sent!");
 

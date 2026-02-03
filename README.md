@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/RenAndKiwi/nostring/actions/workflows/ci.yml/badge.svg)](https://github.com/RenAndKiwi/nostring/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-241%20passing-brightgreen.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-243%20passing-brightgreen.svg)](#)
 
 *Your heirs inherit your Bitcoin when you stop checking in. No custodians. No monthly fees. Just math.*
 
@@ -46,6 +46,7 @@ You've taken custody of your Bitcoin. But what happens to it when you die?
 - **🔍 Spend Detection** — Witness analysis distinguishes owner check-ins from heir claims on-chain
 - **🐳 Docker Self-Hosting** — Headless server daemon for 24/7 monitoring without the desktop app
 - **💻 Desktop App** — Cross-platform Tauri application (macOS, Windows, Linux)
+- **🔬 Fuzz-Tested** — Cargo-fuzz harnesses for all input parsing (Codex32, BIP-39, encrypted seeds)
 
 ---
 
@@ -98,7 +99,7 @@ cargo tauri build
 
 ### Download Binary
 
-Pre-built binaries will be available on the [Releases](https://github.com/RenAndKiwi/nostring/releases) page once v0.4.0 is tagged.
+Pre-built binaries for macOS (ARM64 + x64), Linux, and Windows are available on the [Releases](https://github.com/RenAndKiwi/nostring/releases/tag/v0.4.0) page.
 
 ### Docker (Headless Server)
 
@@ -222,10 +223,22 @@ nostring/
 - [x] Docker self-hosting (headless `nostring-server` daemon)
 - [x] Nostr relay storage for locked shares (encrypted redundancy)
 
-### v0.4 🔄 — Polish & Release
-- [ ] Dashboard UI: spend type icons, heir claim alert banner
-- [ ] Tagged release binaries (macOS/Win/Linux)
-- [ ] External security audit preparation
+### v0.4 ✅ — Polish & Hardening
+- [x] Dashboard UI: spend type icons, heir claim alert banner, activity log
+- [x] Tagged release binaries (macOS/Win/Linux) — [v0.4.0 published](https://github.com/RenAndKiwi/nostring/releases/tag/v0.4.0)
+- [x] Rustls CryptoProvider initialization (crash fix)
+- [x] get_height() testnet compatibility
+- [x] Wizard timelock wired to backend
+- [x] Relay commands fixed (async Send issue resolved)
+- [x] Async SMTP in server daemon
+- [x] Real testnet check-in broadcast (txid: `c0ec27c7...`)
+- [x] Email notification verified (MailHog integration test)
+- [x] Cargo-fuzz infrastructure (3 fuzz targets, 0 crashes)
+- [x] Nostr DM + relay storage verified on live relays
+
+### v0.5 🔄 — Production Release
+- [ ] External security audit
+- [ ] Code signing (macOS notarization + Windows)
 - [ ] Multi-sig heir consensus (2-of-3 heirs agree before claiming)
 - [ ] Testnet mode toggle in UI
 

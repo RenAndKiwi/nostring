@@ -196,6 +196,7 @@ async fn send_notifications(
         smtp_password: e.smtp_password.clone(),
         from_address: e.from_address.clone(),
         to_address: e.owner_email.clone(),
+        plaintext: false,
     });
 
     // Build thresholds from config
@@ -293,6 +294,7 @@ async fn deliver_to_heirs(config: &ServerConfig) {
                 smtp_password: email_config.smtp_password.clone(),
                 from_address: email_config.from_address.clone(),
                 to_address: email_addr.clone(),
+                plaintext: false,
             };
             match nostring_notify::smtp::send_email_to_recipient(&smtp_config, email_addr, &msg)
                 .await

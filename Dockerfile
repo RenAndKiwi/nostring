@@ -8,7 +8,7 @@
 # ---------------------------------------------------------------------------
 # Builder stage
 # ---------------------------------------------------------------------------
-FROM rust:1.83-bookworm AS builder
+FROM rust:1.93-bookworm AS builder
 
 # Install build dependencies for SQLite (bundled) and OpenSSL
 RUN apt-get update && apt-get install -y \

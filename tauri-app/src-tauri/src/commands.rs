@@ -1424,6 +1424,7 @@ pub async fn check_and_notify(state: State<'_, AppState>) -> Result<CommandResul
                 smtp_password: p,
                 from_address: u,
                 to_address: addr,
+                plaintext: false,
             }),
             _ => None,
         }
