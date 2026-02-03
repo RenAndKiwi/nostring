@@ -15,5 +15,6 @@ nostring-shamir = { path = "../../crates/nostring-shamir" }
 nostring-electrum = { path = "../../crates/nostring-electrum" }
 nostring-notify = { path = "../../crates/nostring-notify" }
 bitcoin = { version = "0.32", features = ["serde"] }
+hex = "0.4"
 miniscript = { version = "12.3", features = ["compiler"] }
 nostr-sdk = "0.39"
