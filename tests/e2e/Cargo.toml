@@ -34,3 +34,4 @@ rand = "0.8"
 tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
 base64 = "0.22"
 rustls = { version = "0.23", features = ["ring"] }
+reqwest = { version = "0.12", features = ["json"] }

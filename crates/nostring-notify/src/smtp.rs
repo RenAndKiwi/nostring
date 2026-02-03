@@ -81,13 +81,23 @@ fn build_async_transport(
 ) -> Result<AsyncSmtpTransport<Tokio1Executor>, NotifyError> {
     let creds = Credentials::new(config.smtp_user.clone(), config.smtp_password.clone());
 
-    Ok(
-        AsyncSmtpTransport::<Tokio1Executor>::relay(&config.smtp_host)
-            .map_err(|e| NotifyError::EmailFailed(format!("SMTP relay error: {}", e)))?
-            .credentials(creds)
-            .port(config.smtp_port)
-            .build(),
-    )
+    if config.plaintext {
+        // Plaintext SMTP — for local test servers (MailHog, etc.)
+        Ok(
+            AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&config.smtp_host)
+                .credentials(creds)
+                .port(config.smtp_port)
+                .build(),
+        )
+    } else {
+        Ok(
+            AsyncSmtpTransport::<Tokio1Executor>::relay(&config.smtp_host)
+                .map_err(|e| NotifyError::EmailFailed(format!("SMTP relay error: {}", e)))?
+                .credentials(creds)
+                .port(config.smtp_port)
+                .build(),
+        )
+    }
 }
 
 #[cfg(test)]

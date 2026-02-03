@@ -74,6 +74,10 @@ pub struct EmailConfig {
     pub from_address: String,
     /// Recipient email address
     pub to_address: String,
+    /// Use plaintext SMTP (no TLS) — for local test servers like MailHog.
+    /// **Never use in production!**
+    #[serde(default)]
+    pub plaintext: bool,
 }
 
 impl EmailConfig {
@@ -93,6 +97,7 @@ impl EmailConfig {
             smtp_password: smtp_password.into(),
             from_address: from_address.into(),
             to_address: to_address.into(),
+            plaintext: false,
         }
     }
 }

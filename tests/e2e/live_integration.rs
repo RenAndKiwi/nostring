@@ -658,3 +658,136 @@ fn test4_psbt_checkin_flow() {
 
     println!("\n=== TEST 4 COMPLETE ===\n");
 }
+
+// ============================================================================
+// TEST 5: Email Notification via MailHog (local SMTP)
+// ============================================================================
+//
+// Requires MailHog running:
+//   /usr/local/opt/mailhog/bin/MailHog -api-bind-addr 127.0.0.1:8025 -smtp-bind-addr 127.0.0.1:1025 -ui-bind-addr 127.0.0.1:8025
+//
+// Run: cargo test -p nostring-e2e --test live_integration test_email_notification_mailhog -- --ignored --nocapture
+
+#[tokio::test]
+#[ignore = "requires MailHog on localhost:1025"]
+async fn test_email_notification_mailhog() {
+    use nostring_notify::templates::{generate_message, NotificationLevel};
+    use nostring_notify::{EmailConfig, NotificationService, NotifyConfig, Threshold};
+    use nostring_notify::smtp::send_email;
+
+    println!("\n=== TEST 5: Email Notification via MailHog ===\n");
+
+    // --- Part A: Direct send_email test ---
+    println!("[5a] Testing direct send_email to MailHog...");
+
+    let email_config = EmailConfig {
+        enabled: true,
+        smtp_host: "127.0.0.1".to_string(),
+        smtp_port: 1025,
+        smtp_user: "test".to_string(),
+        smtp_password: "test".to_string(),
+        from_address: "nostring@nostring.dev".to_string(),
+        to_address: "rensovereign@proton.me".to_string(),
+        plaintext: true,
+    };
+
+    // Generate a warning-level notification
+    let message = generate_message(
+        NotificationLevel::Warning,
+        7.5,
+        1080,
+        934000,
+    );
+
+    println!("  Subject: {}", message.subject);
+    println!("  Level: {:?}", message.level);
+
+    let result = send_email(&email_config, &message).await;
+    assert!(result.is_ok(), "send_email failed: {:?}", result.err());
+    println!("  ✅ Email sent successfully via MailHog!");
+
+    // --- Part B: Full NotificationService flow ---
+    println!("\n[5b] Testing NotificationService.check_and_notify...");
+
+    let config = NotifyConfig {
+        thresholds: vec![
+            Threshold::custom(30, NotificationLevel::Reminder),
+            Threshold::custom(7, NotificationLevel::Warning),
+            Threshold::custom(1, NotificationLevel::Urgent),
+            Threshold::custom(0, NotificationLevel::Critical),
+        ],
+        email: Some(email_config.clone()),
+        nostr: None,
+    };
+
+    let service = NotificationService::new(config);
+
+    // 5 days remaining (~720 blocks) → should trigger Warning
+    let level = service.check_and_notify(720, 934000).await;
+    assert!(level.is_ok(), "check_and_notify failed: {:?}", level.err());
+    let level = level.unwrap();
+    assert_eq!(level, Some(NotificationLevel::Warning));
+    println!("  ✅ NotificationService triggered Warning level (5 days remaining)");
+
+    // 100 blocks (~0.7 days) → should trigger Urgent
+    let level = service.check_and_notify(100, 934100).await;
+    assert!(level.is_ok(), "check_and_notify failed: {:?}", level.err());
+    let level = level.unwrap();
+    assert_eq!(level, Some(NotificationLevel::Urgent));
+    println!("  ✅ NotificationService triggered Urgent level (100 blocks remaining)");
+
+    // -10 blocks (expired) → should trigger Critical
+    let level = service.check_and_notify(-10, 934200).await;
+    assert!(level.is_ok(), "check_and_notify failed: {:?}", level.err());
+    let level = level.unwrap();
+    assert_eq!(level, Some(NotificationLevel::Critical));
+    println!("  ✅ NotificationService triggered Critical level (expired)");
+
+    // --- Part C: Verify emails in MailHog API ---
+    println!("\n[5c] Verifying emails captured by MailHog...");
+
+    let resp = reqwest::get("http://127.0.0.1:8025/api/v2/messages")
+        .await
+        .expect("MailHog API unreachable");
+    let body: serde_json::Value = resp.json().await.expect("Bad JSON from MailHog");
+    let total = body["total"].as_u64().unwrap_or(0);
+
+    println!("  MailHog captured {} emails", total);
+    assert!(total >= 4, "Expected at least 4 emails, got {}", total);
+
+    // Check subjects
+    if let Some(items) = body["items"].as_array() {
+        for (i, item) in items.iter().enumerate() {
+            let subject = item["Content"]["Headers"]["Subject"][0]
+                .as_str()
+                .unwrap_or("(no subject)");
+            let to = item["Content"]["Headers"]["To"][0]
+                .as_str()
+                .unwrap_or("(no recipient)");
+            println!("  Email {}: To={}, Subject={}", i + 1, to, subject);
+        }
+    }
+
+    println!("\n  ✅ All emails verified in MailHog!");
+
+    // --- Part D: Test heir descriptor delivery ---
+    println!("\n[5d] Testing heir descriptor delivery email...");
+
+    use nostring_notify::templates::generate_heir_delivery_message;
+    use nostring_notify::smtp::send_email_to_recipient;
+
+    let heir_message = generate_heir_delivery_message(
+        "Alice",
+        r#"{"descriptor":"wsh(or_d(pk([deadbeef/84h/0h/0h]xpub.../0/*),and_v(v:pk([cafebabe/84h/0h/0h]xpub.../0/*),older(25920))))","network":"testnet"}"#,
+    );
+
+    let result = send_email_to_recipient(
+        &email_config,
+        "alice_heir@example.com",
+        &heir_message,
+    ).await;
+    assert!(result.is_ok(), "heir delivery failed: {:?}", result.err());
+    println!("  ✅ Heir descriptor delivery email sent!");
+
+    println!("\n=== TEST 5 COMPLETE: All email notifications working ===\n");
+}
