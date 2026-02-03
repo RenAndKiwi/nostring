@@ -175,14 +175,44 @@ Sovereign Bitcoin inheritance with optional Nostr identity inheritance. Watch-on
 
 ---
 
-## Phase 9: Release & Hardening
+## Phase 9: Spend Type Detection ✅
+
+**Status:** Complete (2026-02-04)
+
+### 9.1 Witness Analysis Engine ✅
+- [x] `spend_analysis` module in `nostring-watch`
+- [x] Witness stack analysis: owner path (1 stack item) vs heir path (2+ with empty dummy)
+- [x] Cascade policy support (nested `or_d` branches detected)
+- [x] Timing-based fallback (spend before timelock expiry = must be owner)
+- [x] Combined analysis: witness primary, timing fallback, confidence scoring
+- [x] `analyze_transaction_for_outpoint` — find specific input in a transaction
+- [x] 14 unit tests for witness/timing analysis
+
+### 9.2 Electrum Integration ✅
+- [x] `get_script_history` added to `ElectrumClient` (all txs for a script)
+- [x] `ScriptHistoryItem` type for history results
+- [x] `WatchService::detect_spend_type_for_utxo` — full pipeline: find spending tx → analyze witness
+- [x] `WatchService::find_spending_tx` — scan script history to locate the spending transaction
+
+### 9.3 Database & Tauri Commands ✅
+- [x] `spend_events` table: txid, spend_type, confidence, method, policy_id, outpoint
+- [x] `spend_type` column added to `checkin_log` (with migration for existing DBs)
+- [x] `detect_spend_type` Tauri command: fetch tx via Electrum → analyze → log
+- [x] `get_spend_events` Tauri command: list all detected spend events
+- [x] `check_heir_claims` Tauri command: boolean alert for heir claim detection
+- [x] 3 new DB tests (spend events CRUD, heir claim detection, typed checkin log)
+
+---
+
+## Phase 10: Release & Hardening
 
 - [ ] Build release binaries (macOS/Win/Linux)
 - [ ] Security audit preparation
 - [ ] Docker compose for self-hosting
 - [ ] Mobile consideration (Tauri mobile or separate app)
-- [ ] Spend type detection (owner vs heir)
 - [ ] nsec revocation / re-split flow
+- [ ] Dashboard UI: spend type icons (✅ Owner check-in vs ⚠️ Heir claim)
+- [ ] Heir claim alert banner in dashboard
 
 ---
 
@@ -191,15 +221,15 @@ Sovereign Bitcoin inheritance with optional Nostr identity inheritance. Watch-on
 ```
 nostring/
 ├── crates/
-│   ├── nostring-core      # Seed, crypto, BIP-39/84 (23 tests)
+│   ├── nostring-core      # Seed, crypto, BIP-39/84 (22 tests)
 │   ├── nostring-inherit   # Policies, miniscript (25 tests)
 │   ├── nostring-shamir    # SLIP-39, Codex32 (39 tests)
-│   ├── nostring-electrum  # Bitcoin network (4 tests)
-│   ├── nostring-notify    # Email + Nostr DM (15 tests)
-│   ├── nostring-watch     # UTXO monitoring (15 tests)
+│   ├── nostring-electrum  # Bitcoin network (3 tests, 2 ignored)
+│   ├── nostring-notify    # Email + Nostr DM (27 tests)
+│   ├── nostring-watch     # UTXO monitoring + spend analysis (29 tests, 2 ignored)
 │   └── nostring-email     # IMAP (placeholder)
-├── tauri-app/             # Desktop application
-├── tests/e2e/             # Integration test suite (10 tests)
+├── tauri-app/             # Desktop application (13 tests)
+├── tests/e2e/             # Integration test suite (18 tests, 2 ignored)
 └── docs/                  # Documentation
 ```
 
@@ -209,17 +239,18 @@ nostring/
 
 | Crate | Tests | Status |
 |-------|-------|--------|
-| nostring-core | 23 | ✅ |
+| nostring-app | 13 | ✅ |
+| nostring-core | 22 | ✅ |
 | nostring-inherit | 25 | ✅ |
 | nostring-shamir | 39 | ✅ |
-| nostring-electrum | 4 | ✅ (2 ignored) |
-| nostring-notify | 15 | ✅ |
-| nostring-watch | 15 | ✅ (2 ignored) |
-| nostring-e2e | 12 | ✅ (2 ignored) |
-| **Total** | **133** | ✅ |
+| nostring-electrum | 3 | ✅ (2 ignored) |
+| nostring-notify | 27 | ✅ (2 ignored) |
+| nostring-watch | 29 | ✅ (2 ignored) |
+| nostring-e2e | 18 | ✅ (2 ignored) |
+| **Total** | **172** | ✅ |
 
 *Ignored tests require network access. Run with `--ignored`.*
 
 ---
 
-*Last updated: 2026-02-03*
+*Last updated: 2026-02-04*

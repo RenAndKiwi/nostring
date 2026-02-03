@@ -360,14 +360,13 @@ pub async fn initiate_checkin(state: State<'_, AppState>) -> Result<CommandResul
 
     let utxo = &utxos[0];
 
-    use bitcoin::ScriptBuf;
     use nostring_inherit::checkin::{CheckinTxBuilder, InheritanceUtxo as InhUtxo};
 
     let inheritance_utxo = InhUtxo::new(
         utxo.outpoint,
         utxo.value,
         utxo.height,
-        ScriptBuf::from(script.to_owned()),
+        script.to_owned(),
     );
 
     let fee_rate = 10;
@@ -436,10 +435,169 @@ pub async fn broadcast_signed_psbt(
             // Log the check-in to SQLite
             state.log_checkin(&txid.to_string());
 
+            // Invalidate all pre-signed check-ins — manual check-in
+            // spends the UTXO they were built to spend
+            {
+                let conn = state.db.lock().unwrap();
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                let invalidated = crate::db::presigned_checkin_invalidate_all(
+                    &conn,
+                    now,
+                    "Manual check-in broadcast — UTXO spent",
+                );
+                if let Ok(count) = invalidated {
+                    if count > 0 {
+                        log::info!(
+                            "Invalidated {} pre-signed check-ins after manual check-in",
+                            count
+                        );
+                    }
+                }
+            }
+
             Ok(CommandResult::ok(txid.to_string()))
         }
         Err(e) => Ok(CommandResult::err(format!("Broadcast failed: {}", e))),
     }
+}
+
+// ============================================================================
+// Spend Type Detection Commands
+// ============================================================================
+
+/// Spend event info for the frontend
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SpendEventInfo {
+    pub id: i64,
+    pub timestamp: u64,
+    pub txid: String,
+    pub spend_type: String,
+    pub confidence: f64,
+    pub method: String,
+    pub policy_id: Option<String>,
+    pub outpoint: Option<String>,
+}
+
+/// Detect the spend type of a transaction by analyzing its witness data.
+///
+/// Fetches the transaction via Electrum and analyzes the witness to determine
+/// whether the owner or heir spent the funds.
+#[tauri::command]
+pub async fn detect_spend_type(
+    txid: String,
+    state: State<'_, AppState>,
+) -> Result<CommandResult<SpendEventInfo>, ()> {
+    use nostring_watch::spend_analysis;
+    use std::str::FromStr;
+
+    let tx_id = match bitcoin::Txid::from_str(&txid) {
+        Ok(t) => t,
+        Err(e) => return Ok(CommandResult::err(format!("Invalid txid: {}", e))),
+    };
+
+    let electrum_url = state.electrum_url.lock().unwrap().clone();
+    let network = *state.network.lock().unwrap();
+
+    let client = match ElectrumClient::new(&electrum_url, network) {
+        Ok(c) => c,
+        Err(e) => {
+            return Ok(CommandResult::err(format!(
+                "Failed to connect to Electrum: {}",
+                e
+            )))
+        }
+    };
+
+    // Fetch the transaction
+    let tx = match client.get_transaction(&tx_id) {
+        Ok(t) => t,
+        Err(e) => return Ok(CommandResult::err(format!("Transaction not found: {}", e))),
+    };
+
+    // Analyze the first input's witness (the one that spends the inheritance UTXO)
+    let analysis = if !tx.input.is_empty() {
+        spend_analysis::analyze_witness(&tx.input[0].witness)
+    } else {
+        return Ok(CommandResult::err("Transaction has no inputs"));
+    };
+
+    let spend_type_str = match analysis.spend_type {
+        nostring_watch::SpendType::OwnerCheckin => "owner_checkin",
+        nostring_watch::SpendType::HeirClaim => "heir_claim",
+        nostring_watch::SpendType::Unknown => "unknown",
+    };
+
+    let method_str = match analysis.method {
+        spend_analysis::DetectionMethod::WitnessAnalysis => "witness_analysis",
+        spend_analysis::DetectionMethod::TimelockTiming => "timelock_timing",
+        spend_analysis::DetectionMethod::Indeterminate => "indeterminate",
+    };
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    // Log the spend event to DB
+    {
+        let conn = state.db.lock().unwrap();
+        let _ = crate::db::spend_event_insert(
+            &conn,
+            now,
+            &txid,
+            spend_type_str,
+            analysis.confidence,
+            method_str,
+            None,
+            None,
+        );
+    }
+
+    Ok(CommandResult::ok(SpendEventInfo {
+        id: 0,
+        timestamp: now,
+        txid,
+        spend_type: spend_type_str.to_string(),
+        confidence: analysis.confidence,
+        method: method_str.to_string(),
+        policy_id: None,
+        outpoint: None,
+    }))
+}
+
+/// Get all spend events from the database.
+#[tauri::command]
+pub async fn get_spend_events(
+    state: State<'_, AppState>,
+) -> Result<Vec<SpendEventInfo>, ()> {
+    let conn = state.db.lock().unwrap();
+    let rows = crate::db::spend_event_list(&conn).unwrap_or_default();
+
+    Ok(rows
+        .into_iter()
+        .map(|r| SpendEventInfo {
+            id: r.id,
+            timestamp: r.timestamp,
+            txid: r.txid,
+            spend_type: r.spend_type,
+            confidence: r.confidence,
+            method: r.method,
+            policy_id: r.policy_id,
+            outpoint: r.outpoint,
+        })
+        .collect())
+}
+
+/// Check if any heir claims have been detected (for alert display).
+#[tauri::command]
+pub async fn check_heir_claims(
+    state: State<'_, AppState>,
+) -> Result<bool, ()> {
+    let conn = state.db.lock().unwrap();
+    Ok(crate::db::has_heir_claims(&conn).unwrap_or(false))
 }
 
 // ============================================================================
@@ -1311,11 +1469,10 @@ async fn deliver_descriptor_to_heirs(
             let desc: Result<Descriptor<DescriptorPublicKey>, _> = config.descriptor.parse();
             desc.ok()
                 .and_then(|d| d.at_derivation_index(0).ok())
-                .map(|d| {
+                .and_then(|d| {
                     let network = *state.network.lock().unwrap();
                     d.address(network).map(|a| a.to_string()).ok()
                 })
-                .flatten()
         };
 
         let conn = state.db.lock().unwrap();
@@ -1514,11 +1671,10 @@ pub async fn get_descriptor_backup(
         let desc: Result<Descriptor<DescriptorPublicKey>, _> = config.descriptor.parse();
         desc.ok()
             .and_then(|d| d.at_derivation_index(0).ok())
-            .map(|d| {
+            .and_then(|d| {
                 let network = *state.network.lock().unwrap();
                 d.address(network).map(|a| a.to_string()).ok()
             })
-            .flatten()
     };
 
     // Get nsec inheritance data
@@ -1557,7 +1713,7 @@ pub async fn generate_codex32_shares(
     }
     drop(unlocked);
 
-    if threshold < 2 || threshold > 9 {
+    if !(2..=9).contains(&threshold) {
         return Ok(CommandResult::err("Threshold must be 2-9"));
     }
     if total_shares < threshold {
@@ -1623,4 +1779,834 @@ pub async fn combine_codex32_shares(shares: Vec<String>) -> CommandResult<String
         }
         Err(e) => CommandResult::err(format!("Failed to combine shares: {}", e)),
     }
+}
+
+// ============================================================================
+// Relay Storage Commands (v0.3.1 — locked share relay backup)
+// ============================================================================
+
+/// Result of publishing locked shares to relays
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RelayPublishStatus {
+    pub shares_published: usize,
+    pub heirs_targeted: usize,
+    pub split_id: String,
+    pub heir_results: Vec<RelayHeirStatus>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RelayHeirStatus {
+    pub label: String,
+    pub npub: String,
+    pub shares_published: usize,
+    pub event_ids: Vec<String>,
+    pub error: Option<String>,
+}
+
+/// Publish locked shares to Nostr relays as encrypted backup.
+///
+/// Each locked share is NIP-44 encrypted to each heir's npub and published
+/// to multiple relays (damus, nostr.band, nos.lol). This provides redundancy
+/// beyond the descriptor backup file.
+///
+/// The encrypted shares are useless without threshold — this is defense in depth.
+#[tauri::command]
+pub async fn publish_locked_shares_to_relays(
+    state: State<'_, AppState>,
+) -> Result<CommandResult<RelayPublishStatus>, ()> {
+    // Require wallet to be unlocked
+    let unlocked = state.unlocked.lock().unwrap();
+    if !*unlocked {
+        return Ok(CommandResult::err("Wallet is locked. Unlock first."));
+    }
+    drop(unlocked);
+
+    // Get the service key (sender)
+    let service_secret = {
+        let sk = state.service_key.lock().unwrap();
+        match &*sk {
+            Some(s) => s.clone(),
+            None => {
+                return Ok(CommandResult::err(
+                    "No service key generated. Go to Settings → Notifications to set up.",
+                ))
+            }
+        }
+    };
+
+    // Get locked shares from DB
+    let locked_shares = {
+        let conn = state.db.lock().unwrap();
+        crate::db::config_get(&conn, "nsec_locked_shares")
+            .ok()
+            .flatten()
+            .and_then(|j| serde_json::from_str::<Vec<String>>(&j).ok())
+    };
+
+    let Some(locked_shares) = locked_shares else {
+        return Ok(CommandResult::err(
+            "No locked shares found. Split your nsec first in the Inheritance tab.",
+        ));
+    };
+
+    if locked_shares.is_empty() {
+        return Ok(CommandResult::err("Locked shares list is empty."));
+    }
+
+    // Get heirs with npub from DB
+    let heir_contacts: Vec<(String, String, String)> = {
+        let conn = state.db.lock().unwrap();
+        let heirs = crate::db::heir_list(&conn).unwrap_or_default();
+        heirs
+            .into_iter()
+            .filter_map(|h| {
+                h.npub.map(|npub| (h.fingerprint, h.label, npub))
+            })
+            .collect()
+    };
+
+    if heir_contacts.is_empty() {
+        return Ok(CommandResult::err(
+            "No heirs have npub configured. Set heir npub in the Heirs tab.",
+        ));
+    }
+
+    // Generate a split_id
+    let split_id = nostring_notify::nostr_relay::generate_split_id();
+
+    // Build heir list for publish
+    let heirs: Vec<(String, String)> = heir_contacts
+        .iter()
+        .map(|(_, label, npub)| (npub.clone(), label.clone()))
+        .collect();
+
+    // Publish to relays
+    let result = nostring_notify::nostr_relay::publish_all_shares(
+        &service_secret,
+        &heirs,
+        &locked_shares,
+        &split_id,
+        None, // use default relays
+    )
+    .await;
+
+    match result {
+        Ok(publish_result) => {
+            // Log publications to SQLite
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+
+            let conn = state.db.lock().unwrap();
+            for hr in &publish_result.heir_results {
+                // Find the fingerprint for this heir
+                let fp = heir_contacts
+                    .iter()
+                    .find(|(_, _, npub)| npub == &hr.heir_npub)
+                    .map(|(fp, _, _)| fp.as_str())
+                    .unwrap_or("unknown");
+
+                for (i, eid) in hr.event_ids.iter().enumerate() {
+                    for relay in &publish_result.successful_relays {
+                        let _ = crate::db::relay_publication_insert(
+                            &conn,
+                            &split_id,
+                            fp,
+                            &hr.heir_npub,
+                            relay,
+                            Some(eid),
+                            i as i32,
+                            locked_shares.len() as i32,
+                            now,
+                            true,
+                            None,
+                        );
+                    }
+                }
+
+                if let Some(ref err) = hr.error {
+                    for relay in &publish_result.failed_relays {
+                        let _ = crate::db::relay_publication_insert(
+                            &conn,
+                            &split_id,
+                            fp,
+                            &hr.heir_npub,
+                            relay,
+                            None,
+                            0,
+                            locked_shares.len() as i32,
+                            now,
+                            false,
+                            Some(err),
+                        );
+                    }
+                }
+            }
+
+            // Persist the split_id for later reference
+            let _ = crate::db::config_set(&conn, "last_relay_split_id", &split_id);
+            drop(conn);
+
+            let status = RelayPublishStatus {
+                shares_published: publish_result.shares_published,
+                heirs_targeted: heir_contacts.len(),
+                split_id,
+                heir_results: publish_result
+                    .heir_results
+                    .into_iter()
+                    .map(|hr| RelayHeirStatus {
+                        label: hr.heir_label,
+                        npub: hr.heir_npub,
+                        shares_published: hr.shares_published,
+                        event_ids: hr.event_ids,
+                        error: hr.error,
+                    })
+                    .collect(),
+            };
+
+            Ok(CommandResult::ok(status))
+        }
+        Err(e) => Ok(CommandResult::err(format!(
+            "Failed to publish shares: {}",
+            e
+        ))),
+    }
+}
+
+/// Fetch locked shares from Nostr relays (heir recovery tool).
+///
+/// The heir provides their nsec and the service key's npub to find
+/// and decrypt the encrypted shares published to relays.
+#[tauri::command]
+pub async fn fetch_locked_shares_from_relays(
+    heir_nsec: String,
+    sender_npub: String,
+    split_id: Option<String>,
+) -> CommandResult<FetchedSharesResult> {
+    use nostring_notify::nostr_relay;
+
+    let result = nostr_relay::fetch_shares_from_relays(
+        &heir_nsec,
+        &sender_npub,
+        None, // use default relays
+        split_id.as_deref(),
+    )
+    .await;
+
+    match result {
+        Ok(fetch_result) => {
+            let shares: Vec<String> = fetch_result
+                .shares
+                .iter()
+                .map(|s| s.share.clone())
+                .collect();
+
+            CommandResult::ok(FetchedSharesResult {
+                shares,
+                events_found: fetch_result.events_found,
+                relays_queried: fetch_result.responding_relays,
+            })
+        }
+        Err(e) => CommandResult::err(format!("Failed to fetch shares: {}", e)),
+    }
+}
+
+/// Result of fetching shares from relays
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FetchedSharesResult {
+    pub shares: Vec<String>,
+    pub events_found: usize,
+    pub relays_queried: Vec<String>,
+}
+
+/// Get relay publication status (last publish info).
+#[tauri::command]
+pub async fn get_relay_publication_status(
+    state: State<'_, AppState>,
+) -> Result<CommandResult<RelayPublicationInfo>, ()> {
+    let conn = state.db.lock().unwrap();
+
+    let split_id = crate::db::config_get(&conn, "last_relay_split_id")
+        .ok()
+        .flatten();
+
+    let Some(split_id) = split_id else {
+        return Ok(CommandResult::ok(RelayPublicationInfo {
+            published: false,
+            split_id: None,
+            total_published: 0,
+            last_published_at: None,
+            publications: Vec::new(),
+        }));
+    };
+
+    let count = crate::db::relay_publication_success_count(&conn, &split_id)
+        .unwrap_or(0);
+    let last_at = crate::db::relay_publication_last(&conn, &split_id)
+        .ok()
+        .flatten();
+    let publications = crate::db::relay_publication_list_by_split(&conn, &split_id)
+        .unwrap_or_default();
+    drop(conn);
+
+    let pub_info: Vec<RelayPubEntry> = publications
+        .into_iter()
+        .map(|p| RelayPubEntry {
+            heir_npub: p.heir_npub,
+            relay_url: p.relay_url,
+            event_id: p.event_id,
+            share_index: p.share_index,
+            success: p.success,
+            published_at: p.published_at,
+        })
+        .collect();
+
+    Ok(CommandResult::ok(RelayPublicationInfo {
+        published: count > 0,
+        split_id: Some(split_id),
+        total_published: count as usize,
+        last_published_at: last_at,
+        publications: pub_info,
+    }))
+}
+
+/// Relay publication info for the frontend
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RelayPublicationInfo {
+    pub published: bool,
+    pub split_id: Option<String>,
+    pub total_published: usize,
+    pub last_published_at: Option<u64>,
+    pub publications: Vec<RelayPubEntry>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RelayPubEntry {
+    pub heir_npub: String,
+    pub relay_url: String,
+    pub event_id: Option<String>,
+    pub share_index: i32,
+    pub success: bool,
+    pub published_at: u64,
+}
+
+// ============================================================================
+// Pre-signed Check-in Stack (v0.3 — Auto Check-in)
+// ============================================================================
+
+use crate::db::PresignedCheckinRow;
+
+/// Summary of the pre-signed check-in stack.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PresignedCheckinStatus {
+    /// Number of active (ready to broadcast) pre-signed PSBTs
+    pub active_count: i64,
+    /// Total PSBTs ever added (including broadcast/invalidated)
+    pub total_count: usize,
+    /// Whether the stack is running low (< 2 active)
+    pub low_warning: bool,
+    /// Whether the stack is empty
+    pub empty: bool,
+    /// The active PSBTs
+    pub active: Vec<PresignedCheckinInfo>,
+}
+
+/// Info about a single pre-signed check-in PSBT.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PresignedCheckinInfo {
+    pub id: i64,
+    pub sequence_index: i64,
+    pub spending_txid: Option<String>,
+    pub spending_vout: Option<i64>,
+    pub created_at: u64,
+    pub broadcast_at: Option<u64>,
+    pub txid: Option<String>,
+    pub invalidated_at: Option<u64>,
+    pub invalidation_reason: Option<String>,
+}
+
+impl From<&PresignedCheckinRow> for PresignedCheckinInfo {
+    fn from(row: &PresignedCheckinRow) -> Self {
+        Self {
+            id: row.id,
+            sequence_index: row.sequence_index,
+            spending_txid: row.spending_txid.clone(),
+            spending_vout: row.spending_vout,
+            created_at: row.created_at,
+            broadcast_at: row.broadcast_at,
+            txid: row.txid.clone(),
+            invalidated_at: row.invalidated_at,
+            invalidation_reason: row.invalidation_reason.clone(),
+        }
+    }
+}
+
+/// Add a pre-signed (already signed) check-in PSBT to the stack.
+///
+/// The user signs multiple sequential check-in PSBTs on their hardware wallet,
+/// then imports them here. The app will broadcast them automatically when needed.
+///
+/// **Security note:** Each PSBT in the sequence spends the output of the previous one.
+/// PSBT 0 spends the current inheritance UTXO. PSBT 1 spends PSBT 0's output, etc.
+#[tauri::command]
+pub async fn add_presigned_checkin(
+    signed_psbt_base64: String,
+    sequence_index: i64,
+    spending_txid: Option<String>,
+    spending_vout: Option<i64>,
+    state: State<'_, AppState>,
+) -> Result<CommandResult<i64>, ()> {
+    let unlocked = state.unlocked.lock().unwrap();
+    if !*unlocked {
+        return Ok(CommandResult::err("Wallet is locked"));
+    }
+    drop(unlocked);
+
+    // Validate the PSBT is parseable
+    use base64::prelude::*;
+    let psbt_bytes = match BASE64_STANDARD.decode(&signed_psbt_base64) {
+        Ok(b) => b,
+        Err(e) => return Ok(CommandResult::err(format!("Invalid base64: {}", e))),
+    };
+
+    let psbt: Psbt = match Psbt::deserialize(&psbt_bytes) {
+        Ok(p) => p,
+        Err(e) => return Ok(CommandResult::err(format!("Invalid PSBT: {}", e))),
+    };
+
+    // Verify the PSBT can extract a transaction (i.e., it's signed)
+    match psbt.extract_tx() {
+        Ok(_) => {}
+        Err(e) => {
+            return Ok(CommandResult::err(format!(
+                "PSBT is not fully signed: {}. Sign it on your hardware wallet first.",
+                e
+            )))
+        }
+    }
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let conn = state.db.lock().unwrap();
+    match crate::db::presigned_checkin_add(
+        &conn,
+        &signed_psbt_base64,
+        sequence_index,
+        spending_txid.as_deref(),
+        spending_vout,
+        now,
+    ) {
+        Ok(id) => {
+            log::info!(
+                "Added pre-signed check-in #{} (sequence {})",
+                id,
+                sequence_index
+            );
+            Ok(CommandResult::ok(id))
+        }
+        Err(e) => Ok(CommandResult::err(format!("Database error: {}", e))),
+    }
+}
+
+/// List the pre-signed check-in stack status.
+#[tauri::command]
+pub async fn get_presigned_checkin_status(
+    state: State<'_, AppState>,
+) -> Result<PresignedCheckinStatus, ()> {
+    let conn = state.db.lock().unwrap();
+
+    let active = crate::db::presigned_checkin_list_active(&conn).unwrap_or_default();
+    let all = crate::db::presigned_checkin_list_all(&conn).unwrap_or_default();
+    let active_count = active.len() as i64;
+
+    let status = PresignedCheckinStatus {
+        active_count,
+        total_count: all.len(),
+        low_warning: active_count > 0 && active_count < 2,
+        empty: active_count == 0,
+        active: active.iter().map(PresignedCheckinInfo::from).collect(),
+    };
+
+    Ok(status)
+}
+
+/// Automatically broadcast the next pre-signed check-in if the timelock
+/// is approaching the threshold.
+///
+/// **Logic:**
+/// 1. Check if timelock is within the auto-broadcast threshold
+/// 2. Get the next active pre-signed PSBT
+/// 3. Extract and broadcast the transaction
+/// 4. Mark the PSBT as broadcast
+/// 5. Log the check-in
+///
+/// Returns the broadcast txid if a check-in was broadcast, or a status message.
+#[tauri::command]
+pub async fn auto_broadcast_checkin(
+    threshold_blocks: Option<i64>,
+    state: State<'_, AppState>,
+) -> Result<CommandResult<String>, ()> {
+    let unlocked = state.unlocked.lock().unwrap();
+    if !*unlocked {
+        return Ok(CommandResult::err("Wallet is locked"));
+    }
+    drop(unlocked);
+
+    // Default threshold: 30 days (4320 blocks)
+    let threshold = threshold_blocks.unwrap_or(4320);
+
+    // Check current policy status
+    let status = {
+        let s = state.policy_status.lock().unwrap();
+        match &*s {
+            Some(st) => st.clone(),
+            None => {
+                return Ok(CommandResult::err(
+                    "No policy status available. Call refresh_policy_status first.",
+                ))
+            }
+        }
+    };
+
+    // Only broadcast if timelock is within threshold
+    if status.blocks_remaining > threshold {
+        return Ok(CommandResult::ok(format!(
+            "No check-in needed. {} blocks remaining (threshold: {})",
+            status.blocks_remaining, threshold
+        )));
+    }
+
+    // Get next pre-signed PSBT
+    let next_psbt = {
+        let conn = state.db.lock().unwrap();
+        crate::db::presigned_checkin_next(&conn).unwrap_or(None)
+    };
+
+    let psbt_row = match next_psbt {
+        Some(row) => row,
+        None => {
+            return Ok(CommandResult::err(
+                "No pre-signed check-ins available! Add signed PSBTs to the stack.",
+            ))
+        }
+    };
+
+    // Decode and extract transaction
+    use base64::prelude::*;
+    let psbt_bytes = match BASE64_STANDARD.decode(&psbt_row.psbt_base64) {
+        Ok(b) => b,
+        Err(e) => {
+            return Ok(CommandResult::err(format!(
+                "Stored PSBT has invalid base64: {}",
+                e
+            )))
+        }
+    };
+
+    let psbt: Psbt = match Psbt::deserialize(&psbt_bytes) {
+        Ok(p) => p,
+        Err(e) => {
+            return Ok(CommandResult::err(format!(
+                "Stored PSBT is corrupted: {}",
+                e
+            )))
+        }
+    };
+
+    let tx = match psbt.extract_tx() {
+        Ok(t) => t,
+        Err(e) => {
+            return Ok(CommandResult::err(format!(
+                "Stored PSBT cannot extract tx: {}",
+                e
+            )))
+        }
+    };
+
+    // Broadcast
+    let electrum_url = state.electrum_url.lock().unwrap().clone();
+    let network = *state.network.lock().unwrap();
+
+    let client = match ElectrumClient::new(&electrum_url, network) {
+        Ok(c) => c,
+        Err(e) => {
+            return Ok(CommandResult::err(format!(
+                "Failed to connect to Electrum: {}",
+                e
+            )))
+        }
+    };
+
+    match client.broadcast(&tx) {
+        Ok(txid) => {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+
+            let txid_str = txid.to_string();
+
+            // Mark PSBT as broadcast
+            {
+                let conn = state.db.lock().unwrap();
+                let _ = crate::db::presigned_checkin_mark_broadcast(
+                    &conn,
+                    psbt_row.id,
+                    now,
+                    &txid_str,
+                );
+            }
+
+            // Log the check-in
+            state.log_checkin(&txid_str);
+
+            // Check remaining stack and warn
+            let remaining = {
+                let conn = state.db.lock().unwrap();
+                crate::db::presigned_checkin_count_active(&conn).unwrap_or(0)
+            };
+
+            log::info!(
+                "Auto check-in broadcast: {} (sequence {}). {} pre-signed PSBTs remaining.",
+                txid_str,
+                psbt_row.sequence_index,
+                remaining
+            );
+
+            if remaining < 2 {
+                log::warn!(
+                    "Pre-signed check-in stack is running low! {} remaining. Generate more PSBTs.",
+                    remaining
+                );
+            }
+
+            Ok(CommandResult::ok(txid_str))
+        }
+        Err(e) => Ok(CommandResult::err(format!(
+            "Broadcast failed: {}. The UTXO may have been spent (manual check-in?). Consider invalidating stale PSBTs.",
+            e
+        ))),
+    }
+}
+
+/// Invalidate all active pre-signed check-ins.
+///
+/// Call this after a manual check-in, which spends the UTXO that
+/// pre-signed PSBTs were built to spend. The chain is broken.
+#[tauri::command]
+pub async fn invalidate_presigned_checkins(
+    reason: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<CommandResult<usize>, ()> {
+    let unlocked = state.unlocked.lock().unwrap();
+    if !*unlocked {
+        return Ok(CommandResult::err("Wallet is locked"));
+    }
+    drop(unlocked);
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let reason = reason.unwrap_or_else(|| "Manual invalidation".to_string());
+
+    let conn = state.db.lock().unwrap();
+    match crate::db::presigned_checkin_invalidate_all(&conn, now, &reason) {
+        Ok(count) => {
+            log::info!("Invalidated {} pre-signed check-ins: {}", count, reason);
+            Ok(CommandResult::ok(count))
+        }
+        Err(e) => Ok(CommandResult::err(format!("Database error: {}", e))),
+    }
+}
+
+/// Delete a specific pre-signed check-in by ID (only if not yet broadcast).
+#[tauri::command]
+pub async fn delete_presigned_checkin(
+    id: i64,
+    state: State<'_, AppState>,
+) -> Result<CommandResult<bool>, ()> {
+    let unlocked = state.unlocked.lock().unwrap();
+    if !*unlocked {
+        return Ok(CommandResult::err("Wallet is locked"));
+    }
+    drop(unlocked);
+
+    let conn = state.db.lock().unwrap();
+    match crate::db::presigned_checkin_delete(&conn, id) {
+        Ok(deleted) => {
+            if deleted {
+                log::info!("Deleted pre-signed check-in #{}", id);
+            }
+            Ok(CommandResult::ok(deleted))
+        }
+        Err(e) => Ok(CommandResult::err(format!("Database error: {}", e))),
+    }
+}
+
+/// Generate multiple unsigned check-in PSBTs for sequential signing.
+///
+/// This creates a chain of PSBTs where each one spends the output of the previous:
+/// - PSBT 0: spends current inheritance UTXO → creates new UTXO
+/// - PSBT 1: spends PSBT 0's output → creates new UTXO
+/// - PSBT N: spends PSBT (N-1)'s output → creates new UTXO
+///
+/// The user exports these to their hardware wallet, signs them all,
+/// then imports the signed versions via `add_presigned_checkin`.
+///
+/// Returns base64-encoded unsigned PSBTs.
+#[tauri::command]
+pub async fn generate_checkin_psbt_chain(
+    count: usize,
+    state: State<'_, AppState>,
+) -> Result<CommandResult<Vec<String>>, ()> {
+    let unlocked = state.unlocked.lock().unwrap();
+    if !*unlocked {
+        return Ok(CommandResult::err("Wallet is locked"));
+    }
+    drop(unlocked);
+
+    if count == 0 || count > 12 {
+        return Ok(CommandResult::err(
+            "Count must be 1-12 (more than 12 sequential check-ins is impractical)",
+        ));
+    }
+
+    let config = {
+        let config_lock = state.inheritance_config.lock().unwrap();
+        match &*config_lock {
+            Some(c) => c.clone(),
+            None => {
+                return Ok(CommandResult::err(
+                    "No inheritance policy configured. Add heirs first.",
+                ))
+            }
+        }
+    };
+
+    let electrum_url = state.electrum_url.lock().unwrap().clone();
+    let network = *state.network.lock().unwrap();
+
+    let client = match ElectrumClient::new(&electrum_url, network) {
+        Ok(c) => c,
+        Err(e) => {
+            return Ok(CommandResult::err(format!(
+                "Failed to connect to Electrum: {}",
+                e
+            )))
+        }
+    };
+
+    use miniscript::descriptor::DescriptorPublicKey;
+    use miniscript::Descriptor;
+
+    let descriptor: Descriptor<DescriptorPublicKey> = match config.descriptor.parse() {
+        Ok(d) => d,
+        Err(e) => return Ok(CommandResult::err(format!("Invalid descriptor: {}", e))),
+    };
+
+    let derived = match descriptor.at_derivation_index(0) {
+        Ok(d) => d,
+        Err(e) => {
+            return Ok(CommandResult::err(format!(
+                "Failed to derive script: {}",
+                e
+            )))
+        }
+    };
+    let script = derived.script_pubkey();
+
+    // Get current UTXOs
+    let utxos = match client.get_utxos_for_script(&script) {
+        Ok(u) => u,
+        Err(e) => return Ok(CommandResult::err(format!("Failed to get UTXOs: {}", e))),
+    };
+
+    if utxos.is_empty() {
+        return Ok(CommandResult::err(
+            "No UTXOs found for inheritance address. Deposit funds first.",
+        ));
+    }
+
+    let utxo = &utxos[0];
+    let fee_rate = 10u64;
+
+    use bitcoin::ScriptBuf;
+    use nostring_inherit::checkin::{CheckinTxBuilder, InheritanceUtxo as InhUtxo};
+
+    let mut psbts: Vec<String> = Vec::with_capacity(count);
+    let mut current_utxo = InhUtxo::new(
+        utxo.outpoint,
+        utxo.value,
+        utxo.height,
+        ScriptBuf::from(script.to_owned()),
+    );
+
+    for i in 0..count {
+        let builder = CheckinTxBuilder::new(
+            current_utxo.clone(),
+            descriptor.clone(),
+            fee_rate,
+        );
+
+        let psbt = match builder.build_psbt() {
+            Ok(p) => p,
+            Err(e) => {
+                return Ok(CommandResult::err(format!(
+                    "Failed to build PSBT #{}: {}",
+                    i, e
+                )))
+            }
+        };
+
+        // The output of this PSBT becomes the input for the next one
+        let tx = match psbt.clone().extract_tx() {
+            Ok(t) => t,
+            Err(_) => {
+                // For unsigned PSBTs, build the unsigned tx directly
+                match builder.build_unsigned_tx() {
+                    Ok(t) => t,
+                    Err(e) => {
+                        return Ok(CommandResult::err(format!(
+                            "Failed to build tx #{}: {}",
+                            i, e
+                        )))
+                    }
+                }
+            }
+        };
+
+        let txid = tx.compute_txid();
+
+        // Find the output that goes back to our script (the check-in output)
+        let (vout, value) = tx
+            .output
+            .iter()
+            .enumerate()
+            .find(|(_, o)| o.script_pubkey == script)
+            .map(|(i, o)| (i as u32, o.value))
+            .unwrap_or((0, tx.output[0].value));
+
+        let next_outpoint = bitcoin::OutPoint { txid, vout };
+
+        // For the next iteration, assume it confirms at a reasonable height
+        // (the exact height doesn't matter for PSBT construction)
+        current_utxo = InhUtxo::new(
+            next_outpoint,
+            value,
+            current_utxo.confirmation_height + 1,
+            ScriptBuf::from(script.to_owned()),
+        );
+
+        use base64::prelude::*;
+        psbts.push(BASE64_STANDARD.encode(psbt.serialize()));
+    }
+
+    log::info!("Generated {} unsigned check-in PSBTs for sequential signing", count);
+    Ok(CommandResult::ok(psbts))
 }

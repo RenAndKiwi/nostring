@@ -5,6 +5,7 @@
 //! and a structured `heirs` table for the heir registry.
 
 use rusqlite::{params, Connection, Result as SqlResult};
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 /// Open (or create) the database at `path` and run migrations.
@@ -40,6 +41,12 @@ pub fn open_db(path: &Path) -> SqlResult<Connection> {
 
     // v0.2 migrations — add heir contact info + delivery log
     migrate_v02(&conn)?;
+
+    // v0.3 migrations — pre-signed check-in stack
+    migrate_v03(&conn)?;
+
+    // v0.3.1 migrations — relay publication tracking for locked shares
+    migrate_v03_relay(&conn)?;
 
     Ok(conn)
 }
@@ -81,6 +88,45 @@ fn migrate_v02(conn: &Connection) -> SqlResult<()> {
         );",
     )?;
 
+    Ok(())
+}
+
+/// v0.3 migration: pre-signed check-in stack for auto check-in.
+fn migrate_v03(conn: &Connection) -> SqlResult<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS presigned_checkins (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            psbt_base64     TEXT NOT NULL,
+            sequence_index  INTEGER NOT NULL,
+            spending_txid   TEXT,
+            spending_vout   INTEGER,
+            created_at      INTEGER NOT NULL,
+            broadcast_at    INTEGER,
+            txid            TEXT,
+            invalidated_at  INTEGER,
+            invalidation_reason TEXT
+        );",
+    )?;
+    Ok(())
+}
+
+/// v0.3.1 migration: relay publication tracking for locked shares.
+fn migrate_v03_relay(conn: &Connection) -> SqlResult<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS relay_publications (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            split_id        TEXT NOT NULL,
+            heir_fingerprint TEXT NOT NULL,
+            heir_npub       TEXT NOT NULL,
+            relay_url       TEXT NOT NULL,
+            event_id        TEXT,
+            share_index     INTEGER NOT NULL,
+            share_total     INTEGER NOT NULL,
+            published_at    INTEGER NOT NULL,
+            success         INTEGER NOT NULL DEFAULT 1,
+            error_msg       TEXT
+        );",
+    )?;
     Ok(())
 }
 
@@ -235,7 +281,7 @@ pub struct SpendEventRow {
 }
 
 /// Insert a spend event.
-#[allow(dead_code)]
+#[allow(dead_code, clippy::too_many_arguments)]
 pub fn spend_event_insert(
     conn: &Connection,
     timestamp: u64,
@@ -422,6 +468,359 @@ pub fn checkin_last(conn: &Connection) -> SqlResult<Option<u64>> {
         Some(row) => Ok(Some(row.get(0)?)),
         None => Ok(None),
     }
+}
+
+// ============================================================================
+// Pre-signed Check-in Stack (v0.3 — auto check-in)
+// ============================================================================
+
+/// A pre-signed check-in PSBT stored for automatic broadcast.
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PresignedCheckinRow {
+    pub id: i64,
+    /// Base64-encoded signed PSBT
+    pub psbt_base64: String,
+    /// Position in the sequential chain (0, 1, 2, ...)
+    pub sequence_index: i64,
+    /// Txid of the UTXO this PSBT spends (for invalidation tracking)
+    pub spending_txid: Option<String>,
+    /// Vout of the UTXO this PSBT spends
+    pub spending_vout: Option<i64>,
+    /// When the PSBT was added
+    pub created_at: u64,
+    /// When it was broadcast (None = not yet broadcast)
+    pub broadcast_at: Option<u64>,
+    /// The txid after broadcast (None = not yet broadcast)
+    pub txid: Option<String>,
+    /// When it was invalidated (e.g., manual check-in made pre-signed PSBTs stale)
+    pub invalidated_at: Option<u64>,
+    /// Why it was invalidated
+    pub invalidation_reason: Option<String>,
+}
+
+/// Add a pre-signed check-in PSBT to the stack.
+#[allow(dead_code)]
+pub fn presigned_checkin_add(
+    conn: &Connection,
+    psbt_base64: &str,
+    sequence_index: i64,
+    spending_txid: Option<&str>,
+    spending_vout: Option<i64>,
+    created_at: u64,
+) -> SqlResult<i64> {
+    conn.execute(
+        "INSERT INTO presigned_checkins (psbt_base64, sequence_index, spending_txid, spending_vout, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![psbt_base64, sequence_index, spending_txid, spending_vout, created_at],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// List all pre-signed check-ins (active = not broadcast and not invalidated).
+#[allow(dead_code)]
+pub fn presigned_checkin_list_active(conn: &Connection) -> SqlResult<Vec<PresignedCheckinRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, psbt_base64, sequence_index, spending_txid, spending_vout,
+                created_at, broadcast_at, txid, invalidated_at, invalidation_reason
+         FROM presigned_checkins
+         WHERE broadcast_at IS NULL AND invalidated_at IS NULL
+         ORDER BY sequence_index ASC",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(PresignedCheckinRow {
+            id: row.get(0)?,
+            psbt_base64: row.get(1)?,
+            sequence_index: row.get(2)?,
+            spending_txid: row.get(3)?,
+            spending_vout: row.get(4)?,
+            created_at: row.get(5)?,
+            broadcast_at: row.get(6)?,
+            txid: row.get(7)?,
+            invalidated_at: row.get(8)?,
+            invalidation_reason: row.get(9)?,
+        })
+    })?;
+    rows.collect()
+}
+
+/// List ALL pre-signed check-ins (including broadcast and invalidated).
+#[allow(dead_code)]
+pub fn presigned_checkin_list_all(conn: &Connection) -> SqlResult<Vec<PresignedCheckinRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, psbt_base64, sequence_index, spending_txid, spending_vout,
+                created_at, broadcast_at, txid, invalidated_at, invalidation_reason
+         FROM presigned_checkins
+         ORDER BY sequence_index ASC",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(PresignedCheckinRow {
+            id: row.get(0)?,
+            psbt_base64: row.get(1)?,
+            sequence_index: row.get(2)?,
+            spending_txid: row.get(3)?,
+            spending_vout: row.get(4)?,
+            created_at: row.get(5)?,
+            broadcast_at: row.get(6)?,
+            txid: row.get(7)?,
+            invalidated_at: row.get(8)?,
+            invalidation_reason: row.get(9)?,
+        })
+    })?;
+    rows.collect()
+}
+
+/// Get the next active pre-signed check-in (lowest sequence_index, not broadcast/invalidated).
+#[allow(dead_code)]
+pub fn presigned_checkin_next(conn: &Connection) -> SqlResult<Option<PresignedCheckinRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, psbt_base64, sequence_index, spending_txid, spending_vout,
+                created_at, broadcast_at, txid, invalidated_at, invalidation_reason
+         FROM presigned_checkins
+         WHERE broadcast_at IS NULL AND invalidated_at IS NULL
+         ORDER BY sequence_index ASC
+         LIMIT 1",
+    )?;
+    let mut rows = stmt.query([])?;
+    match rows.next()? {
+        Some(row) => Ok(Some(PresignedCheckinRow {
+            id: row.get(0)?,
+            psbt_base64: row.get(1)?,
+            sequence_index: row.get(2)?,
+            spending_txid: row.get(3)?,
+            spending_vout: row.get(4)?,
+            created_at: row.get(5)?,
+            broadcast_at: row.get(6)?,
+            txid: row.get(7)?,
+            invalidated_at: row.get(8)?,
+            invalidation_reason: row.get(9)?,
+        })),
+        None => Ok(None),
+    }
+}
+
+/// Mark a pre-signed check-in as broadcast.
+#[allow(dead_code)]
+pub fn presigned_checkin_mark_broadcast(
+    conn: &Connection,
+    id: i64,
+    broadcast_at: u64,
+    txid: &str,
+) -> SqlResult<bool> {
+    let affected = conn.execute(
+        "UPDATE presigned_checkins SET broadcast_at = ?2, txid = ?3 WHERE id = ?1",
+        params![id, broadcast_at, txid],
+    )?;
+    Ok(affected > 0)
+}
+
+/// Invalidate all active (unbroadcast, non-invalidated) pre-signed check-ins.
+///
+/// Called when a manual check-in occurs, making all pre-signed PSBTs stale
+/// (they spend a UTXO that no longer exists).
+#[allow(dead_code)]
+pub fn presigned_checkin_invalidate_all(
+    conn: &Connection,
+    invalidated_at: u64,
+    reason: &str,
+) -> SqlResult<usize> {
+    let affected = conn.execute(
+        "UPDATE presigned_checkins
+         SET invalidated_at = ?1, invalidation_reason = ?2
+         WHERE broadcast_at IS NULL AND invalidated_at IS NULL",
+        params![invalidated_at, reason],
+    )?;
+    Ok(affected)
+}
+
+/// Invalidate all active pre-signed check-ins AFTER a given sequence index.
+///
+/// When PSBT N is broadcast, PSBTs N+1..N+K that DON'T spend the new UTXO
+/// are invalidated. But typically all subsequent PSBTs in the chain are
+/// dependent on N's output, so they remain valid.
+///
+/// This is used when a manual check-in invalidates the entire chain.
+#[allow(dead_code)]
+pub fn presigned_checkin_invalidate_after(
+    conn: &Connection,
+    after_sequence_index: i64,
+    invalidated_at: u64,
+    reason: &str,
+) -> SqlResult<usize> {
+    let affected = conn.execute(
+        "UPDATE presigned_checkins
+         SET invalidated_at = ?1, invalidation_reason = ?2
+         WHERE broadcast_at IS NULL AND invalidated_at IS NULL
+           AND sequence_index > ?3",
+        params![invalidated_at, reason, after_sequence_index],
+    )?;
+    Ok(affected)
+}
+
+/// Count active (unbroadcast, non-invalidated) pre-signed check-ins.
+#[allow(dead_code)]
+pub fn presigned_checkin_count_active(conn: &Connection) -> SqlResult<i64> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT COUNT(*) FROM presigned_checkins
+         WHERE broadcast_at IS NULL AND invalidated_at IS NULL",
+    )?;
+    let count: i64 = stmt.query_row([], |row| row.get(0))?;
+    Ok(count)
+}
+
+/// Delete a pre-signed check-in by ID (only if not yet broadcast).
+#[allow(dead_code)]
+pub fn presigned_checkin_delete(conn: &Connection, id: i64) -> SqlResult<bool> {
+    let affected = conn.execute(
+        "DELETE FROM presigned_checkins WHERE id = ?1 AND broadcast_at IS NULL",
+        params![id],
+    )?;
+    Ok(affected > 0)
+}
+
+/// Clear all pre-signed check-ins (for re-generation).
+#[allow(dead_code)]
+pub fn presigned_checkin_clear_all(conn: &Connection) -> SqlResult<usize> {
+    let affected = conn.execute(
+        "DELETE FROM presigned_checkins WHERE broadcast_at IS NULL AND invalidated_at IS NULL",
+        [],
+    )?;
+    Ok(affected)
+}
+
+// ============================================================================
+// Relay Publications (v0.3.1 — locked share relay storage)
+// ============================================================================
+
+/// A relay publication record.
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RelayPublicationRow {
+    pub id: i64,
+    pub split_id: String,
+    pub heir_fingerprint: String,
+    pub heir_npub: String,
+    pub relay_url: String,
+    pub event_id: Option<String>,
+    pub share_index: i32,
+    pub share_total: i32,
+    pub published_at: u64,
+    pub success: bool,
+    pub error_msg: Option<String>,
+}
+
+/// Record a relay publication attempt.
+#[allow(dead_code, clippy::too_many_arguments)]
+pub fn relay_publication_insert(
+    conn: &Connection,
+    split_id: &str,
+    heir_fingerprint: &str,
+    heir_npub: &str,
+    relay_url: &str,
+    event_id: Option<&str>,
+    share_index: i32,
+    share_total: i32,
+    published_at: u64,
+    success: bool,
+    error_msg: Option<&str>,
+) -> SqlResult<()> {
+    conn.execute(
+        "INSERT INTO relay_publications
+         (split_id, heir_fingerprint, heir_npub, relay_url, event_id, share_index, share_total, published_at, success, error_msg)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![
+            split_id,
+            heir_fingerprint,
+            heir_npub,
+            relay_url,
+            event_id,
+            share_index,
+            share_total,
+            published_at,
+            success as i32,
+            error_msg,
+        ],
+    )?;
+    Ok(())
+}
+
+/// Get the last successful relay publication for a split.
+#[allow(dead_code)]
+pub fn relay_publication_last(conn: &Connection, split_id: &str) -> SqlResult<Option<u64>> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT published_at FROM relay_publications
+         WHERE split_id = ?1 AND success = 1
+         ORDER BY id DESC LIMIT 1",
+    )?;
+    let mut rows = stmt.query(params![split_id])?;
+    match rows.next()? {
+        Some(row) => Ok(Some(row.get(0)?)),
+        None => Ok(None),
+    }
+}
+
+/// List all relay publications (most recent first).
+#[allow(dead_code)]
+pub fn relay_publication_list(conn: &Connection) -> SqlResult<Vec<RelayPublicationRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, split_id, heir_fingerprint, heir_npub, relay_url, event_id,
+                share_index, share_total, published_at, success, error_msg
+         FROM relay_publications ORDER BY id DESC",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(RelayPublicationRow {
+            id: row.get(0)?,
+            split_id: row.get(1)?,
+            heir_fingerprint: row.get(2)?,
+            heir_npub: row.get(3)?,
+            relay_url: row.get(4)?,
+            event_id: row.get(5)?,
+            share_index: row.get(6)?,
+            share_total: row.get(7)?,
+            published_at: row.get(8)?,
+            success: row.get::<_, i32>(9)? != 0,
+            error_msg: row.get(10)?,
+        })
+    })?;
+    rows.collect()
+}
+
+/// List relay publications for a specific split.
+#[allow(dead_code)]
+pub fn relay_publication_list_by_split(
+    conn: &Connection,
+    split_id: &str,
+) -> SqlResult<Vec<RelayPublicationRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, split_id, heir_fingerprint, heir_npub, relay_url, event_id,
+                share_index, share_total, published_at, success, error_msg
+         FROM relay_publications WHERE split_id = ?1 ORDER BY id DESC",
+    )?;
+    let rows = stmt.query_map(params![split_id], |row| {
+        Ok(RelayPublicationRow {
+            id: row.get(0)?,
+            split_id: row.get(1)?,
+            heir_fingerprint: row.get(2)?,
+            heir_npub: row.get(3)?,
+            relay_url: row.get(4)?,
+            event_id: row.get(5)?,
+            share_index: row.get(6)?,
+            share_total: row.get(7)?,
+            published_at: row.get(8)?,
+            success: row.get::<_, i32>(9)? != 0,
+            error_msg: row.get(10)?,
+        })
+    })?;
+    rows.collect()
+}
+
+/// Get count of successful publications for a split.
+#[allow(dead_code)]
+pub fn relay_publication_success_count(conn: &Connection, split_id: &str) -> SqlResult<i64> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT COUNT(*) FROM relay_publications WHERE split_id = ?1 AND success = 1",
+    )?;
+    stmt.query_row(params![split_id], |row| row.get(0))
 }
 
 // ============================================================================
@@ -881,5 +1280,150 @@ mod tests {
         // Remove middle one
         heir_remove(&conn, "fp00000002").unwrap();
         assert_eq!(heir_list(&conn).unwrap().len(), 4);
+    }
+
+    #[test]
+    fn test_relay_publication_crud() {
+        let (conn, _f) = temp_db();
+
+        // No publications initially
+        let list = relay_publication_list(&conn).unwrap();
+        assert!(list.is_empty());
+        assert_eq!(relay_publication_success_count(&conn, "split1").unwrap(), 0);
+        assert_eq!(relay_publication_last(&conn, "split1").unwrap(), None);
+
+        // Insert successful publication
+        relay_publication_insert(
+            &conn,
+            "split1",
+            "fp_alice",
+            "npub1alice",
+            "wss://relay.damus.io",
+            Some("event_abc"),
+            0,
+            3,
+            1000,
+            true,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(relay_publication_success_count(&conn, "split1").unwrap(), 1);
+        assert_eq!(relay_publication_last(&conn, "split1").unwrap(), Some(1000));
+
+        // Insert failed publication
+        relay_publication_insert(
+            &conn,
+            "split1",
+            "fp_alice",
+            "npub1alice",
+            "wss://nos.lol",
+            None,
+            1,
+            3,
+            1001,
+            false,
+            Some("relay timeout"),
+        )
+        .unwrap();
+
+        // Success count unaffected by failure
+        assert_eq!(relay_publication_success_count(&conn, "split1").unwrap(), 1);
+
+        // List all
+        let all = relay_publication_list(&conn).unwrap();
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].published_at, 1001); // Most recent first
+        assert!(!all[0].success);
+        assert_eq!(all[0].error_msg.as_deref(), Some("relay timeout"));
+
+        // List by split
+        let by_split = relay_publication_list_by_split(&conn, "split1").unwrap();
+        assert_eq!(by_split.len(), 2);
+
+        // Different split has no entries
+        let other = relay_publication_list_by_split(&conn, "split2").unwrap();
+        assert!(other.is_empty());
+        assert_eq!(relay_publication_success_count(&conn, "split2").unwrap(), 0);
+    }
+
+    #[test]
+    fn test_relay_publication_multiple_heirs() {
+        let (conn, _f) = temp_db();
+
+        // Publish shares for two heirs
+        for i in 0..3 {
+            relay_publication_insert(
+                &conn,
+                "split_multi",
+                "fp_alice",
+                "npub1alice",
+                "wss://relay.damus.io",
+                Some(&format!("event_a{}", i)),
+                i,
+                3,
+                2000 + i as u64,
+                true,
+                None,
+            )
+            .unwrap();
+
+            relay_publication_insert(
+                &conn,
+                "split_multi",
+                "fp_bob",
+                "npub1bob",
+                "wss://relay.damus.io",
+                Some(&format!("event_b{}", i)),
+                i,
+                3,
+                2000 + i as u64,
+                true,
+                None,
+            )
+            .unwrap();
+        }
+
+        assert_eq!(
+            relay_publication_success_count(&conn, "split_multi").unwrap(),
+            6
+        );
+
+        let all = relay_publication_list_by_split(&conn, "split_multi").unwrap();
+        assert_eq!(all.len(), 6);
+    }
+
+    #[test]
+    fn test_relay_publication_persistence() {
+        let file = NamedTempFile::new().expect("create temp file");
+        let db_path = file.path().to_path_buf();
+
+        // Write
+        {
+            let conn = open_db(&db_path).expect("open db 1");
+            relay_publication_insert(
+                &conn,
+                "persist_test",
+                "fp_test",
+                "npub1test",
+                "wss://relay.damus.io",
+                Some("event_persist"),
+                0,
+                1,
+                9999,
+                true,
+                None,
+            )
+            .unwrap();
+        }
+
+        // Read from new connection
+        {
+            let conn = open_db(&db_path).expect("open db 2");
+            let last = relay_publication_last(&conn, "persist_test").unwrap();
+            assert_eq!(last, Some(9999));
+            let count = relay_publication_success_count(&conn, "persist_test").unwrap();
+            assert_eq!(count, 1);
+        }
     }
 }

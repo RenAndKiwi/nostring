@@ -78,6 +78,17 @@ fn main() {
             commands::check_and_notify,
             // Descriptor backup
             commands::get_descriptor_backup,
+            // Spend type detection
+            commands::detect_spend_type,
+            commands::get_spend_events,
+            commands::check_heir_claims,
+            // Pre-signed check-in stack (v0.3 auto check-in)
+            commands::add_presigned_checkin,
+            commands::get_presigned_checkin_status,
+            commands::auto_broadcast_checkin,
+            commands::invalidate_presigned_checkins,
+            commands::delete_presigned_checkin,
+            commands::generate_checkin_psbt_chain,
             // Settings
             commands::get_electrum_url,
             commands::set_electrum_url,
