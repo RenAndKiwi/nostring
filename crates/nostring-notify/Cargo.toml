@@ -12,8 +12,8 @@ nostring-electrum = { path = "../nostring-electrum" }
 # Email
 lettre = { version = "0.11", default-features = false, features = ["smtp-transport", "rustls-tls", "builder"] }
 
-# Nostr (with nip04 for encrypted DMs)
-nostr-sdk = { workspace = true, features = ["nip04"] }
+# Nostr (with nip04 + nip44 for encrypted DMs and relay storage)
+nostr-sdk = { workspace = true, features = ["nip04", "nip44"] }
 
 # Bitcoin (for network types)
 bitcoin.workspace = true
@@ -27,6 +27,9 @@ thiserror.workspace = true
 
 # Async
 tokio.workspace = true
+
+# Random (for split ID generation)
+rand.workspace = true
 
 # Logging
 log = "0.4"

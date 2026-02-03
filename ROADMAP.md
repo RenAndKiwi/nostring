@@ -64,14 +64,40 @@
 - [x] Config parsing tests (10 tests)
 - [x] Graceful shutdown via Ctrl-C / SIGTERM
 
+### Nostr Relay Storage for Locked Shares (Phase 8.3) ✅
+- [x] `nostr_relay.rs` module in nostring-notify: publish/fetch encrypted shares
+- [x] NIP-44 encryption (modern, with padding) with NIP-04 fallback
+- [x] Multi-relay redundancy: publish to damus, nostr.band, nos.lol
+- [x] `publish_locked_shares_to_relays` Tauri command: encrypts each locked share to each heir's npub
+- [x] `fetch_locked_shares_from_relays` Tauri command: heir recovery from relays
+- [x] `get_relay_publication_status` Tauri command: view last publication info
+- [x] `relay_publications` SQLite table for tracking publication status
+- [x] Split ID generation for grouping share publications
+- [x] Comprehensive tests: NIP-44/NIP-04 roundtrip, payload serialization, multi-share encrypt/decrypt, DB CRUD (14 new tests)
+
+### Pre-signed Check-in Stack (Auto Check-in) ✅
+- [x] SQLite table: `presigned_checkins` (id, psbt_base64, sequence_index, spending info, broadcast/invalidation tracking)
+- [x] `add_presigned_checkin` — import signed PSBTs from hardware wallet
+- [x] `get_presigned_checkin_status` — view stack status (active count, low warning)
+- [x] `auto_broadcast_checkin` — automatically broadcast next PSBT when timelock approaches threshold
+- [x] `invalidate_presigned_checkins` — mark all active PSBTs as stale (e.g., after manual check-in)
+- [x] `delete_presigned_checkin` — remove a specific unbroadcast PSBT
+- [x] `generate_checkin_psbt_chain` — create N sequential unsigned PSBTs for batch signing on hardware wallet
+- [x] Manual check-in (`broadcast_signed_psbt`) auto-invalidates the pre-signed stack
+- [x] Sequential chain: each PSBT spends the output of the previous one
+- [x] Low-stack warning when < 2 active PSBTs remain
+- [x] Comprehensive tests: add/list, next selection, broadcast lifecycle, invalidation (all/after),
+      delete, clear, mixed states, persistence across connections (10 tests)
+
 ### Planned
 - [ ] Frontend: heir setup form with optional npub + email fields
 - [ ] Frontend: delivery log viewer (show what was sent to whom and when)
+- [ ] Frontend: "Pre-sign Check-ins" section with PSBT generation + import workflow
+- [ ] Frontend: button in Settings to publish locked shares to relays
 - [ ] NIP-17 (gift-wrapped DMs) support as alternative to NIP-04
 - [ ] Encrypted descriptor backup (encrypt with heir's npub before sending)
-- [ ] Multi-relay delivery confirmation (require N-of-M relays to accept)
 - [ ] Push notification integration (mobile companion app)
-- [ ] PSBT auto-signing option for check-ins (with hardware wallet bridge)
+- [ ] Option A: Hot key mode for fully automated check-in (advanced users — encrypted seed on device)
 
 ## Security Model
 
@@ -82,8 +108,25 @@
 - All delivery attempts (success + failure) are logged with timestamps
 - The descriptor alone is not sufficient to spend — heirs still need their signing device
 
+### Pre-signed Check-in Stack
+- Pre-signed PSBTs contain **fully signed transactions** — treat as sensitive data at rest
+- Each PSBT in the chain spends the output of the previous one (sequential dependency)
+- If the owner checks in manually, **all remaining pre-signed PSBTs become invalid** (the UTXO they spend no longer exists)
+- The app automatically invalidates the stack when a manual check-in is broadcast
+- Stack depth is limited to 12 PSBTs — practical limit for sequential hardware wallet signing
+- Low-stack warning at < 2 remaining PSBTs prompts the user to generate more
+
 ### Notification Architecture
 - **Service key**: a dedicated Nostr keypair (not the owner's keys) sends all notifications
 - **Owner notifications**: reminders at 30d, 7d, 1d, 0d thresholds
 - **Heir notifications**: only at critical threshold, includes full descriptor backup
 - Both Nostr DM (NIP-04 encrypted) and SMTP email channels supported
+
+### Relay Storage (Phase 8.3)
+- Locked shares published to relays are **NIP-44 encrypted** to each heir's npub
+- Even if relays are scraped, encrypted blobs are useless without the heir's nsec
+- Even with decrypted locked shares, reconstruction requires meeting the **Shamir threshold**
+  (locked shares alone can't reconstruct without the heir's pre-distributed share)
+- Multi-relay redundancy: published to 3+ relays, succeeds if any 1 accepts
+- Relay downtime is expected — this is defense-in-depth alongside the descriptor backup file
+- Split IDs group related publications for easy tracking and de-duplication

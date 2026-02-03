@@ -1810,16 +1810,18 @@ pub struct RelayHeirStatus {
 /// beyond the descriptor backup file.
 ///
 /// The encrypted shares are useless without threshold — this is defense in depth.
+#[allow(dead_code)]
 #[tauri::command]
 pub async fn publish_locked_shares_to_relays(
     state: State<'_, AppState>,
 ) -> Result<CommandResult<RelayPublishStatus>, ()> {
     // Require wallet to be unlocked
-    let unlocked = state.unlocked.lock().unwrap();
-    if !*unlocked {
-        return Ok(CommandResult::err("Wallet is locked. Unlock first."));
+    {
+        let unlocked = state.unlocked.lock().unwrap();
+        if !*unlocked {
+            return Ok(CommandResult::err("Wallet is locked. Unlock first."));
+        }
     }
-    drop(unlocked);
 
     // Get the service key (sender)
     let service_secret = {
@@ -1978,6 +1980,7 @@ pub async fn publish_locked_shares_to_relays(
 ///
 /// The heir provides their nsec and the service key's npub to find
 /// and decrypt the encrypted shares published to relays.
+#[allow(dead_code)]
 #[tauri::command]
 pub async fn fetch_locked_shares_from_relays(
     heir_nsec: String,
@@ -2013,6 +2016,7 @@ pub async fn fetch_locked_shares_from_relays(
 }
 
 /// Result of fetching shares from relays
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FetchedSharesResult {
     pub shares: Vec<String>,
@@ -2021,6 +2025,7 @@ pub struct FetchedSharesResult {
 }
 
 /// Get relay publication status (last publish info).
+#[allow(dead_code)]
 #[tauri::command]
 pub async fn get_relay_publication_status(
     state: State<'_, AppState>,
@@ -2536,7 +2541,6 @@ pub async fn generate_checkin_psbt_chain(
     let utxo = &utxos[0];
     let fee_rate = 10u64;
 
-    use bitcoin::ScriptBuf;
     use nostring_inherit::checkin::{CheckinTxBuilder, InheritanceUtxo as InhUtxo};
 
     let mut psbts: Vec<String> = Vec::with_capacity(count);
@@ -2544,7 +2548,7 @@ pub async fn generate_checkin_psbt_chain(
         utxo.outpoint,
         utxo.value,
         utxo.height,
-        ScriptBuf::from(script.to_owned()),
+        script.to_owned(),
     );
 
     for i in 0..count {
@@ -2600,7 +2604,7 @@ pub async fn generate_checkin_psbt_chain(
             next_outpoint,
             value,
             current_utxo.confirmation_height + 1,
-            ScriptBuf::from(script.to_owned()),
+            script.to_owned(),
         );
 
         use base64::prelude::*;

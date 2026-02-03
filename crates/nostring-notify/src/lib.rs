@@ -28,6 +28,7 @@
 
 mod config;
 pub mod nostr_dm;
+pub mod nostr_relay;
 pub mod smtp;
 pub mod templates;
 

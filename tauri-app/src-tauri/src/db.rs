@@ -1426,4 +1426,213 @@ mod tests {
             assert_eq!(count, 1);
         }
     }
+
+    // ====================================================================
+    // Pre-signed Check-in Stack Tests (v0.3)
+    // ====================================================================
+
+    #[test]
+    fn test_presigned_checkin_add_and_list() {
+        let (conn, _f) = temp_db();
+
+        // Initially empty
+        let active = presigned_checkin_list_active(&conn).unwrap();
+        assert!(active.is_empty());
+        assert_eq!(presigned_checkin_count_active(&conn).unwrap(), 0);
+
+        // Add three pre-signed check-ins
+        let id1 = presigned_checkin_add(&conn, "psbt_base64_0", 0, Some("txid_utxo"), Some(0), 1000).unwrap();
+        let id2 = presigned_checkin_add(&conn, "psbt_base64_1", 1, Some("txid_from_0"), Some(0), 1001).unwrap();
+        let id3 = presigned_checkin_add(&conn, "psbt_base64_2", 2, Some("txid_from_1"), Some(0), 1002).unwrap();
+
+        assert!(id1 > 0);
+        assert!(id2 > id1);
+        assert!(id3 > id2);
+
+        // List active
+        let active = presigned_checkin_list_active(&conn).unwrap();
+        assert_eq!(active.len(), 3);
+        assert_eq!(active[0].sequence_index, 0);
+        assert_eq!(active[1].sequence_index, 1);
+        assert_eq!(active[2].sequence_index, 2);
+        assert_eq!(active[0].psbt_base64, "psbt_base64_0");
+
+        assert_eq!(presigned_checkin_count_active(&conn).unwrap(), 3);
+    }
+
+    #[test]
+    fn test_presigned_checkin_next() {
+        let (conn, _f) = temp_db();
+
+        // No next when empty
+        assert!(presigned_checkin_next(&conn).unwrap().is_none());
+
+        // Add out of order
+        presigned_checkin_add(&conn, "psbt_2", 2, None, None, 1000).unwrap();
+        presigned_checkin_add(&conn, "psbt_0", 0, None, None, 1001).unwrap();
+        presigned_checkin_add(&conn, "psbt_1", 1, None, None, 1002).unwrap();
+
+        // Next should be sequence 0
+        let next = presigned_checkin_next(&conn).unwrap().unwrap();
+        assert_eq!(next.sequence_index, 0);
+        assert_eq!(next.psbt_base64, "psbt_0");
+    }
+
+    #[test]
+    fn test_presigned_checkin_broadcast_lifecycle() {
+        let (conn, _f) = temp_db();
+
+        let id1 = presigned_checkin_add(&conn, "psbt_0", 0, None, None, 1000).unwrap();
+        let _id2 = presigned_checkin_add(&conn, "psbt_1", 1, None, None, 1001).unwrap();
+
+        // Mark first as broadcast
+        assert!(presigned_checkin_mark_broadcast(&conn, id1, 2000, "txid_broadcast_0").unwrap());
+
+        // Active count should decrease
+        assert_eq!(presigned_checkin_count_active(&conn).unwrap(), 1);
+
+        // Next should now be sequence 1
+        let next = presigned_checkin_next(&conn).unwrap().unwrap();
+        assert_eq!(next.sequence_index, 1);
+
+        // List all should show both
+        let all = presigned_checkin_list_all(&conn).unwrap();
+        assert_eq!(all.len(), 2);
+
+        // Verify broadcast fields
+        let broadcast = all.iter().find(|r| r.id == id1).unwrap();
+        assert_eq!(broadcast.broadcast_at, Some(2000));
+        assert_eq!(broadcast.txid.as_deref(), Some("txid_broadcast_0"));
+    }
+
+    #[test]
+    fn test_presigned_checkin_invalidate_all() {
+        let (conn, _f) = temp_db();
+
+        presigned_checkin_add(&conn, "psbt_0", 0, None, None, 1000).unwrap();
+        presigned_checkin_add(&conn, "psbt_1", 1, None, None, 1001).unwrap();
+        presigned_checkin_add(&conn, "psbt_2", 2, None, None, 1002).unwrap();
+
+        assert_eq!(presigned_checkin_count_active(&conn).unwrap(), 3);
+
+        // Invalidate all
+        let count = presigned_checkin_invalidate_all(&conn, 5000, "Manual check-in").unwrap();
+        assert_eq!(count, 3);
+
+        // No active remaining
+        assert_eq!(presigned_checkin_count_active(&conn).unwrap(), 0);
+        assert!(presigned_checkin_next(&conn).unwrap().is_none());
+
+        // But all still exist in full list
+        let all = presigned_checkin_list_all(&conn).unwrap();
+        assert_eq!(all.len(), 3);
+        assert_eq!(all[0].invalidated_at, Some(5000));
+        assert_eq!(all[0].invalidation_reason.as_deref(), Some("Manual check-in"));
+    }
+
+    #[test]
+    fn test_presigned_checkin_invalidate_after() {
+        let (conn, _f) = temp_db();
+
+        presigned_checkin_add(&conn, "psbt_0", 0, None, None, 1000).unwrap();
+        presigned_checkin_add(&conn, "psbt_1", 1, None, None, 1001).unwrap();
+        presigned_checkin_add(&conn, "psbt_2", 2, None, None, 1002).unwrap();
+        presigned_checkin_add(&conn, "psbt_3", 3, None, None, 1003).unwrap();
+
+        // Invalidate after sequence 1 (keeps 0 and 1, invalidates 2 and 3)
+        let count = presigned_checkin_invalidate_after(&conn, 1, 5000, "Chain broken").unwrap();
+        assert_eq!(count, 2);
+
+        // Only 0 and 1 remain active
+        assert_eq!(presigned_checkin_count_active(&conn).unwrap(), 2);
+        let active = presigned_checkin_list_active(&conn).unwrap();
+        assert_eq!(active[0].sequence_index, 0);
+        assert_eq!(active[1].sequence_index, 1);
+    }
+
+    #[test]
+    fn test_presigned_checkin_delete() {
+        let (conn, _f) = temp_db();
+
+        let id1 = presigned_checkin_add(&conn, "psbt_0", 0, None, None, 1000).unwrap();
+        let id2 = presigned_checkin_add(&conn, "psbt_1", 1, None, None, 1001).unwrap();
+
+        // Delete first
+        assert!(presigned_checkin_delete(&conn, id1).unwrap());
+        assert_eq!(presigned_checkin_count_active(&conn).unwrap(), 1);
+
+        // Can't delete same one twice
+        assert!(!presigned_checkin_delete(&conn, id1).unwrap());
+
+        // Mark second as broadcast, then try to delete — should fail
+        presigned_checkin_mark_broadcast(&conn, id2, 2000, "txid_x").unwrap();
+        assert!(!presigned_checkin_delete(&conn, id2).unwrap());
+    }
+
+    #[test]
+    fn test_presigned_checkin_clear_all() {
+        let (conn, _f) = temp_db();
+
+        let id1 = presigned_checkin_add(&conn, "psbt_0", 0, None, None, 1000).unwrap();
+        presigned_checkin_add(&conn, "psbt_1", 1, None, None, 1001).unwrap();
+        presigned_checkin_add(&conn, "psbt_2", 2, None, None, 1002).unwrap();
+
+        // Broadcast one
+        presigned_checkin_mark_broadcast(&conn, id1, 2000, "txid_x").unwrap();
+
+        // Clear all active (unbroadcast, non-invalidated)
+        let cleared = presigned_checkin_clear_all(&conn).unwrap();
+        assert_eq!(cleared, 2); // Only 2 unbroadcast were cleared
+
+        // The broadcast one remains
+        let all = presigned_checkin_list_all(&conn).unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].txid.as_deref(), Some("txid_x"));
+    }
+
+    #[test]
+    fn test_presigned_checkin_mixed_states() {
+        let (conn, _f) = temp_db();
+
+        // Create a realistic scenario
+        let id0 = presigned_checkin_add(&conn, "psbt_0", 0, Some("original_utxo"), Some(0), 1000).unwrap();
+        let id1 = presigned_checkin_add(&conn, "psbt_1", 1, Some("txid_from_0"), Some(0), 1001).unwrap();
+        let _id2 = presigned_checkin_add(&conn, "psbt_2", 2, Some("txid_from_1"), Some(0), 1002).unwrap();
+
+        // Broadcast first one
+        presigned_checkin_mark_broadcast(&conn, id0, 2000, "txid_broadcast_0").unwrap();
+        assert_eq!(presigned_checkin_count_active(&conn).unwrap(), 2);
+
+        // Broadcast second one
+        presigned_checkin_mark_broadcast(&conn, id1, 3000, "txid_broadcast_1").unwrap();
+        assert_eq!(presigned_checkin_count_active(&conn).unwrap(), 1);
+
+        // Next should be sequence 2
+        let next = presigned_checkin_next(&conn).unwrap().unwrap();
+        assert_eq!(next.sequence_index, 2);
+        assert_eq!(next.spending_txid.as_deref(), Some("txid_from_1"));
+    }
+
+    #[test]
+    fn test_presigned_checkin_persistence() {
+        let file = NamedTempFile::new().expect("create temp file");
+        let db_path = file.path().to_path_buf();
+
+        // Write
+        {
+            let conn = open_db(&db_path).expect("open db 1");
+            presigned_checkin_add(&conn, "psbt_persist", 0, Some("txid_p"), Some(1), 5000).unwrap();
+        }
+
+        // Read from new connection
+        {
+            let conn = open_db(&db_path).expect("open db 2");
+            let active = presigned_checkin_list_active(&conn).unwrap();
+            assert_eq!(active.len(), 1);
+            assert_eq!(active[0].psbt_base64, "psbt_persist");
+            assert_eq!(active[0].spending_txid.as_deref(), Some("txid_p"));
+            assert_eq!(active[0].spending_vout, Some(1));
+            assert_eq!(active[0].created_at, 5000);
+        }
+    }
 }
