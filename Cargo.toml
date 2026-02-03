@@ -52,6 +52,3 @@ anyhow = "1.0"
 
 # Tauri
 tauri = "2.9"
-
-# Pin transitive deps for MSRV compatibility (base64ct 1.8+ requires edition 2024)
-base64ct = "=1.6.0"

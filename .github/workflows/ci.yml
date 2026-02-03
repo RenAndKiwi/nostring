@@ -9,7 +9,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  MSRV: "1.75.0"
+  MSRV: "1.85.0"
 
 jobs:
   # Quick checks (formatting, clippy)
@@ -58,7 +58,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        rust: ["1.75.0"]
+        rust: ["1.85.0"]
     steps:
       - uses: actions/checkout@v4
       
