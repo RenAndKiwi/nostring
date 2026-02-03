@@ -255,6 +255,7 @@ pub fn spend_event_insert(
 }
 
 /// List all spend events (most recent first).
+#[allow(dead_code)]
 pub fn spend_event_list(conn: &Connection) -> SqlResult<Vec<SpendEventRow>> {
     let mut stmt = conn.prepare(
         "SELECT id, timestamp, txid, spend_type, confidence, method, policy_id, outpoint
