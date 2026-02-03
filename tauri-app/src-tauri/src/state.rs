@@ -68,6 +68,10 @@ pub struct AppState {
     pub cached_utxos: Mutex<Vec<InheritanceUtxo>>,
     /// Registry of designated heirs
     pub heir_registry: Mutex<HeirRegistry>,
+    /// Service key secret (hex-encoded) — used to send Nostr DM reminders
+    pub service_key: Mutex<Option<String>>,
+    /// Service key npub (bech32) — owner follows this to receive notifications
+    pub service_npub: Mutex<Option<String>>,
 }
 
 impl Default for AppState {
@@ -83,6 +87,8 @@ impl Default for AppState {
             inheritance_config: Mutex::new(None),
             cached_utxos: Mutex::new(Vec::new()),
             heir_registry: Mutex::new(HeirRegistry::new()),
+            service_key: Mutex::new(None),
+            service_npub: Mutex::new(None),
         }
     }
 }

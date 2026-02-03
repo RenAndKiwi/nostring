@@ -1,5 +1,7 @@
-//! Tauri commands — the bridge between frontend and Rust backend
+//! Tauri commands — bridge between the frontend and Rust backend.
 //!
+//! Architecture: watch-only first. The recommended path imports an xpub
+//! (no private keys). Seed import/create remain as advanced options.
 //! All commands are async and return JSON-serializable results.
 
 use crate::state::{AppState, PolicyStatus};
@@ -101,7 +103,11 @@ pub async fn import_seed(
     }
 }
 
-/// Import watch-only wallet (xpub only, no seed)
+/// Import a watch-only wallet (xpub only, no private keys).
+///
+/// This is the **recommended** setup path. The owner's keys stay on their
+/// hardware wallet; NoString only coordinates check-ins and generates PSBTs
+/// for external signing.
 #[tauri::command]
 pub async fn import_watch_only(
     xpub: String,
@@ -135,7 +141,10 @@ pub async fn import_watch_only(
     Ok(CommandResult::ok(true))
 }
 
-/// Check if a seed or wallet is loaded
+/// Check if a wallet is configured (seed **or** watch-only xpub).
+///
+/// Returns `true` when either an encrypted seed or an owner xpub is present,
+/// meaning the user has already been through initial setup.
 #[tauri::command]
 pub async fn has_seed(state: State<'_, AppState>) -> Result<bool, ()> {
     let seed_lock = state.encrypted_seed.lock().unwrap();
@@ -178,6 +187,40 @@ pub async fn lock_wallet(state: State<'_, AppState>) -> Result<(), ()> {
     let mut unlocked = state.unlocked.lock().unwrap();
     *unlocked = false;
     Ok(())
+}
+
+// ============================================================================
+// Service Key Commands (Notification Identity)
+// ============================================================================
+
+/// Generate a random Nostr keypair for sending check-in reminders.
+///
+/// This key is NOT the owner's identity — it's a dedicated service key used
+/// only to send encrypted DM notifications. The owner follows this npub in
+/// their Nostr client to receive reminders.
+#[tauri::command]
+pub async fn generate_service_key(state: State<'_, AppState>) -> Result<CommandResult<String>, ()> {
+    use nostr_sdk::prelude::*;
+
+    let keys = Keys::generate();
+    let secret_hex = keys.secret_key().to_secret_hex();
+    let npub = keys.public_key().to_bech32().unwrap_or_default();
+
+    // Store in state
+    let mut sk = state.service_key.lock().unwrap();
+    *sk = Some(secret_hex);
+
+    let mut np = state.service_npub.lock().unwrap();
+    *np = Some(npub.clone());
+
+    Ok(CommandResult::ok(npub))
+}
+
+/// Get the service key's npub (for the owner to follow in their Nostr client).
+#[tauri::command]
+pub async fn get_service_npub(state: State<'_, AppState>) -> Result<Option<String>, ()> {
+    let npub = state.service_npub.lock().unwrap();
+    Ok(npub.clone())
 }
 
 // ============================================================================

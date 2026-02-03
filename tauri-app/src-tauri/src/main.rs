@@ -37,6 +37,9 @@ fn main() {
             // Shamir shares
             commands::generate_codex32_shares,
             commands::combine_codex32_shares,
+            // Service key (notifications)
+            commands::generate_service_key,
+            commands::get_service_npub,
             // Settings
             commands::get_electrum_url,
             commands::set_electrum_url,

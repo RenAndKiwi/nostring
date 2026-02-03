@@ -16,6 +16,7 @@ nostring-inherit = { path = "../../crates/nostring-inherit" }
 nostring-shamir = { path = "../../crates/nostring-shamir" }
 tauri.workspace = true
 bitcoin.workspace = true
+nostr-sdk.workspace = true
 miniscript.workspace = true
 serde.workspace = true
 serde_json.workspace = true

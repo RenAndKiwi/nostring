@@ -9,10 +9,10 @@ const invoke = DEMO_MODE
         console.log('[DEMO] invoke:', cmd, args);
         // Mock responses for demo mode
         const mocks = {
-            'has_seed': false,
+            'has_seed': false, // checks seed OR xpub (i.e., "has wallet")
             'create_seed': { 
                 success: true, 
-                data: 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art'
+                data: 'zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong' // placeholder 12-word mnemonic for demo
             },
             'store_seed': { success: true },
             'unlock': { success: true },
@@ -65,6 +65,11 @@ const invoke = DEMO_MODE
                     'ms10testbzzzzzzzzzzzzzzzzzzzzzzzzzz'
                 ]
             },
+            'generate_service_key': {
+                success: true,
+                data: 'npub1demo0servicekey0placeholder0000000000000000000000000000000'
+            },
+            'get_service_npub': 'npub1demo0servicekey0placeholder0000000000000000000000000000000',
         };
         return mocks[cmd] ?? { success: true }
     }
@@ -86,10 +91,10 @@ let wizardHeirs = [];
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('NoString initializing...');
     
-    // Check if seed exists
-    const hasSeed = await invoke('has_seed');
+    // Check if wallet exists (seed OR watch-only xpub)
+    const hasWallet = await invoke('has_seed');
     
-    if (hasSeed) {
+    if (hasWallet) {
         showLockScreen();
     } else {
         showSetupScreen();
@@ -543,6 +548,11 @@ function renderWizardStep() {
                 <p class="text-muted">${wizardHeirs.length > 0 ? 'Your inheritance policy is ready.' : 'You can add heirs later in the Heirs tab.'}</p>
                 
                 <div class="wizard-complete">
+                    <div id="service-key-section" class="service-key-setup">
+                        <h3>🔔 Check-in Reminders</h3>
+                        <p class="text-muted">Setting up notification key...</p>
+                    </div>
+                    
                     <div class="next-steps">
                         <h3>What's Next?</h3>
                         <ul>
@@ -556,6 +566,9 @@ function renderWizardStep() {
                 </div>
             </div>
         `;
+        
+        // Auto-generate service key for notifications
+        generateServiceKeyOnSetup();
         
         document.getElementById('btn-wizard-finish').addEventListener('click', () => {
             showMainApp();
@@ -748,6 +761,14 @@ function showMainApp() {
             </div>
             
             <div class="settings-group">
+                <h3>🔔 Notifications</h3>
+                <p class="text-muted">NoString sends check-in reminders via Nostr DM from its service key.</p>
+                <div class="setting" id="service-npub-container">
+                    <p class="text-muted">Loading...</p>
+                </div>
+            </div>
+            
+            <div class="settings-group">
                 <h3>Network</h3>
                 <div class="setting">
                     <label>Electrum Server:</label>
@@ -810,6 +831,7 @@ function showMainApp() {
     // Load initial data
     refreshStatus();
     loadElectrumUrl();
+    loadServiceNpub();
 }
 
 // ============================================================================
@@ -1282,6 +1304,76 @@ function promptDescriptorBackup() {
     document.getElementById('btn-skip-descriptor').addEventListener('click', () => {
         modal.remove();
     });
+}
+
+// ============================================================================
+// Service Key (Notification Identity)
+// ============================================================================
+
+async function generateServiceKeyOnSetup() {
+    const section = document.getElementById('service-key-section');
+    try {
+        const result = await invoke('generate_service_key');
+        if (result.success && result.data) {
+            section.innerHTML = `
+                <h3>🔔 Check-in Reminders</h3>
+                <p>Follow this npub in your Nostr client to receive check-in reminders:</p>
+                <div class="service-npub-display">
+                    <code id="wizard-service-npub">${escapeHtml(result.data)}</code>
+                    <button type="button" id="btn-copy-wizard-npub" class="btn-icon" title="Copy">📋</button>
+                </div>
+                <p class="text-muted" style="font-size: 0.85rem;">Use Damus, Primal, Amethyst, or any Nostr client. This is NoString's notification-only identity — not your personal Nostr key.</p>
+            `;
+            document.getElementById('btn-copy-wizard-npub').addEventListener('click', () => {
+                navigator.clipboard.writeText(result.data);
+                showSuccess('Service npub copied to clipboard');
+            });
+        } else {
+            section.innerHTML = `
+                <h3>🔔 Check-in Reminders</h3>
+                <p class="text-muted">Could not generate notification key. You can set this up later in Settings.</p>
+            `;
+        }
+    } catch (err) {
+        console.error('Failed to generate service key:', err);
+        section.innerHTML = `
+            <h3>🔔 Check-in Reminders</h3>
+            <p class="text-muted">Could not generate notification key. You can set this up later in Settings.</p>
+        `;
+    }
+}
+
+async function loadServiceNpub() {
+    try {
+        const npub = await invoke('get_service_npub');
+        const container = document.getElementById('service-npub-container');
+        if (npub && container) {
+            container.innerHTML = `
+                <div class="service-npub-display">
+                    <code id="settings-service-npub">${escapeHtml(npub)}</code>
+                    <button type="button" id="btn-copy-settings-npub" class="btn-icon" title="Copy">📋</button>
+                </div>
+                <p class="text-muted" style="font-size: 0.85rem;">Follow this npub in your Nostr client (Damus, Primal, etc.) to receive check-in reminders.</p>
+            `;
+            document.getElementById('btn-copy-settings-npub').addEventListener('click', () => {
+                navigator.clipboard.writeText(npub);
+                showSuccess('Service npub copied to clipboard');
+            });
+        } else if (container) {
+            container.innerHTML = `
+                <p class="text-muted">No service key generated yet.</p>
+                <button type="button" id="btn-generate-service-key" class="btn-secondary">Generate Key</button>
+            `;
+            document.getElementById('btn-generate-service-key').addEventListener('click', async () => {
+                const result = await invoke('generate_service_key');
+                if (result.success) {
+                    loadServiceNpub(); // Reload to show the npub
+                }
+            });
+        }
+    } catch (err) {
+        console.error('Failed to load service npub:', err);
+    }
 }
 
 // ============================================================================
