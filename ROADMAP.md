@@ -45,15 +45,32 @@
 - [x] `revoke_nsec_inheritance` command
 - [x] Re-split detection (`was_resplit` / `previous_npub` in split result)
 
-## v0.3 — Planned
+## v0.3 — Self-Hosting & Server 🚧
 
+### Docker Self-Hosting ✅
+- [x] `nostring-server` headless binary crate — monitors inheritance UTXOs 24/7
+- [x] Reuses all library crates (watch, notify, electrum, inherit) without Tauri
+- [x] TOML configuration with environment variable overrides
+- [x] Daemon mode: periodic blockchain polling on configurable interval
+- [x] Single-check mode (`--check`) for cron-job usage
+- [x] Config validation mode (`--validate`)
+- [x] Owner notifications via Nostr DM and/or email at configurable thresholds
+- [x] Automatic heir descriptor delivery when timelock critical (≤144 blocks)
+- [x] Multi-stage Dockerfile (Rust builder → Debian slim runtime)
+- [x] `docker-compose.yml` with volume mounts, resource limits, read-only filesystem
+- [x] Non-root container user, outbound-only networking
+- [x] Example config (`nostring-server.example.toml`)
+- [x] Self-hosting documentation (`docs/SELF_HOSTING.md`)
+- [x] Config parsing tests (10 tests)
+- [x] Graceful shutdown via Ctrl-C / SIGTERM
+
+### Planned
 - [ ] Frontend: heir setup form with optional npub + email fields
 - [ ] Frontend: delivery log viewer (show what was sent to whom and when)
 - [ ] NIP-17 (gift-wrapped DMs) support as alternative to NIP-04
 - [ ] Encrypted descriptor backup (encrypt with heir's npub before sending)
 - [ ] Multi-relay delivery confirmation (require N-of-M relays to accept)
 - [ ] Push notification integration (mobile companion app)
-- [ ] Automated periodic `check_and_notify` via background scheduler
 - [ ] PSBT auto-signing option for check-ins (with hardware wallet bridge)
 
 ## Security Model

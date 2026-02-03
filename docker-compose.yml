@@ -1,0 +1,63 @@
+# ============================================================================
+# NoString Server — Docker Compose
+# ============================================================================
+#
+# Usage:
+#   1. Copy nostring-server.example.toml → config/nostring-server.toml
+#   2. Edit with your descriptor, keys, and notification settings
+#   3. docker compose up -d
+#
+# ============================================================================
+
+services:
+  nostring-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nostring-server
+    restart: unless-stopped
+
+    volumes:
+      # Persistent data (SQLite DB, watch state)
+      - nostring-data:/data
+      # Configuration file
+      - ./config:/config:ro
+
+    environment:
+      # Override config values via environment (optional)
+      # NOSTRING_DATA_DIR: /data
+      # NOSTRING_CHECK_INTERVAL: "21600"
+      # NOSTRING_LOG_LEVEL: info
+      # NOSTRING_NETWORK: bitcoin
+      # NOSTRING_ELECTRUM_URL: ssl://blockstream.info:700
+
+      # Sensitive values — prefer env vars over config file
+      # NOSTRING_SERVICE_KEY: nsec1...
+      # NOSTRING_OWNER_NPUB: npub1...
+      TZ: UTC
+
+    # No ports needed — this is an outbound-only service
+    # (connects to Electrum servers and Nostr relays)
+
+    # Resource limits (the server is lightweight)
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+
+    # Logging
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # Security: read-only root filesystem
+    read_only: true
+    tmpfs:
+      - /tmp:size=10M
+
+volumes:
+  nostring-data:
+    driver: local

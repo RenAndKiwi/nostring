@@ -1,0 +1,100 @@
+# ============================================================================
+# NoString Server Configuration
+# ============================================================================
+#
+# Copy this file to nostring-server.toml and fill in your values.
+#
+# All values can be overridden by environment variables:
+#   NOSTRING_DATA_DIR, NOSTRING_CHECK_INTERVAL, NOSTRING_LOG_LEVEL,
+#   NOSTRING_NETWORK, NOSTRING_ELECTRUM_URL, NOSTRING_DESCRIPTOR,
+#   NOSTRING_TIMELOCK_BLOCKS, NOSTRING_SERVICE_KEY, NOSTRING_OWNER_NPUB
+#
+# ============================================================================
+
+# --- Server Settings ---
+[server]
+# Directory for persistent data (SQLite DB, watch state)
+data_dir = "/data"
+
+# How often to check the blockchain (in seconds)
+# Default: 21600 (6 hours). Minimum: 60.
+check_interval_secs = 21600
+
+# Log level: error, warn, info, debug, trace
+log_level = "info"
+
+
+# --- Bitcoin Network ---
+[bitcoin]
+# Network: "bitcoin" (mainnet), "testnet", "signet", "regtest"
+network = "bitcoin"
+
+# Electrum server URL (always use SSL for mainnet!)
+electrum_url = "ssl://blockstream.info:700"
+
+
+# --- Inheritance Policy ---
+# This is the descriptor from your NoString wallet setup.
+# Export it from the desktop app: Settings → Descriptor Backup
+[policy]
+# WSH descriptor string (REQUIRED)
+# Example: wsh(or_d(pk([fingerprint/path]xpub.../0/*),and_v(v:pk([fingerprint/path]xpub.../0/*),older(26280))))
+descriptor = "YOUR_DESCRIPTOR_HERE"
+
+# Timelock duration in blocks (must match the descriptor)
+# 26280 = ~6 months, 52560 = ~1 year
+timelock_blocks = 26280
+
+# Human-readable label
+label = "inheritance"
+
+
+# --- Notifications ---
+[notifications]
+# Notification thresholds in days before expiry
+# Notifications are sent when remaining time drops below each threshold
+threshold_days = [30, 7, 1, 0]
+
+
+# --- Nostr DM Notifications (optional) ---
+# Sends encrypted DMs to the owner as check-in reminders
+[notifications.nostr]
+# Service key for sending (NOT the owner's key!)
+# Generate in the desktop app: Settings → Service Key
+# Use nsec format or hex
+service_key = "YOUR_SERVICE_NSEC_HERE"
+
+# Owner's npub — who receives the check-in reminders
+owner_npub = "YOUR_NPUB_HERE"
+
+# Nostr relay URLs
+relays = [
+    "wss://relay.damus.io",
+    "wss://relay.nostr.band",
+    "wss://nos.lol",
+]
+
+
+# --- Email Notifications (optional) ---
+# Uncomment and fill in to enable email notifications
+# [notifications.email]
+# smtp_host = "smtp.example.com"
+# smtp_port = 587
+# smtp_user = "user@example.com"
+# smtp_password = "your-smtp-password"
+# from_address = "nostring@example.com"
+# owner_email = "owner@example.com"
+
+
+# --- Heir Contacts (optional) ---
+# When the timelock reaches critical status (≤1 day), the server
+# automatically delivers the descriptor backup to configured heirs.
+#
+# [[notifications.heirs]]
+# label = "Spouse"
+# npub = "npub1..."
+# email = "spouse@example.com"
+#
+# [[notifications.heirs]]
+# label = "Child"
+# npub = "npub1..."

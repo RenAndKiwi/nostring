@@ -6,6 +6,7 @@ members = [
     "crates/nostring-electrum",
     "crates/nostring-inherit",
     "crates/nostring-notify",
+    "crates/nostring-server",
     "crates/nostring-shamir",
     "crates/nostring-watch",
     "tauri-app/src-tauri",
@@ -23,7 +24,7 @@ repository = "https://github.com/nostring/nostring"
 bip39 = { version = "2.2", features = ["rand"] }
 bitcoin = { version = "0.32", features = ["serde"] }
 secp256k1 = { version = "0.29", features = ["rand-std"] }
-nostr-sdk = "0.39"
+nostr-sdk = { version = "0.39", features = ["nip44"] }
 
 # Encryption
 aes-gcm = "0.10"

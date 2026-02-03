@@ -1,0 +1,12 @@
+target/
+.git/
+.gitignore
+*.md
+!crates/*/README.md
+docs/
+tauri-app/node_modules/
+tauri-app/dist/
+tauri-app/.next/
+config/nostring-server.toml
+.env
+*.log

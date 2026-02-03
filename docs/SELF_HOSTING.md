@@ -1,293 +1,256 @@
-# Self-Hosting Guide
+# Self-Hosting NoString Server
 
-This guide covers deploying NoString infrastructure for maximum sovereignty.
+Run NoString's inheritance monitoring service 24/7 on your own server using Docker.
 
----
+## Why Self-Host?
 
-## Overview
+The NoString desktop app is great for interactive use, but your computer isn't always on. The server component runs headlessly and:
 
-NoString is primarily a **desktop application**. However, you may want to self-host:
+- **Monitors your inheritance UTXOs** continuously via Electrum
+- **Sends check-in reminders** to you via Nostr DM and/or email
+- **Delivers descriptor backups to heirs** automatically when the timelock reaches critical status (≤1 day)
+- **Runs on any Docker-capable server** — VPS, NAS, Raspberry Pi, etc.
 
-1. **Electrum Server** — Private blockchain queries
-2. **Bitcoin Node** — Full sovereignty
-3. **Notification Relay** — Custom alert delivery
+## Prerequisites
 
----
+- Docker and Docker Compose
+- Your inheritance descriptor (export from the NoString desktop app)
+- A Nostr service key (generate in the desktop app under Settings)
+- (Optional) SMTP credentials for email notifications
 
-## Quick Start (Desktop Only)
+## Quick Start
 
-For most users, the desktop app is sufficient:
+### 1. Clone the repository
 
 ```bash
-# Build from source
-git clone https://github.com/RenAndKiwi/nostring
+git clone https://github.com/nostring/nostring.git
 cd nostring
-cargo build --release
-
-# Or download pre-built binaries
-# https://github.com/RenAndKiwi/nostring/releases
 ```
 
-No server required. The app connects to public Electrum servers by default.
-
----
-
-## Privacy-Enhanced Setup
-
-### Run Your Own Electrum Server
-
-For private blockchain queries, run [electrs](https://github.com/romanz/electrs):
+### 2. Create the configuration
 
 ```bash
-cd nostring/docker
-
-# Create electrs config
-cat > electrs.toml << 'EOF'
-network = "bitcoin"
-daemon_rpc_addr = "bitcoind:8332"
-daemon_p2p_addr = "bitcoind:8333"
-electrum_rpc_addr = "0.0.0.0:50001"
-log_filters = "INFO"
-EOF
-
-# Start with Bitcoin Core
-docker-compose --profile full-node up -d
+mkdir -p config
+cp config/nostring-server.example.toml config/nostring-server.toml
 ```
 
-Configure NoString to use your server:
+### 3. Edit the configuration
+
+Open `config/nostring-server.toml` and fill in:
+
+- **`policy.descriptor`** — Your WSH inheritance descriptor
+- **`policy.timelock_blocks`** — Must match your descriptor's timelock
+- **`notifications.nostr.service_key`** — Service nsec from the desktop app
+- **`notifications.nostr.owner_npub`** — Your npub for receiving reminders
+
+```toml
+[policy]
+descriptor = "wsh(or_d(pk([aabbccdd/84'/0'/0']xpub6.../0/*),and_v(v:pk([eeff0011/84'/0'/1']xpub6.../0/*),older(26280))))"
+timelock_blocks = 26280
+
+[notifications.nostr]
+service_key = "nsec1..."
+owner_npub = "npub1..."
 ```
-Electrum URL: tcp://localhost:50001
+
+### 4. Start the server
+
+```bash
+docker compose up -d
 ```
 
-### Hardware Requirements
+### 5. Check the logs
 
-| Component | Minimum | Recommended |
-|-----------|---------|-------------|
-| Bitcoin Core | 500GB SSD, 4GB RAM | 1TB NVMe, 8GB RAM |
-| Electrs | +50GB, 4GB RAM | +100GB, 8GB RAM |
-| Total | 600GB, 8GB RAM | 1.2TB, 16GB RAM |
+```bash
+docker compose logs -f nostring-server
+```
 
-Initial sync takes 1-3 days depending on hardware.
+You should see:
 
----
+```
+NoString server starting…
+  Network:    bitcoin
+  Electrum:   ssl://blockstream.info:700
+  Interval:   21600 seconds (6.0 hours)
+Starting check cycle…
+Block height: 935000  |  Events: 0
+No owner notification needed — timelock healthy.
+Check cycle completed successfully.
+Sleeping 21600 seconds until next check…
+```
 
-## Full Sovereignty Stack
+## Configuration Reference
 
-### docker-compose.yml
+### Server Settings
+
+| Key | Env Var | Default | Description |
+|-----|---------|---------|-------------|
+| `server.data_dir` | `NOSTRING_DATA_DIR` | `/data` | Persistent data directory |
+| `server.check_interval_secs` | `NOSTRING_CHECK_INTERVAL` | `21600` (6h) | Time between checks |
+| `server.log_level` | `NOSTRING_LOG_LEVEL` | `info` | Log verbosity |
+
+### Bitcoin Settings
+
+| Key | Env Var | Default | Description |
+|-----|---------|---------|-------------|
+| `bitcoin.network` | `NOSTRING_NETWORK` | `bitcoin` | Network (bitcoin/testnet/signet/regtest) |
+| `bitcoin.electrum_url` | `NOSTRING_ELECTRUM_URL` | `ssl://blockstream.info:700` | Electrum server |
+
+### Notification Thresholds
+
+Default thresholds send notifications when remaining time drops below:
+- **30 days** — Gentle reminder
+- **7 days** — Warning
+- **1 day** — Urgent
+- **0 days** — Critical (also triggers heir delivery)
+
+### Heir Delivery
+
+When the timelock reaches critical status (≤144 blocks / ~1 day), the server automatically:
+
+1. Sends the full descriptor backup to all configured heirs
+2. Uses their configured npub (Nostr DM) and/or email
+3. Includes everything the heir needs to claim the inheritance
+
+Configure heirs in the TOML:
+
+```toml
+[[notifications.heirs]]
+label = "Spouse"
+npub = "npub1..."
+email = "spouse@example.com"
+
+[[notifications.heirs]]
+label = "Child"
+npub = "npub1..."
+```
+
+## Environment Variables
+
+For sensitive values (keys, passwords), prefer environment variables over the config file:
 
 ```yaml
-version: "3.8"
-
+# docker-compose.yml
 services:
-  bitcoind:
-    image: lncm/bitcoind:v27.0
-    restart: unless-stopped
-    volumes:
-      - bitcoind-data:/data
-    ports:
-      - "8332:8332"
-      - "8333:8333"
-
-  electrs:
-    image: getumbrel/electrs:v0.10.5
-    restart: unless-stopped
-    depends_on:
-      - bitcoind
-    volumes:
-      - electrs-data:/data
-    ports:
-      - "50001:50001"
+  nostring-server:
     environment:
-      - ELECTRS_DAEMON_RPC_ADDR=bitcoind:8332
-
-volumes:
-  bitcoind-data:
-  electrs-data:
+      NOSTRING_SERVICE_KEY: "nsec1..."
+      NOSTRING_OWNER_NPUB: "npub1..."
 ```
 
-### Bitcoin Configuration
+Or use a `.env` file:
 
-Create `bitcoin.conf`:
+```bash
+NOSTRING_SERVICE_KEY=nsec1...
+NOSTRING_OWNER_NPUB=npub1...
+```
+
+## Running Without Docker
+
+The server binary can also run directly:
+
+```bash
+# Build
+cargo build --release -p nostring-server
+
+# Run as daemon
+./target/release/nostring-server --config config/nostring-server.toml
+
+# Run a single check (useful for cron)
+./target/release/nostring-server --config config/nostring-server.toml --check
+
+# Validate config
+./target/release/nostring-server --config config/nostring-server.toml --validate
+```
+
+### Systemd Service
 
 ```ini
-# Network
-server=1
-txindex=1
-rpcallowip=172.16.0.0/12
-rpcbind=0.0.0.0
+[Unit]
+Description=NoString Inheritance Monitor
+After=network-online.target
+Wants=network-online.target
 
-# Performance
-dbcache=4096
-maxmempool=300
+[Service]
+Type=simple
+User=nostring
+ExecStart=/usr/local/bin/nostring-server --config /etc/nostring/nostring-server.toml
+Restart=on-failure
+RestartSec=30
+Environment=NOSTRING_LOG_LEVEL=info
 
-# Security
-rpcuser=nostring
-rpcpassword=CHANGE_THIS_PASSWORD
+[Install]
+WantedBy=multi-user.target
 ```
 
----
+## Architecture
 
-## Network Security
-
-### Firewall Rules
-
-```bash
-# Allow Bitcoin P2P
-ufw allow 8333/tcp
-
-# Block Electrum from public (internal only)
-ufw deny 50001/tcp
-ufw deny 50002/tcp
-
-# Or allow from specific IPs
-ufw allow from 192.168.1.0/24 to any port 50001
+```
+┌─────────────────────────────────────────────┐
+│               nostring-server               │
+│                                             │
+│  ┌─────────────┐    ┌──────────────────┐   │
+│  │ WatchService │───►│ NotificationSvc  │   │
+│  │ (poll loop)  │    │ (Nostr DM/Email) │   │
+│  └──────┬───────┘    └───────┬──────────┘   │
+│         │                    │              │
+│         ▼                    ▼              │
+│  ┌─────────────┐    ┌──────────────────┐   │
+│  │  Electrum    │    │  Nostr Relays /  │   │
+│  │  Server      │    │  SMTP Server     │   │
+│  └─────────────┘    └──────────────────┘   │
+│                                             │
+│  ┌─────────────────────────────────────┐   │
+│  │   /data (SQLite + watch_state.json) │   │
+│  └─────────────────────────────────────┘   │
+└─────────────────────────────────────────────┘
 ```
 
-### TLS for Electrum
+The server reuses the same library crates as the desktop app:
+- **nostring-watch** — UTXO monitoring and event detection
+- **nostring-notify** — Nostr DM and email notifications
+- **nostring-electrum** — Bitcoin network communication
+- **nostring-inherit** — Inheritance policy logic
 
-For remote access, enable TLS:
+## Security Considerations
 
-1. Generate certificate:
-   ```bash
-   openssl req -x509 -newkey rsa:4096 \
-     -keyout electrs.key -out electrs.crt \
-     -days 365 -nodes
-   ```
+1. **Service key ≠ Owner key**: The service key is a separate Nostr keypair used only for sending notifications. It cannot spend your Bitcoin.
 
-2. Configure electrs:
-   ```toml
-   electrum_rpc_addr = "0.0.0.0:50002"
-   electrum_rpc_cert = "/path/to/electrs.crt"
-   electrum_rpc_key = "/path/to/electrs.key"
-   ```
+2. **Read-only filesystem**: The Docker container runs with a read-only root filesystem. Only `/data` and `/tmp` are writable.
 
-3. Use SSL in NoString:
-   ```
-   Electrum URL: ssl://your-server:50002
-   ```
+3. **Non-root user**: The container runs as a dedicated `nostring` user, not root.
 
----
+4. **Outbound-only networking**: No ports are exposed. The server only makes outbound connections to Electrum servers and Nostr relays.
 
-## Backup Strategy
+5. **Descriptor exposure**: The descriptor is stored in the config file. The descriptor alone is NOT sufficient to spend — heirs still need their signing device. However, treat the config file as sensitive.
 
-### What to Backup
-
-| Data | Location | Frequency |
-|------|----------|-----------|
-| Seed (encrypted) | App data directory* | Once (at creation) |
-| Policy config | App data directory* | After changes |
-| Watch state | App data directory* | Daily |
-| Bitcoin data | Docker volume | Optional (can resync) |
-
-*Default data directory varies by platform:
-- **Linux:** `~/.local/share/nostring/` or `~/.nostring/`
-- **macOS:** `~/Library/Application Support/nostring/`
-- **Windows:** `%APPDATA%\nostring\`
-
-### Backup Commands
-
-```bash
-# Backup NoString config
-tar -czf nostring-backup.tar.gz ~/.nostring/
-
-# Backup Bitcoin data (optional, large)
-docker run --rm -v bitcoind-data:/data -v $(pwd):/backup \
-  alpine tar -czf /backup/bitcoind-backup.tar.gz /data
-```
-
----
-
-## Monitoring
-
-### Health Checks
-
-```bash
-# Check Bitcoin sync status
-docker exec bitcoind bitcoin-cli getblockchaininfo
-
-# Check Electrum index status
-curl -s http://localhost:50001 | jq .
-
-# Check NoString watch state
-cat ~/.nostring/watch_state.json | jq .last_height
-```
-
-### Alerts
-
-Configure NoString notifications to alert on:
-- Timelock approaching expiry
-- UTXO state changes
-- Connection failures
-
-See [OPERATIONS.md](OPERATIONS.md) for operational procedures.
-
----
+6. **Electrum privacy**: Your server's IP will be visible to the Electrum server. For better privacy, run your own Electrum server (e.g., [Electrs](https://github.com/romanz/electrs)) and point `electrum_url` to it.
 
 ## Troubleshooting
 
-### Bitcoin won't sync
+### "Failed to connect to Electrum"
+- Check your internet connection
+- Verify the `electrum_url` is correct
+- Try a different Electrum server
+- Ensure outbound connections on port 700 (SSL) are allowed
 
+### "No active UTXOs"
+- Your inheritance address may not have any funded UTXOs
+- Verify the descriptor matches your desktop app configuration
+- Check that you're on the correct network (mainnet vs testnet)
+
+### "Owner notification error: No notification channels enabled"
+- Configure at least one notification channel (Nostr or email)
+- Check that `service_key` and `owner_npub` are set correctly
+
+### Logs not showing?
 ```bash
-# Check logs
-docker logs bitcoind
-
-# Check disk space
-df -h
-
-# Check connections
-docker exec bitcoind bitcoin-cli getpeerinfo | jq length
+docker compose logs --tail 100 nostring-server
 ```
 
-### Electrs won't connect
-
+### Reset state
 ```bash
-# Check Bitcoin RPC
-docker exec bitcoind bitcoin-cli -rpcuser=nostring -rpcpassword=... getblockchaininfo
-
-# Check electrs logs
-docker logs electrs
+docker compose down
+docker volume rm nostring_nostring-data
+docker compose up -d
 ```
-
-### NoString can't connect
-
-1. Verify Electrum URL is correct
-2. Check firewall rules
-3. Test with `telnet`:
-   ```bash
-   telnet localhost 50001
-   ```
-
----
-
-## Upgrades
-
-### NoString
-
-```bash
-cd nostring
-git pull
-cargo build --release
-```
-
-### Docker Services
-
-```bash
-docker-compose pull
-docker-compose up -d
-```
-
----
-
-## Heir Infrastructure Transfer
-
-When setting up inheritance:
-
-1. Document your server configuration
-2. Include access credentials (encrypted) with heir materials
-3. Consider: heirs may not be technical — document everything
-
-See [HEIR_GUIDE.md](HEIR_GUIDE.md) and [CLAIM_GUIDE.md](CLAIM_GUIDE.md).
-
----
-
-*Self-host for sovereignty. Document for succession.*
