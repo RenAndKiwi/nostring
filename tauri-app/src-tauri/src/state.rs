@@ -186,7 +186,7 @@ impl AppState {
     }
 
     /// Persist an heir to the database.
-    pub fn persist_heir(&self, heir: &HeirKey) {
+    pub fn persist_heir(&self, heir: &HeirKey, timelock_months: Option<u32>) {
         let conn = self.db.lock().unwrap();
         let row = HeirRow {
             fingerprint: heir.fingerprint.to_string(),
@@ -195,6 +195,7 @@ impl AppState {
             derivation_path: heir.derivation_path.to_string(),
             npub: None,
             email: None,
+            timelock_months,
         };
         let _ = db::heir_upsert(&conn, &row);
     }

@@ -48,6 +48,9 @@ pub fn open_db(path: &Path) -> SqlResult<Connection> {
     // v0.3.1 migrations — relay publication tracking for locked shares
     migrate_v03_relay(&conn)?;
 
+    // v0.4 migrations — per-heir timelock
+    migrate_v04_timelock(&conn)?;
+
     Ok(conn)
 }
 
@@ -130,6 +133,17 @@ fn migrate_v03_relay(conn: &Connection) -> SqlResult<()> {
     Ok(())
 }
 
+/// v0.4 migration: per-heir timelock_months column.
+fn migrate_v04_timelock(conn: &Connection) -> SqlResult<()> {
+    let has_timelock = conn
+        .prepare("SELECT timelock_months FROM heirs LIMIT 0")
+        .is_ok();
+    if !has_timelock {
+        conn.execute_batch("ALTER TABLE heirs ADD COLUMN timelock_months INTEGER;")?;
+    }
+    Ok(())
+}
+
 // ============================================================================
 // Config helpers (key-value)
 // ============================================================================
@@ -176,26 +190,30 @@ pub struct HeirRow {
     pub npub: Option<String>,
     /// Email address for descriptor delivery (optional, v0.2)
     pub email: Option<String>,
+    /// Per-heir timelock in months (optional, v0.4)
+    pub timelock_months: Option<u32>,
 }
 
 /// Insert or replace an heir.
 pub fn heir_upsert(conn: &Connection, heir: &HeirRow) -> SqlResult<()> {
     conn.execute(
-        "INSERT INTO heirs (fingerprint, label, xpub, derivation_path, npub, email)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+        "INSERT INTO heirs (fingerprint, label, xpub, derivation_path, npub, email, timelock_months)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
          ON CONFLICT(fingerprint) DO UPDATE SET
             label = excluded.label,
             xpub = excluded.xpub,
             derivation_path = excluded.derivation_path,
             npub = excluded.npub,
-            email = excluded.email",
+            email = excluded.email,
+            timelock_months = excluded.timelock_months",
         params![
             heir.fingerprint,
             heir.label,
             heir.xpub,
             heir.derivation_path,
             heir.npub,
-            heir.email
+            heir.email,
+            heir.timelock_months,
         ],
     )?;
     Ok(())
@@ -217,8 +235,9 @@ pub fn heir_update_contact(
 
 /// List all heirs.
 pub fn heir_list(conn: &Connection) -> SqlResult<Vec<HeirRow>> {
-    let mut stmt =
-        conn.prepare("SELECT fingerprint, label, xpub, derivation_path, npub, email FROM heirs")?;
+    let mut stmt = conn.prepare(
+        "SELECT fingerprint, label, xpub, derivation_path, npub, email, timelock_months FROM heirs",
+    )?;
     let rows = stmt.query_map([], |row| {
         Ok(HeirRow {
             fingerprint: row.get(0)?,
@@ -227,6 +246,7 @@ pub fn heir_list(conn: &Connection) -> SqlResult<Vec<HeirRow>> {
             derivation_path: row.get(3)?,
             npub: row.get(4)?,
             email: row.get(5)?,
+            timelock_months: row.get::<_, Option<u32>>(6)?,
         })
     })?;
     rows.collect()
@@ -244,7 +264,7 @@ pub fn heir_remove(conn: &Connection, fingerprint: &str) -> SqlResult<bool> {
 /// Get a single heir by fingerprint.
 pub fn heir_get(conn: &Connection, fingerprint: &str) -> SqlResult<Option<HeirRow>> {
     let mut stmt = conn.prepare(
-        "SELECT fingerprint, label, xpub, derivation_path, npub, email
+        "SELECT fingerprint, label, xpub, derivation_path, npub, email, timelock_months
          FROM heirs WHERE fingerprint = ?1",
     )?;
     let mut rows = stmt.query(params![fingerprint])?;
@@ -256,6 +276,7 @@ pub fn heir_get(conn: &Connection, fingerprint: &str) -> SqlResult<Option<HeirRo
             derivation_path: row.get(3)?,
             npub: row.get(4)?,
             email: row.get(5)?,
+            timelock_months: row.get::<_, Option<u32>>(6)?,
         })),
         None => Ok(None),
     }
@@ -873,6 +894,7 @@ mod tests {
             derivation_path: "m/84'/0'/0'".into(),
             npub: None,
             email: None,
+            timelock_months: None,
         };
 
         // Insert
@@ -899,6 +921,7 @@ mod tests {
             derivation_path: "m/84'/0'/0'".into(),
             npub: Some("npub1test".into()),
             email: Some("wife@example.com".into()),
+            timelock_months: Some(12),
         };
         heir_upsert(&conn, &updated).unwrap();
         let list = heir_list(&conn).unwrap();
@@ -924,6 +947,7 @@ mod tests {
             derivation_path: "m/84'/0'/0'".into(),
             npub: None,
             email: None,
+            timelock_months: None,
         };
         heir_upsert(&conn, &heir).unwrap();
 
@@ -1024,6 +1048,7 @@ mod tests {
                     derivation_path: "m/84'/0'/0'".into(),
                     npub: Some("npub1test".into()),
                     email: None,
+                    timelock_months: None,
                 },
             )
             .unwrap();
@@ -1146,6 +1171,7 @@ mod tests {
                     derivation_path: "m/84'/0'/0'".into(),
                     npub: Some("npub1child".into()),
                     email: Some("child@example.com".into()),
+                    timelock_months: Some(18),
                 },
             )
             .unwrap();
@@ -1281,6 +1307,7 @@ mod tests {
                     derivation_path: "m/84'/0'/0'".into(),
                     npub: None,
                     email: Some(format!("heir{}@example.com", i)),
+                    timelock_months: Some(6 * (i as u32 + 1)),
                 },
             )
             .unwrap();
@@ -1670,6 +1697,91 @@ mod tests {
             assert_eq!(active[0].spending_txid.as_deref(), Some("txid_p"));
             assert_eq!(active[0].spending_vout, Some(1));
             assert_eq!(active[0].created_at, 5000);
+        }
+    }
+
+    // ====================================================================
+    // Heir Timelock Tests (v0.4)
+    // ====================================================================
+
+    #[test]
+    fn test_heir_timelock_months() {
+        let (conn, _f) = temp_db();
+
+        // Insert heir with timelock
+        let heir = HeirRow {
+            fingerprint: "t1m3l0ck".into(),
+            label: "TimelockHeir".into(),
+            xpub: "xpub6TL...".into(),
+            derivation_path: "m/84'/0'/0'".into(),
+            npub: None,
+            email: None,
+            timelock_months: Some(12),
+        };
+        heir_upsert(&conn, &heir).unwrap();
+
+        // Read back — timelock persisted
+        let found = heir_get(&conn, "t1m3l0ck").unwrap().unwrap();
+        assert_eq!(found.timelock_months, Some(12));
+
+        // List also returns timelock
+        let list = heir_list(&conn).unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].timelock_months, Some(12));
+
+        // Update timelock via upsert
+        let updated = HeirRow {
+            timelock_months: Some(24),
+            ..heir.clone()
+        };
+        heir_upsert(&conn, &updated).unwrap();
+        let found = heir_get(&conn, "t1m3l0ck").unwrap().unwrap();
+        assert_eq!(found.timelock_months, Some(24));
+
+        // Heir without timelock is None
+        let heir_no_tl = HeirRow {
+            fingerprint: "n0t1m3lk".into(),
+            label: "NoTimelockHeir".into(),
+            xpub: "xpub6NTL...".into(),
+            derivation_path: "m/84'/0'/0'".into(),
+            npub: None,
+            email: None,
+            timelock_months: None,
+        };
+        heir_upsert(&conn, &heir_no_tl).unwrap();
+        let found = heir_get(&conn, "n0t1m3lk").unwrap().unwrap();
+        assert_eq!(found.timelock_months, None);
+    }
+
+    #[test]
+    fn test_heir_timelock_persistence() {
+        let file = NamedTempFile::new().expect("create temp file");
+        let db_path = file.path().to_path_buf();
+
+        // Write heir with timelock
+        {
+            let conn = open_db(&db_path).expect("open db 1");
+            heir_upsert(
+                &conn,
+                &HeirRow {
+                    fingerprint: "persist_tl".into(),
+                    label: "PersistHeir".into(),
+                    xpub: "xpub6P...".into(),
+                    derivation_path: "m/84'/0'/0'".into(),
+                    npub: None,
+                    email: None,
+                    timelock_months: Some(18),
+                },
+            )
+            .unwrap();
+        }
+
+        // Read from new connection
+        {
+            let conn = open_db(&db_path).expect("open db 2");
+            let found = heir_get(&conn, "persist_tl").unwrap().unwrap();
+            assert_eq!(found.timelock_months, Some(18));
+            assert_eq!(found.label, "PersistHeir");
         }
     }
 }

@@ -649,6 +649,8 @@ pub struct HeirInfo {
     pub npub: Option<String>,
     /// Email address for descriptor delivery (optional, v0.2)
     pub email: Option<String>,
+    /// Per-heir timelock in months (optional, v0.4)
+    pub timelock_months: Option<u32>,
 }
 
 impl From<&HeirKey> for HeirInfo {
@@ -660,13 +662,19 @@ impl From<&HeirKey> for HeirInfo {
             derivation_path: heir.derivation_path.to_string(),
             npub: None,
             email: None,
+            timelock_months: None,
         }
     }
 }
 
 impl HeirInfo {
-    /// Create from HeirKey + contact info from DB
-    fn from_key_with_contact(heir: &HeirKey, npub: Option<String>, email: Option<String>) -> Self {
+    /// Create from HeirKey + contact info + timelock from DB
+    fn from_key_with_contact(
+        heir: &HeirKey,
+        npub: Option<String>,
+        email: Option<String>,
+        timelock_months: Option<u32>,
+    ) -> Self {
         Self {
             label: heir.label.clone(),
             fingerprint: heir.fingerprint.to_string(),
@@ -674,6 +682,7 @@ impl HeirInfo {
             derivation_path: heir.derivation_path.to_string(),
             npub,
             email,
+            timelock_months,
         }
     }
 }
@@ -683,6 +692,7 @@ impl HeirInfo {
 pub async fn add_heir(
     label: String,
     xpub_or_descriptor: String,
+    timelock_months: Option<u32>,
     state: State<'_, AppState>,
 ) -> Result<CommandResult<HeirInfo>, ()> {
     let unlocked = state.unlocked.lock().unwrap();
@@ -708,10 +718,11 @@ pub async fn add_heir(
         HeirKey::new(&label, fingerprint, xpub, Some(derivation_path))
     };
 
-    let heir_info = HeirInfo::from(&heir);
+    let mut heir_info = HeirInfo::from(&heir);
+    heir_info.timelock_months = timelock_months;
 
     // Write-through: memory + SQLite
-    state.persist_heir(&heir);
+    state.persist_heir(&heir, timelock_months);
     let mut registry = state.heir_registry.lock().unwrap();
     registry.add(heir);
 
@@ -730,8 +741,10 @@ pub async fn list_heirs(state: State<'_, AppState>) -> Result<Vec<HeirInfo>, ()>
         .map(|heir| {
             let fp = heir.fingerprint.to_string();
             let row = crate::db::heir_get(&conn, &fp).ok().flatten();
-            let (npub, email) = row.map(|r| (r.npub, r.email)).unwrap_or((None, None));
-            HeirInfo::from_key_with_contact(heir, npub, email)
+            let (npub, email, timelock_months) = row
+                .map(|r| (r.npub, r.email, r.timelock_months))
+                .unwrap_or((None, None, None));
+            HeirInfo::from_key_with_contact(heir, npub, email, timelock_months)
         })
         .collect();
 
