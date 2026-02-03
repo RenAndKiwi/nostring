@@ -12,6 +12,10 @@ path = "../e2e_integration.rs"
 name = "security_tests"
 path = "security_tests.rs"
 
+[[test]]
+name = "live_integration"
+path = "live_integration.rs"
+
 [dependencies]
 nostring-core = { path = "../../crates/nostring-core" }
 nostring-inherit = { path = "../../crates/nostring-inherit" }
@@ -22,8 +26,10 @@ nostring-watch = { path = "../../crates/nostring-watch" }
 bitcoin = { version = "0.32", features = ["serde"] }
 hex = "0.4"
 miniscript = { version = "12.3", features = ["compiler"] }
-nostr-sdk = "0.39"
+nostr-sdk = { version = "0.39", features = ["nip04", "nip44"] }
 secp256k1 = { version = "0.29", features = ["rand-std"] }
 serde_json = "1.0"
 zeroize = "1.8"
 rand = "0.8"
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
+base64 = "0.22"

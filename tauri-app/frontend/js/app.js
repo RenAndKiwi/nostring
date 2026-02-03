@@ -1384,7 +1384,7 @@ async function downloadDescriptorBackup() {
         }
         
         const backup = result.data;
-        const content = `# NoString Descriptor Backup
+        let content = `# NoString Descriptor Backup
 # Generated: ${new Date().toISOString()}
 # 
 # ⚠️  KEEP THIS FILE SAFE. You need it to recover your inheritance
