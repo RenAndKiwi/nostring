@@ -13,7 +13,8 @@ use aes_gcm::{
     aead::{Aead, AeadCore, KeyInit, OsRng},
     Aes256Gcm, Key, Nonce,
 };
-use argon2::{password_hash::SaltString, Algorithm, Argon2, Params, Version};
+use argon2::{Algorithm, Argon2, Params, Version};
+use rand::RngCore;
 use thiserror::Error;
 
 /// Argon2id parameters (OWASP recommendations for 2024+)
@@ -122,11 +123,9 @@ fn derive_key(
 /// # Returns
 /// Encrypted seed that can be safely stored
 pub fn encrypt_seed(seed: &[u8; 64], password: &str) -> Result<EncryptedSeed, CryptoError> {
-    // Generate random salt and nonce
-    let salt_string = SaltString::generate(&mut OsRng);
-    let salt_bytes = salt_string.as_str().as_bytes();
+    // Generate random salt (16 bytes = 128 bits of entropy from CSPRNG)
     let mut salt = [0u8; SALT_LEN];
-    salt.copy_from_slice(&salt_bytes[..SALT_LEN]);
+    OsRng.fill_bytes(&mut salt);
 
     let nonce_arr = Aes256Gcm::generate_nonce(&mut OsRng);
     let mut nonce = [0u8; NONCE_LEN];
@@ -260,6 +259,39 @@ mod tests {
         let result = decrypt_seed(&tampered, password);
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_salt_has_full_128_bit_entropy() {
+        // The salt must be 16 random bytes from a CSPRNG, giving 128 bits of entropy.
+        // Previously, the salt was derived from base64-encoded SaltString characters,
+        // which limited each byte to ~6 bits of entropy (~96 bits total).
+        //
+        // With OsRng.fill_bytes(), every byte value 0x00–0xFF is possible.
+        // We verify this by checking that across many encryptions, salt bytes
+        // span outside the printable ASCII / base64 range (0x00–0x2F, 0x80–0xFF).
+        let seed = [42u8; 64];
+        let password = "test";
+
+        let mut saw_byte_outside_base64 = false;
+        for _ in 0..20 {
+            let encrypted = encrypt_seed(&seed, password).unwrap();
+            // Check if any salt byte falls outside the base64 character range
+            // Base64 chars: A-Z(0x41-0x5A), a-z(0x61-0x7A), 0-9(0x30-0x39), +/(0x2B,0x2F)
+            for &b in &encrypted.salt {
+                let is_base64_char = b.is_ascii_alphanumeric() || b == b'+' || b == b'/';
+                if !is_base64_char {
+                    saw_byte_outside_base64 = true;
+                }
+            }
+        }
+        // With 20 encryptions × 16 bytes = 320 random bytes, the probability
+        // that ALL of them happen to be valid base64 chars (64/256 = 25%) is
+        // 0.25^320 ≈ 10^{-193}. This test is astronomically unlikely to flake.
+        assert!(
+            saw_byte_outside_base64,
+            "Salt bytes appear restricted to base64 charset — entropy may be only ~96 bits"
+        );
     }
 
     #[test]
