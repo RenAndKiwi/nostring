@@ -53,10 +53,25 @@ You've taken custody of your Bitcoin. But what happens to it when you die?
 
 ## Quick Start
 
+### Run the App (Fastest)
+
+```bash
+# Install Rust (if you don't have it)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source ~/.cargo/env
+
+# Clone and run
+git clone https://github.com/RenAndKiwi/nostring
+cd nostring
+cargo tauri dev
+```
+
+First run takes a few minutes to compile. The app window opens automatically.
+
 ### Prerequisites
 
-- Rust 1.75+ (`rustup update stable`)
-- Node.js 20+ (for Tauri frontend)
+- **Rust 1.85+** — `rustup update stable` (edition 2024 required)
+- **Tauri deps** — see [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your OS
 
 ### Build from Source
 
@@ -67,11 +82,10 @@ cd nostring
 # Run tests
 cargo test
 
-# Build release
+# Build release binary
 cargo build --release
 
-# Build desktop app
-cd tauri-app/src-tauri
+# Build desktop app (creates installer)
 cargo tauri build
 ```
 
