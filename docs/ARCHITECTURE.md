@@ -2,35 +2,52 @@
 
 ## Overview
 
-NoString combines two Rust-based projects into a unified application:
+NoString is a sovereign Bitcoin inheritance tool with optional Nostr identity inheritance. It combines:
 
-1. **nostr-mail** — Encrypted email with Nostr identity
-2. **Liana** — Bitcoin wallet with miniscript timelocks
+1. **Watch-only Bitcoin wallet** — monitors inheritance UTXOs, generates check-in PSBTs
+2. **Miniscript policy engine** — creates timelocked inheritance descriptors
+3. **Nostr service key** — sends check-in reminder DMs
+4. **Shamir secret sharing** — splits nsec for identity inheritance
 
-Both share a common BIP-39 seed, with keys derived for their respective purposes.
+**Core principle:** Your Bitcoin keys never touch NoString. You sign externally with your hardware wallet. NoString is a coordinator, not a custodian.
 
 ---
 
-## Key Derivation
+## Key Architecture
 
 ```
-BIP-39 SEED (12-24 words)
-        │
-        ├──► NIP-06 Path ──► Nostr Identity
-        │    m/44'/1237'/0'/0/0
-        │    └─► Used for: email encryption, DMs, profile, contacts
-        │
-        └──► BIP-84 Path ──► Bitcoin Keys
-             m/84'/0'/0'
-             └─► Used for: inheritance timelocks, check-in transactions
+OWNER'S HARDWARE WALLET (Cold)
+    │
+    └──► xpub (exported to NoString as watch-only)
+         │
+         ├──► Inheritance Descriptor ◄── Heir xpubs
+         │    wsh(or_d(pk(owner), and_v(v:pk(heir), older(N))))
+         │
+         └──► Check-in PSBTs (signed on hardware wallet)
+
+
+NOSTRING APP (Hot — but holds NO Bitcoin keys)
+    │
+    ├──► Service Key (Nostr keypair, generated locally)
+    │    └─► Sends encrypted DM reminders
+    │
+    ├──► Descriptor Manager
+    │    └─► Combines owner xpub + heir xpubs + timelock → inheritance address
+    │
+    └──► [Optional] Encrypted nsec
+         └─► Shamir-split for identity inheritance
 ```
 
-### Why This Derivation?
+### What's Hot vs Cold
 
-- **NIP-06** is the Nostr standard for deriving keys from BIP-39
-- **BIP-84** is native segwit, optimal for miniscript policies
-- Same seed = one backup recovers everything
-- Different paths = keys are cryptographically isolated
+| Asset | Location | Risk |
+|-------|----------|------|
+| Owner Bitcoin seed | Hardware wallet (cold) | Never touches NoString |
+| Owner xpub | NoString (watch-only) | Public key — no spend risk |
+| Heir xpubs | NoString | Public keys — no risk |
+| Service key (Nostr) | NoString (encrypted) | Notification bot only |
+| Owner nsec (optional) | Shamir-split, encrypted | Only in memory during split, then destroyed |
+| Descriptor backup | Downloaded file | Recovery lifeline |
 
 ---
 
@@ -42,16 +59,17 @@ BIP-39 SEED (12-24 words)
 │                         (Tauri Shell)                           │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│   ┌─────────────────┐          ┌─────────────────┐             │
-│   │   EMAIL MODULE  │          │ INHERITANCE MOD │             │
-│   │                 │          │                 │             │
-│   │ • Compose/Send  │          │ • Policy mgmt   │             │
-│   │ • Inbox/Fetch   │          │ • Check-in tx   │             │
-│   │ • Encryption    │          │ • Heir keys     │             │
-│   │ • Contacts      │          │ • Timelock mon  │             │
-│   │                 │          │                 │             │
-│   │ [nostr-mail]    │          │ [liana-core]    │             │
-│   └────────┬────────┘          └────────┬────────┘             │
+│   ┌───────────────────┐        ┌───────────────────┐           │
+│   │  WATCH-ONLY       │        │  INHERITANCE      │           │
+│   │  WALLET           │        │  ENGINE           │           │
+│   │                   │        │                   │           │
+│   │ • Import xpub     │        │ • Policy builder  │           │
+│   │ • UTXO monitoring │        │ • Descriptor gen  │           │
+│   │ • PSBT creation   │        │ • Heir management │           │
+│   │ • Balance display │        │ • Timelock config │           │
+│   │                   │        │                   │           │
+│   │ [nostring-electrum│        │ [nostring-inherit]│           │
+│   └────────┬──────────┘        └────────┬──────────┘           │
 │            │                            │                       │
 │   ┌────────┴────────────────────────────┴────────┐             │
 │   │              CORE SERVICES                    │             │
@@ -59,14 +77,19 @@ BIP-39 SEED (12-24 words)
 │   │  ┌─────────────┐  ┌─────────────┐            │             │
 │   │  │ Key Manager │  │   Shamir    │            │             │
 │   │  │             │  │             │            │             │
-│   │  │ • BIP-39    │  │ • SLIP-39   │            │             │
-│   │  │ • NIP-06    │  │ • Codex32   │            │             │
-│   │  │ • BIP-84    │  │ • M-of-N    │            │             │
+│   │  │ • xpub mgmt │  │ • SLIP-39   │            │             │
+│   │  │ • Svc key   │  │ • Codex32   │            │             │
+│   │  │ • Encrypt   │  │ • nsec split│            │             │
 │   │  └─────────────┘  └─────────────┘            │             │
 │   │                                               │             │
 │   │  ┌─────────────┐  ┌─────────────┐            │             │
-│   │  │  Database   │  │   Config    │            │             │
-│   │  │  (SQLite)   │  │   Store     │            │             │
+│   │  │  Notify     │  │  Descriptor │            │             │
+│   │  │  Service    │  │  Backup     │            │             │
+│   │  │             │  │             │            │             │
+│   │  │ • Nostr DM  │  │ • Export    │            │             │
+│   │  │ • Email     │  │ • Recovery  │            │             │
+│   │  │ • Svc key   │  │ • Locked    │            │             │
+│   │  │             │  │   shares    │            │             │
 │   │  └─────────────┘  └─────────────┘            │             │
 │   └───────────────────────────────────────────────┘             │
 │                                                                 │
@@ -82,7 +105,9 @@ BIP-39 SEED (12-24 words)
     ┌──────────┐       ┌──────────┐       ┌──────────┐
     │  Nostr   │       │  Email   │       │ Bitcoin  │
     │  Relays  │       │  Server  │       │ Network  │
-    │          │       │(SMTP/IMAP│       │          │
+    │(DM notify│       │(SMTP     │       │(Electrum │
+    │ + relay  │       │ notify)  │       │ server)  │
+    │ storage) │       │          │       │          │
     └──────────┘       └──────────┘       └──────────┘
 ```
 
@@ -90,123 +115,168 @@ BIP-39 SEED (12-24 words)
 
 ## Inheritance Flow
 
-### Setup (One-time)
+### Setup
 
 ```
-1. User creates/imports BIP-39 seed
-2. App derives Nostr + Bitcoin keys
-3. User configures inheritance policy:
-   - Timelock duration (e.g., 180 days)
-   - Heir key(s) (xpub from heir's wallet)
-   - Optional: multi-heir threshold
-4. App creates initial timelock UTXO
-5. User backs up seed (Shamir optional)
+1. Owner imports xpub from hardware wallet (watch-only)
+2. Owner adds heir(s) with their xpubs
+3. Configure timelock per heir (6mo, 12mo, 18mo)
+4. NoString creates miniscript descriptor:
+   - owner key can spend anytime
+   - heir key can spend after N blocks
+5. Owner funds the inheritance address
+6. [Optional] Owner enters nsec for Nostr identity inheritance
+   → NoString Shamir-splits nsec
+   → Pre-distributes 1 share per heir
+   → Locks remaining shares in descriptor backup
+7. NoString generates service key, owner follows its npub
+8. Owner downloads descriptor backup
 ```
 
 ### Active Use
 
 ```
-1. User sends/receives encrypted email normally
-2. Periodically, user "checks in":
-   - Manual button press, OR
-   - Automatic on any Bitcoin transaction
-3. Check-in = spend timelock UTXO → recreate with reset clock
-4. Reminder notifications if approaching timeout
+1. NoString monitors inheritance UTXOs via Electrum
+2. Service key sends Nostr DM reminders at 30/7/1 day thresholds
+3. Owner clicks "Check In":
+   a. NoString generates PSBT (spend → new inheritance address)
+   b. Owner signs with hardware wallet (QR scan or paste)
+   c. NoString broadcasts signed tx
+   d. Timelock resets (new UTXO, fresh countdown)
+   e. Prompt to download updated descriptor backup
 ```
 
-### Inheritance Trigger
+### Bitcoin Inheritance
 
 ```
-1. User stops checking in (death, incapacity)
-2. Timelock expires (e.g., 180 days of inactivity)
-3. Heir(s) can now spend the UTXO
-4. UTXO contains/points to:
-   - Encrypted instructions
-   - Infrastructure access info
-   - Possibly one Shamir share
-5. Heir combines with their Shamir shares
-6. Reconstruct seed → derive all keys → full access
+1. Owner stops checking in (death, incapacity)
+2. Timelock expires (e.g., 26,280 blocks ≈ 6 months)
+3. Heir claims Bitcoin using THEIR OWN wallet + key
+4. No access to owner's seed needed
+5. Enforced by Bitcoin consensus — trustless
+```
+
+### Nostr Identity Inheritance
+
+```
+1. Bitcoin inheritance triggers (timelock expired)
+2. Heirs obtain descriptor backup (safe deposit box, lawyer, etc.)
+3. Descriptor backup contains locked Shamir shares
+4. Each heir combines:
+   - Their pre-distributed share (received during setup)
+   - Locked shares from descriptor backup
+5. Threshold met → nsec recovered
+6. Heir imports nsec into Nostr client
+7. Heir controls deceased's Nostr identity
 ```
 
 ---
 
-## Shamir Backup Options
+## Nostr Identity Inheritance — Shamir Threshold
 
-### Option A: SLIP-39 (Digital)
+For N heirs, the split is:
+- **Threshold:** N + 1
+- **Total shares:** 2N + 1
+- **Pre-distributed:** N (1 per heir)
+- **Locked in inheritance:** N + 1
 
-- Standard Shamir implementation for BIP-39 seeds
-- Generate M-of-N shares as word lists
-- Store digitally or on paper
-- Reconstruct via any SLIP-39 compatible tool
+This ensures:
+- All heirs colluding have N shares but need N+1 → **blocked**
+- After inheritance: any heir has 1 + (N+1) = N+2 → **exceeds threshold**
+- If an heir loses their share: locked shares alone = N+1 → **still meets threshold**
 
-### Option B: Codex32 (Physical)
+See [NOSTR_INHERITANCE.md](NOSTR_INHERITANCE.md) for full spec.
 
-- Paper-based Shamir using volvelles (mechanical computers)
-- Can be done fully offline, air-gapped
-- Shares are Bech32-encoded for error detection
-- **Reconstructs to BIP-39 compatible seed**
+---
 
-### Recommendation
+## Notification Architecture
 
-Support both. Technical users may prefer digital. Paranoid users can do physical ceremony with volvelles. Both reconstruct the same BIP-39 seed.
+NoString generates a **service key** (random Nostr keypair) for notifications:
+
+```
+Service Key (generated in NoString)
+    │
+    ├──► Sends NIP-44 encrypted DMs to owner
+    │    • 30 days remaining — gentle reminder
+    │    • 7 days remaining — warning
+    │    • 1 day remaining — urgent
+    │    • 0 days — critical (timelock expired)
+    │
+    └──► Also sends via SMTP email (configurable)
+
+Owner follows service key npub in their Nostr client.
+Service key is NOT the owner's identity.
+```
+
+---
+
+## Descriptor Backup
+
+The descriptor backup file is the recovery lifeline. It contains:
+
+```
+# NoString Descriptor Backup
+descriptor: wsh(or_d(pk([owner]xpub.../0/*), and_v(v:pk([heir]xpub.../0/*), older(26280))))
+network: bitcoin
+timelock_blocks: 26280
+address: bc1q...
+heirs:
+  - label: Spouse
+    xpub: xpub6DEF...
+    timelock_months: 6
+locked_shares: [encrypted Codex32 shares for nsec inheritance]
+recovery_instructions: Import descriptor into Liana or Electrum
+```
+
+**Download prompts:**
+- After initial setup
+- After every check-in (descriptor changes)
+- Always available in Settings tab
 
 ---
 
 ## Security Model
 
-### What's Protected
-
-| Asset | Protection |
-|-------|------------|
-| Seed | Encrypted at rest (user password) |
-| Private keys | Never leave device (derived on-demand) |
-| Email content | NIP-44 encrypted (only recipient can decrypt) |
-| Timelock UTXO | Bitcoin consensus enforces timing |
-| Shamir shares | Distributed to separate parties |
-
 ### Trust Assumptions
 
 | Component | Trust Level |
 |-----------|-------------|
-| Nostr relays | Untrusted (can't read encrypted content) |
-| Email server | Untrusted (can't read encrypted content) |
-| Bitcoin network | Trusted for timelock enforcement |
-| Heirs | Trusted with shares, not with full access |
-| Device | Trusted while in use |
+| Hardware wallet | Trusted — holds Bitcoin keys |
+| NoString app | Semi-trusted — holds no Bitcoin keys, may hold encrypted nsec temporarily |
+| Nostr relays | Untrusted — can't read encrypted DMs |
+| Bitcoin network | Trusted — enforces timelocks |
+| Electrum server | Untrusted — provides block data, can't steal funds |
+| Heirs | Trusted with shares, not with threshold |
+| Descriptor backup | Critical — must be stored securely |
 
-### Attack Vectors to Mitigate
+### Attack Vectors
 
-1. **Stolen device** → Seed encrypted with strong password
-2. **Compromised relay** → Content is E2E encrypted
-3. **Heir collusion** → M-of-N threshold prevents minority takeover
-4. **Rubber hose** → Shamir shares distributed geographically
-5. **False death claim** → Timelock gives owner time to check in
+| Attack | Mitigation |
+|--------|-----------|
+| Stolen device | No Bitcoin keys on device. Service key is encrypted. |
+| Heir collusion (nsec) | N shares < N+1 threshold. Blocked until inheritance. |
+| Lost descriptor backup | Owner can regenerate from NoString. Multiple copies recommended. |
+| Compromised Electrum server | Can see UTXOs but can't spend. Watch-only. |
+| Service key compromised | Attacker can send fake DMs. No fund risk. Owner can regenerate. |
 
 ---
 
-## File Structure
+## Crate Structure
 
 ```
 nostring/
-├── README.md
-├── FOUNDING.md
-├── Cargo.toml              # Workspace manifest
-├── docs/
-│   ├── ROADMAP.md
-│   ├── ARCHITECTURE.md
-│   └── SECURITY.md
 ├── crates/
-│   ├── nostring-core/      # Shared types, key derivation
-│   ├── nostring-email/     # Email module (from nostr-mail)
-│   ├── nostring-inherit/   # Inheritance module (from liana)
-│   └── nostring-shamir/    # SLIP-39 + Codex32
-├── tauri-app/
-│   ├── src-tauri/          # Rust backend
-│   └── frontend/           # JS frontend
-└── scripts/
-    └── dev-setup.sh
+│   ├── nostring-core      # xpub management, encryption, service key
+│   ├── nostring-inherit   # Miniscript policies, descriptor builder
+│   ├── nostring-shamir    # SLIP-39, Codex32, nsec splitting
+│   ├── nostring-electrum  # Electrum protocol, UTXO monitoring
+│   ├── nostring-notify    # Service key DMs, SMTP email
+│   ├── nostring-watch     # UTXO monitoring service
+│   └── nostring-email     # Future: encrypted email
+├── tauri-app/             # Desktop application
+└── docs/                  # Documentation
 ```
 
 ---
 
-*Last updated: 2026-02-01*
+*Last updated: 2026-02-02 — Revised for watch-only + service key + Shamir nsec architecture*

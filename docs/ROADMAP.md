@@ -101,25 +101,66 @@ Encrypted email + Nostr identity + Bitcoin inheritance. One seed, sovereign comm
 
 ---
 
-## Phase 6: Self-Hosting & Docs 🔄
+## Phase 6: Architecture Pivot ✅
 
-**Status:** In Progress
+**Status:** Complete (2026-02-02)
 
-- [ ] Docker compose for deployment
-- [ ] Infrastructure inheritance docs
-- [ ] Operational runbook
-- [ ] Security audit preparation
-- [ ] README and contribution guide
+- [x] Watch-only wallet as primary mode (xpub import, no seed on device)
+- [x] Setup wizard (add heirs → review → complete)
+- [x] Descriptor backup (download button + post-check-in prompt)
+- [x] "How It Works" in-app education
+- [x] Toast notifications (replace alerts)
+- [x] QR code fix (browser-native library)
+- [x] Updated ARCHITECTURE.md for watch-only model
 
 ---
 
-## Phase 7: Polish (Future)
+## Phase 7: Notification Service Key 🔜
 
-- [ ] Tauri UI for heir management
-- [ ] Background polling integration
+**Status:** Next
+
+- [ ] Generate Nostr keypair on first setup (service key)
+- [ ] Store encrypted in app state
+- [ ] Send NIP-44 encrypted DM reminders (30/7/1/0 day thresholds)
+- [ ] UI: display service npub with "follow this" instructions
+- [ ] Email notifications via SMTP (already built in nostring-notify)
+- [ ] Settings: configure notification preferences
+
+---
+
+## Phase 8: Nostr Identity Inheritance 🔜
+
+**Status:** Planned — see [NOSTR_INHERITANCE.md](NOSTR_INHERITANCE.md)
+
+### 8.1 nsec Shamir Split
+- [ ] Optional nsec input during setup
+- [ ] Calculate threshold/shares: N heirs → (N+1)-of-(2N+1) split
+- [ ] Generate Codex32 shares of nsec
+- [ ] Display pre-distribution shares with heir instructions
+- [ ] Zero nsec from memory after split
+- [ ] Include locked shares (encrypted) in descriptor backup
+
+### 8.2 Heir Recovery Flow
+- [ ] Share combination tool in app
+- [ ] Enter shares → verify threshold → reveal nsec
+- [ ] Update CLAIM_GUIDE.md with Nostr recovery steps
+- [ ] Update HEIR_GUIDE.md with share storage instructions
+
+### 8.3 Nostr Relay Storage (Optional Enhancement)
+- [ ] Publish encrypted locked shares to multiple relays
+- [ ] Heir pre-fetch mechanism
+- [ ] Redundancy across relays
+
+---
+
+## Phase 9: Polish & Hardening
+
+- [ ] End-to-end testnet testing (Bitcoin + Nostr)
+- [ ] Security audit preparation
+- [ ] Docker compose for self-hosting
+- [ ] Mobile consideration (Tauri mobile or separate app)
 - [ ] Spend type detection (owner vs heir)
-- [ ] End-to-end testnet testing
-- [ ] Mobile consideration
+- [ ] nsec revocation / re-split flow
 
 ---
 
