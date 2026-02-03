@@ -13,6 +13,7 @@ nostring-core = { path = "../../crates/nostring-core" }
 nostring-electrum = { path = "../../crates/nostring-electrum" }
 nostring-email = { path = "../../crates/nostring-email" }
 nostring-inherit = { path = "../../crates/nostring-inherit" }
+nostring-notify = { path = "../../crates/nostring-notify" }
 nostring-shamir = { path = "../../crates/nostring-shamir" }
 tauri.workspace = true
 rusqlite.workspace = true

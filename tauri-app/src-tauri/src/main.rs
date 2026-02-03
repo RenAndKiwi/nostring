@@ -62,6 +62,11 @@ fn main() {
             // Service key (notifications)
             commands::generate_service_key,
             commands::get_service_npub,
+            // Notification management
+            commands::configure_notifications,
+            commands::get_notification_settings,
+            commands::send_test_notification,
+            commands::check_and_notify,
             // Settings
             commands::get_electrum_url,
             commands::set_electrum_url,

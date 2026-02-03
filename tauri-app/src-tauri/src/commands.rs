@@ -602,6 +602,210 @@ pub async fn validate_xpub(xpub: String) -> CommandResult<bool> {
 
 use nostring_shamir::codex32::{parse_share, Codex32Config, Codex32Share};
 
+// ============================================================================
+// Notification Commands
+// ============================================================================
+
+/// Configure notification settings for the owner's npub/email.
+///
+/// The service key (generated in `generate_service_key`) sends DMs.
+/// The `owner_npub` is who receives them.
+#[tauri::command]
+pub async fn configure_notifications(
+    owner_npub: Option<String>,
+    email_address: Option<String>,
+    email_smtp_host: Option<String>,
+    email_smtp_user: Option<String>,
+    email_smtp_password: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<CommandResult<bool>, ()> {
+    // Persist notification settings
+    if let Some(ref npub) = owner_npub {
+        state.persist_config("notify_owner_npub", npub);
+    }
+    if let Some(ref email) = email_address {
+        state.persist_config("notify_email_address", email);
+    }
+    if let Some(ref host) = email_smtp_host {
+        state.persist_config("notify_email_smtp_host", host);
+    }
+    if let Some(ref user) = email_smtp_user {
+        state.persist_config("notify_email_smtp_user", user);
+    }
+    if let Some(ref pass) = email_smtp_password {
+        state.persist_config("notify_email_smtp_password", pass);
+    }
+
+    Ok(CommandResult::ok(true))
+}
+
+/// Get current notification settings.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NotificationSettings {
+    pub owner_npub: Option<String>,
+    pub email_address: Option<String>,
+    pub email_smtp_host: Option<String>,
+    pub service_npub: Option<String>,
+}
+
+#[tauri::command]
+pub async fn get_notification_settings(
+    state: State<'_, AppState>,
+) -> Result<NotificationSettings, ()> {
+    let conn = state.db.lock().unwrap();
+    let owner_npub = crate::db::config_get(&conn, "notify_owner_npub").ok().flatten();
+    let email_address = crate::db::config_get(&conn, "notify_email_address").ok().flatten();
+    let email_smtp_host = crate::db::config_get(&conn, "notify_email_smtp_host").ok().flatten();
+    drop(conn);
+    let service_npub = state.service_npub.lock().unwrap().clone();
+
+    Ok(NotificationSettings {
+        owner_npub,
+        email_address,
+        email_smtp_host,
+        service_npub,
+    })
+}
+
+/// Send a test notification via Nostr DM and/or email.
+///
+/// Uses the service key to send a DM to the owner's npub.
+#[tauri::command]
+pub async fn send_test_notification(
+    state: State<'_, AppState>,
+) -> Result<CommandResult<String>, ()> {
+    // Get the service key (sender)
+    let service_secret = {
+        let sk = state.service_key.lock().unwrap();
+        match &*sk {
+            Some(s) => s.clone(),
+            None => return Ok(CommandResult::err(
+                "No service key generated. Go to Settings → Notifications to set up.",
+            )),
+        }
+    };
+
+    // Get the owner's npub (recipient)
+    let owner_npub = {
+        let conn = state.db.lock().unwrap();
+        crate::db::config_get(&conn, "notify_owner_npub").ok().flatten()
+    };
+
+    let Some(owner_npub) = owner_npub else {
+        return Ok(CommandResult::err(
+            "No owner npub configured. Enter your Nostr npub in Settings → Notifications.",
+        ));
+    };
+
+    // Build the nostr config
+    let nostr_config = nostring_notify::NostrConfig {
+        enabled: true,
+        recipient_pubkey: owner_npub,
+        relays: vec![
+            "wss://relay.damus.io".into(),
+            "wss://relay.nostr.band".into(),
+            "wss://nos.lol".into(),
+        ],
+        secret_key: Some(service_secret),
+    };
+
+    // Create a test message
+    let test_msg = nostring_notify::NotificationLevel::Reminder;
+    let message = nostring_notify::templates::generate_message(test_msg, 30.0, 4320, 0);
+
+    // Send it
+    match nostring_notify::nostr_dm::send_dm(&nostr_config, &message).await {
+        Ok(_) => Ok(CommandResult::ok("Test DM sent! Check your Nostr client.".to_string())),
+        Err(e) => Ok(CommandResult::err(format!("Failed to send DM: {}", e))),
+    }
+}
+
+/// Check the inheritance timelock and send notifications if thresholds are hit.
+///
+/// This should be called periodically (e.g., on app open, on refresh).
+#[tauri::command]
+pub async fn check_and_notify(
+    state: State<'_, AppState>,
+) -> Result<CommandResult<String>, ()> {
+    // Need policy status
+    let status = {
+        let s = state.policy_status.lock().unwrap();
+        match &*s {
+            Some(st) => st.clone(),
+            None => return Ok(CommandResult::err("No policy status. Refresh status first.")),
+        }
+    };
+
+    // Get service key
+    let service_secret = {
+        let sk = state.service_key.lock().unwrap();
+        match &*sk {
+            Some(s) => s.clone(),
+            None => return Ok(CommandResult::ok("No service key — skipping notifications.".to_string())),
+        }
+    };
+
+    // Get owner npub
+    let owner_npub = {
+        let conn = state.db.lock().unwrap();
+        crate::db::config_get(&conn, "notify_owner_npub").ok().flatten()
+    };
+
+    // Build notification config
+    let nostr_config = owner_npub.map(|npub| nostring_notify::NostrConfig {
+        enabled: true,
+        recipient_pubkey: npub,
+        relays: vec![
+            "wss://relay.damus.io".into(),
+            "wss://relay.nostr.band".into(),
+            "wss://nos.lol".into(),
+        ],
+        secret_key: Some(service_secret),
+    });
+
+    // Get email config
+    let email_config = {
+        let conn = state.db.lock().unwrap();
+        let address = crate::db::config_get(&conn, "notify_email_address").ok().flatten();
+        let host = crate::db::config_get(&conn, "notify_email_smtp_host").ok().flatten();
+        let user = crate::db::config_get(&conn, "notify_email_smtp_user").ok().flatten();
+        let pass = crate::db::config_get(&conn, "notify_email_smtp_password").ok().flatten();
+        match (address, host, user, pass) {
+            (Some(addr), Some(h), Some(u), Some(p)) => Some(nostring_notify::EmailConfig {
+                enabled: true,
+                smtp_host: h,
+                smtp_port: 587,
+                smtp_user: u.clone(),
+                smtp_password: p,
+                from_address: u,
+                to_address: addr,
+            }),
+            _ => None,
+        }
+    };
+
+    if nostr_config.is_none() && email_config.is_none() {
+        return Ok(CommandResult::ok("No notification channels configured.".to_string()));
+    }
+
+    let config = nostring_notify::NotifyConfig {
+        thresholds: nostring_notify::NotifyConfig::default().thresholds,
+        email: email_config,
+        nostr: nostr_config,
+    };
+
+    let service = nostring_notify::NotificationService::new(config);
+
+    match service
+        .check_and_notify(status.blocks_remaining, status.current_block as u32)
+        .await
+    {
+        Ok(Some(level)) => Ok(CommandResult::ok(format!("Notification sent: {:?}", level))),
+        Ok(None) => Ok(CommandResult::ok("No notification needed — timelock healthy.".to_string())),
+        Err(e) => Ok(CommandResult::err(format!("Notification error: {}", e))),
+    }
+}
+
 /// Generate Codex32 shares for a seed
 #[tauri::command]
 pub async fn generate_codex32_shares(

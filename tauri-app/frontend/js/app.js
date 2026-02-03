@@ -70,6 +70,10 @@ const invoke = DEMO_MODE
                 data: 'npub1demo0servicekey0placeholder0000000000000000000000000000000'
             },
             'get_service_npub': 'npub1demo0servicekey0placeholder0000000000000000000000000000000',
+            'configure_notifications': { success: true },
+            'get_notification_settings': { owner_npub: null, email_address: null, email_smtp_host: null, service_npub: 'npub1demo...' },
+            'send_test_notification': { success: true, data: 'Test DM sent!' },
+            'check_and_notify': { success: true, data: 'No notification needed.' },
         };
         return mocks[cmd] ?? { success: true }
     }
@@ -762,9 +766,30 @@ function showMainApp() {
             
             <div class="settings-group">
                 <h3>🔔 Notifications</h3>
-                <p class="text-muted">NoString sends check-in reminders via Nostr DM from its service key.</p>
+                <p class="text-muted">NoString sends check-in reminders via Nostr DM and/or email.</p>
                 <div class="setting" id="service-npub-container">
                     <p class="text-muted">Loading...</p>
+                </div>
+                <div class="setting" style="margin-top: 1rem;">
+                    <label>Your Nostr npub (receives DM reminders):</label>
+                    <input type="text" id="notify-owner-npub" placeholder="npub1...">
+                    <p class="hint">Enter your personal npub. The service key above sends encrypted DMs to this address.</p>
+                </div>
+                <div class="setting" style="margin-top: 0.75rem;">
+                    <label>Email (optional backup channel):</label>
+                    <input type="email" id="notify-email" placeholder="you@example.com">
+                </div>
+                <div id="email-smtp-fields" class="hidden" style="margin-top: 0.5rem;">
+                    <label>SMTP Host:</label>
+                    <input type="text" id="notify-smtp-host" placeholder="smtp.example.com">
+                    <label>SMTP User:</label>
+                    <input type="text" id="notify-smtp-user" placeholder="user@example.com">
+                    <label>SMTP Password:</label>
+                    <input type="password" id="notify-smtp-password" placeholder="password">
+                </div>
+                <div style="display: flex; gap: 0.75rem; margin-top: 1rem;">
+                    <button type="button" id="btn-save-notifications" class="btn-primary">Save Notifications</button>
+                    <button type="button" id="btn-test-notification" class="btn-secondary">Send Test DM</button>
                 </div>
             </div>
             
@@ -828,10 +853,19 @@ function showMainApp() {
     document.getElementById('btn-cancel-shares').addEventListener('click', hideShareGenerator);
     document.getElementById('btn-done-shares').addEventListener('click', hideSharesDisplay);
     
+    // Notification settings handlers
+    document.getElementById('btn-save-notifications').addEventListener('click', saveNotificationSettings);
+    document.getElementById('btn-test-notification').addEventListener('click', sendTestNotification);
+    document.getElementById('notify-email').addEventListener('input', () => {
+        const email = document.getElementById('notify-email').value.trim();
+        document.getElementById('email-smtp-fields').classList.toggle('hidden', !email);
+    });
+    
     // Load initial data
     refreshStatus();
     loadElectrumUrl();
     loadServiceNpub();
+    loadNotificationSettings();
 }
 
 // ============================================================================
@@ -852,6 +886,10 @@ async function refreshStatus() {
             const statusIcon = policyStatus.urgency === 'ok' ? '✅' :
                                policyStatus.urgency === 'warning' ? '⚠️' : '🚨';
             
+            const lastCheckin = policyStatus.last_checkin 
+                ? new Date(policyStatus.last_checkin * 1000).toLocaleDateString()
+                : 'Never';
+            
             display.innerHTML = `
                 <div class="status-item ${urgencyClass}">
                     <span class="label">Status</span>
@@ -869,7 +907,16 @@ async function refreshStatus() {
                     <span class="label">Current Block</span>
                     <span class="value">${policyStatus.current_block.toLocaleString()}</span>
                 </div>
+                <div class="status-item">
+                    <span class="label">Last Check-in</span>
+                    <span class="value">${lastCheckin}</span>
+                </div>
             `;
+            
+            // Check if notifications should fire
+            invoke('check_and_notify').catch(err => {
+                console.log('Notification check:', err);
+            });
         } else {
             display.innerHTML = `<p class="error">Error: ${result.error}</p>`;
         }
@@ -1373,6 +1420,68 @@ async function loadServiceNpub() {
         }
     } catch (err) {
         console.error('Failed to load service npub:', err);
+    }
+}
+
+// ============================================================================
+// Notification Settings
+// ============================================================================
+async function loadNotificationSettings() {
+    try {
+        const settings = await invoke('get_notification_settings');
+        if (settings.owner_npub) {
+            document.getElementById('notify-owner-npub').value = settings.owner_npub;
+        }
+        if (settings.email_address) {
+            document.getElementById('notify-email').value = settings.email_address;
+            document.getElementById('email-smtp-fields').classList.remove('hidden');
+        }
+        if (settings.email_smtp_host) {
+            document.getElementById('notify-smtp-host').value = settings.email_smtp_host;
+        }
+    } catch (err) {
+        console.error('Failed to load notification settings:', err);
+    }
+}
+
+async function saveNotificationSettings() {
+    const ownerNpub = document.getElementById('notify-owner-npub').value.trim() || null;
+    const emailAddress = document.getElementById('notify-email').value.trim() || null;
+    const emailSmtpHost = document.getElementById('notify-smtp-host').value.trim() || null;
+    const emailSmtpUser = document.getElementById('notify-smtp-user').value.trim() || null;
+    const emailSmtpPassword = document.getElementById('notify-smtp-password').value.trim() || null;
+
+    try {
+        const result = await invoke('configure_notifications', {
+            ownerNpub,
+            emailAddress,
+            emailSmtpHost,
+            emailSmtpUser,
+            emailSmtpPassword,
+        });
+        if (result.success) {
+            showSuccess('Notification settings saved');
+        } else {
+            showError(result.error || 'Failed to save');
+        }
+    } catch (err) {
+        console.error('Failed to save notification settings:', err);
+        showError('Failed to save notification settings');
+    }
+}
+
+async function sendTestNotification() {
+    try {
+        showSuccess('Sending test DM...');
+        const result = await invoke('send_test_notification');
+        if (result.success) {
+            showSuccess(result.data);
+        } else {
+            showError(result.error || 'Failed to send test notification');
+        }
+    } catch (err) {
+        console.error('Failed to send test notification:', err);
+        showError('Failed to send test notification');
     }
 }
 
