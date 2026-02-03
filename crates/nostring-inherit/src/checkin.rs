@@ -201,21 +201,29 @@ pub struct CheckinTxBuilder {
     descriptor: Descriptor<DescriptorPublicKey>,
     /// Fee rate in sat/vbyte
     fee_rate: u64,
+    /// Derivation index for the UTXO address (which child key was used)
+    derivation_index: u32,
     /// Optional additional outputs (e.g., if sending funds elsewhere)
     extra_outputs: Vec<TxOut>,
 }
 
 impl CheckinTxBuilder {
     /// Create a new check-in transaction builder
+    ///
+    /// `derivation_index` is the BIP-32 child index at which the UTXO's
+    /// address was derived from the descriptor (e.g., 0 for the first
+    /// receive address).
     pub fn new(
         utxo: InheritanceUtxo,
         descriptor: Descriptor<DescriptorPublicKey>,
         fee_rate: u64,
+        derivation_index: u32,
     ) -> Self {
         Self {
             utxo,
             descriptor,
             fee_rate,
+            derivation_index,
             extra_outputs: Vec::new(),
         }
     }
@@ -285,15 +293,55 @@ impl CheckinTxBuilder {
     /// Build an unsigned PSBT for the check-in
     ///
     /// The PSBT can be exported to SeedSigner or other hardware wallets for signing.
+    /// Populates BIP-174 `witness_utxo` and `witness_script` fields so hardware
+    /// wallets can validate input amounts (prevents fee-manipulation attacks).
     pub fn build_psbt(&self) -> Result<Psbt, CheckinError> {
         let tx = self.build_unsigned_tx()?;
 
-        let psbt =
+        let mut psbt =
             Psbt::from_unsigned_tx(tx).map_err(|e| CheckinError::PsbtError(e.to_string()))?;
 
-        // TODO: Add UTXO information to PSBT inputs
-        // psbt.inputs[0].witness_utxo = Some(TxOut { ... });
-        // psbt.inputs[0].witness_script = Some(script);
+        // Populate witness_utxo: the TxOut being spent (amount + scriptPubKey).
+        // Without this, hardware wallets cannot verify the input amount and
+        // are vulnerable to fee-manipulation attacks (BIP-174 §input.witness_utxo).
+        psbt.inputs[0].witness_utxo = Some(TxOut {
+            value: self.utxo.value(),
+            script_pubkey: self.utxo.script_pubkey(),
+        });
+
+        // Populate witness_script: the redeemScript for P2WSH inputs.
+        // For P2WSH, the scriptPubKey is OP_0 <32-byte-hash>, and the
+        // witness_script is the actual script that hashes to that value.
+        // Hardware wallets need this to construct the correct sighash.
+        //
+        // Derive the descriptor at the UTXO's derivation index to resolve
+        // wildcard keys (<0;1>/*) into concrete public keys, then extract
+        // the inner witness script.
+        let secp = bitcoin::secp256k1::Secp256k1::verification_only();
+
+        // For multi-path descriptors (<0;1>/*), split into single-path
+        // descriptors and use the receive path (index 0).
+        let single_descs = self
+            .descriptor
+            .clone()
+            .into_single_descriptors()
+            .map_err(|e| CheckinError::PsbtError(format!("descriptor split failed: {}", e)))?;
+        let receive_desc = single_descs
+            .into_iter()
+            .next()
+            .ok_or_else(|| CheckinError::PsbtError("empty descriptor list".to_string()))?;
+
+        let derived = receive_desc
+            .derived_descriptor(&secp, self.derivation_index)
+            .map_err(|e| {
+                CheckinError::PsbtError(format!("descriptor derivation failed: {}", e))
+            })?;
+
+        let witness_script = derived
+            .explicit_script()
+            .map_err(|e| CheckinError::PsbtError(format!("witness script extraction failed: {}", e)))?;
+
+        psbt.inputs[0].witness_script = Some(witness_script);
 
         Ok(psbt)
     }
@@ -403,6 +451,18 @@ mod tests {
         assert_eq!(utxo.value_sats, restored.value_sats);
     }
 
+    /// Helper: derive the script_pubkey for a descriptor at a given index
+    fn derive_script_pubkey(
+        descriptor: &Descriptor<DescriptorPublicKey>,
+        index: u32,
+    ) -> ScriptBuf {
+        let secp = bitcoin::secp256k1::Secp256k1::verification_only();
+        let single_descs = descriptor.clone().into_single_descriptors().unwrap();
+        let receive_desc = &single_descs[0];
+        let derived = receive_desc.derived_descriptor(&secp, index).unwrap();
+        derived.script_pubkey()
+    }
+
     #[test]
     fn test_checkin_psbt_generation() {
         use crate::policy::{InheritancePolicy, Timelock};
@@ -425,26 +485,49 @@ mod tests {
 
         let descriptor = policy.to_wsh_descriptor().unwrap();
 
-        // Create a test UTXO
+        // Derive the correct script_pubkey for derivation index 0
+        let spk = derive_script_pubkey(&descriptor, 0);
+
+        // Create a test UTXO with the correct script_pubkey
         let outpoint = OutPoint {
             txid: Txid::all_zeros(),
             vout: 0,
         };
-        let utxo = InheritanceUtxo::new(
-            outpoint,
-            Amount::from_sat(100_000),
-            800_000,
-            ScriptBuf::new_p2wsh(&bitcoin::WScriptHash::all_zeros()),
+        let utxo = InheritanceUtxo::new(outpoint, Amount::from_sat(100_000), 800_000, spk);
+
+        // Build the PSBT (derivation_index = 0)
+        let builder = CheckinTxBuilder::new(utxo, descriptor, 10, 0);
+        let psbt = builder
+            .build_psbt()
+            .expect("PSBT creation should succeed");
+
+        // --- Verify witness_utxo is populated ---
+        let witness_utxo = psbt.inputs[0]
+            .witness_utxo
+            .as_ref()
+            .expect("witness_utxo must be populated");
+        assert_eq!(witness_utxo.value, Amount::from_sat(100_000));
+        assert!(
+            witness_utxo.script_pubkey.is_p2wsh(),
+            "script_pubkey must be P2WSH"
         );
 
-        // Build the PSBT
-        let builder = CheckinTxBuilder::new(utxo, descriptor, 10);
-        let psbt_result = builder.build_psbt();
-
+        // --- Verify witness_script is populated ---
+        let witness_script = psbt.inputs[0]
+            .witness_script
+            .as_ref()
+            .expect("witness_script must be populated");
         assert!(
-            psbt_result.is_ok(),
-            "PSBT creation failed: {:?}",
-            psbt_result.err()
+            !witness_script.is_empty(),
+            "witness_script must not be empty"
+        );
+
+        // --- Verify witness_script hashes to the P2WSH script_pubkey ---
+        let expected_wsh =
+            ScriptBuf::new_p2wsh(&bitcoin::WScriptHash::hash(witness_script.as_bytes()));
+        assert_eq!(
+            witness_utxo.script_pubkey, expected_wsh,
+            "witness_script must hash to the P2WSH script_pubkey"
         );
 
         // Test base64 encoding
@@ -458,5 +541,75 @@ mod tests {
         assert!(bytes_result.is_ok());
         let bytes = bytes_result.unwrap();
         assert_eq!(&bytes[0..5], b"psbt\xff"); // PSBT magic bytes
+    }
+
+    #[test]
+    fn test_psbt_witness_fields_at_different_derivation_indices() {
+        use crate::policy::{InheritancePolicy, Timelock};
+        use bitcoin::bip32::Xpub;
+        use miniscript::descriptor::DescriptorPublicKey;
+        use std::str::FromStr;
+
+        let test_xpub = Xpub::from_str("xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8NqtwybGhePY2gZ29ESFjqJoCu1Rupje8YtGqsefD265TMg7usUDFdp6W1EGMcet8").unwrap();
+        let owner_key =
+            DescriptorPublicKey::from_str(&format!("[00000001/84'/0'/0']{}/<0;1>/*", test_xpub))
+                .unwrap();
+        let heir_key =
+            DescriptorPublicKey::from_str(&format!("[00000002/84'/0'/1']{}/<0;1>/*", test_xpub))
+                .unwrap();
+
+        let policy =
+            InheritancePolicy::simple(owner_key, heir_key, Timelock::six_months()).unwrap();
+        let descriptor = policy.to_wsh_descriptor().unwrap();
+
+        // Test indices 0, 1, 2 — each should produce different witness scripts
+        // that correctly hash to their respective P2WSH script_pubkeys
+        let mut witness_scripts = Vec::new();
+        for idx in 0..3u32 {
+            let spk = derive_script_pubkey(&descriptor, idx);
+
+            let outpoint = OutPoint {
+                txid: Txid::all_zeros(),
+                vout: 0,
+            };
+            let utxo =
+                InheritanceUtxo::new(outpoint, Amount::from_sat(50_000), 800_000, spk);
+
+            let builder = CheckinTxBuilder::new(utxo, descriptor.clone(), 5, idx);
+            let psbt = builder
+                .build_psbt()
+                .unwrap_or_else(|e| panic!("PSBT at index {} failed: {:?}", idx, e));
+
+            let ws = psbt.inputs[0]
+                .witness_script
+                .as_ref()
+                .expect("witness_script must be set");
+            let wu = psbt.inputs[0]
+                .witness_utxo
+                .as_ref()
+                .expect("witness_utxo must be set");
+
+            // Verify witness_script hashes to script_pubkey
+            let expected_wsh =
+                ScriptBuf::new_p2wsh(&bitcoin::WScriptHash::hash(ws.as_bytes()));
+            assert_eq!(
+                wu.script_pubkey, expected_wsh,
+                "witness_script/script_pubkey mismatch at index {}",
+                idx
+            );
+
+            witness_scripts.push(ws.clone());
+        }
+
+        // Different derivation indices must yield different witness scripts
+        // (because each child key is different)
+        assert_ne!(
+            witness_scripts[0], witness_scripts[1],
+            "index 0 and 1 must differ"
+        );
+        assert_ne!(
+            witness_scripts[1], witness_scripts[2],
+            "index 1 and 2 must differ"
+        );
     }
 }
