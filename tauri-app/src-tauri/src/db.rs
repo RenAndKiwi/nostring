@@ -217,9 +217,8 @@ pub fn heir_update_contact(
 
 /// List all heirs.
 pub fn heir_list(conn: &Connection) -> SqlResult<Vec<HeirRow>> {
-    let mut stmt = conn.prepare(
-        "SELECT fingerprint, label, xpub, derivation_path, npub, email FROM heirs",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT fingerprint, label, xpub, derivation_path, npub, email FROM heirs")?;
     let rows = stmt.query_map([], |row| {
         Ok(HeirRow {
             fingerprint: row.get(0)?,
@@ -324,7 +323,10 @@ pub fn spend_event_list(conn: &Connection) -> SqlResult<Vec<SpendEventRow>> {
 
 /// List spend events filtered by type.
 #[allow(dead_code)]
-pub fn spend_event_list_by_type(conn: &Connection, spend_type: &str) -> SqlResult<Vec<SpendEventRow>> {
+pub fn spend_event_list_by_type(
+    conn: &Connection,
+    spend_type: &str,
+) -> SqlResult<Vec<SpendEventRow>> {
     let mut stmt = conn.prepare(
         "SELECT id, timestamp, txid, spend_type, confidence, method, policy_id, outpoint
          FROM spend_events WHERE spend_type = ?1 ORDER BY id DESC",
@@ -347,9 +349,8 @@ pub fn spend_event_list_by_type(conn: &Connection, spend_type: &str) -> SqlResul
 /// Check if any heir claims have been detected.
 #[allow(dead_code)]
 pub fn has_heir_claims(conn: &Connection) -> SqlResult<bool> {
-    let mut stmt = conn.prepare_cached(
-        "SELECT COUNT(*) FROM spend_events WHERE spend_type = 'heir_claim'",
-    )?;
+    let mut stmt =
+        conn.prepare_cached("SELECT COUNT(*) FROM spend_events WHERE spend_type = 'heir_claim'")?;
     let count: i64 = stmt.query_row([], |row| row.get(0))?;
     Ok(count > 0)
 }
@@ -1079,9 +1080,16 @@ mod tests {
 
         // Insert owner checkin
         spend_event_insert(
-            &conn, 1000, "txid_owner", "owner_checkin", 0.95,
-            "witness_analysis", Some("policy1"), Some("abc:0"),
-        ).unwrap();
+            &conn,
+            1000,
+            "txid_owner",
+            "owner_checkin",
+            0.95,
+            "witness_analysis",
+            Some("policy1"),
+            Some("abc:0"),
+        )
+        .unwrap();
 
         let events = spend_event_list(&conn).unwrap();
         assert_eq!(events.len(), 1);
@@ -1091,9 +1099,16 @@ mod tests {
 
         // Insert heir claim
         spend_event_insert(
-            &conn, 2000, "txid_heir", "heir_claim", 0.9,
-            "witness_analysis", Some("policy1"), Some("def:0"),
-        ).unwrap();
+            &conn,
+            2000,
+            "txid_heir",
+            "heir_claim",
+            0.9,
+            "witness_analysis",
+            Some("policy1"),
+            Some("def:0"),
+        )
+        .unwrap();
 
         assert!(has_heir_claims(&conn).unwrap());
 
@@ -1171,11 +1186,9 @@ mod tests {
         let (conn, _f) = temp_db();
 
         // Simulate setting up nsec inheritance
-        let locked_shares = serde_json::to_string(&vec![
-            "ms12nsecbyyy".to_string(),
-            "ms12nsecczz".to_string(),
-        ])
-        .unwrap();
+        let locked_shares =
+            serde_json::to_string(&vec!["ms12nsecbyyy".to_string(), "ms12nsecczz".to_string()])
+                .unwrap();
         config_set(&conn, "nsec_locked_shares", &locked_shares).unwrap();
         config_set(&conn, "nsec_owner_npub", "npub1testowner123").unwrap();
 
@@ -1441,9 +1454,27 @@ mod tests {
         assert_eq!(presigned_checkin_count_active(&conn).unwrap(), 0);
 
         // Add three pre-signed check-ins
-        let id1 = presigned_checkin_add(&conn, "psbt_base64_0", 0, Some("txid_utxo"), Some(0), 1000).unwrap();
-        let id2 = presigned_checkin_add(&conn, "psbt_base64_1", 1, Some("txid_from_0"), Some(0), 1001).unwrap();
-        let id3 = presigned_checkin_add(&conn, "psbt_base64_2", 2, Some("txid_from_1"), Some(0), 1002).unwrap();
+        let id1 =
+            presigned_checkin_add(&conn, "psbt_base64_0", 0, Some("txid_utxo"), Some(0), 1000)
+                .unwrap();
+        let id2 = presigned_checkin_add(
+            &conn,
+            "psbt_base64_1",
+            1,
+            Some("txid_from_0"),
+            Some(0),
+            1001,
+        )
+        .unwrap();
+        let id3 = presigned_checkin_add(
+            &conn,
+            "psbt_base64_2",
+            2,
+            Some("txid_from_1"),
+            Some(0),
+            1002,
+        )
+        .unwrap();
 
         assert!(id1 > 0);
         assert!(id2 > id1);
@@ -1527,7 +1558,10 @@ mod tests {
         let all = presigned_checkin_list_all(&conn).unwrap();
         assert_eq!(all.len(), 3);
         assert_eq!(all[0].invalidated_at, Some(5000));
-        assert_eq!(all[0].invalidation_reason.as_deref(), Some("Manual check-in"));
+        assert_eq!(
+            all[0].invalidation_reason.as_deref(),
+            Some("Manual check-in")
+        );
     }
 
     #[test]
@@ -1595,9 +1629,12 @@ mod tests {
         let (conn, _f) = temp_db();
 
         // Create a realistic scenario
-        let id0 = presigned_checkin_add(&conn, "psbt_0", 0, Some("original_utxo"), Some(0), 1000).unwrap();
-        let id1 = presigned_checkin_add(&conn, "psbt_1", 1, Some("txid_from_0"), Some(0), 1001).unwrap();
-        let _id2 = presigned_checkin_add(&conn, "psbt_2", 2, Some("txid_from_1"), Some(0), 1002).unwrap();
+        let id0 = presigned_checkin_add(&conn, "psbt_0", 0, Some("original_utxo"), Some(0), 1000)
+            .unwrap();
+        let id1 =
+            presigned_checkin_add(&conn, "psbt_1", 1, Some("txid_from_0"), Some(0), 1001).unwrap();
+        let _id2 =
+            presigned_checkin_add(&conn, "psbt_2", 2, Some("txid_from_1"), Some(0), 1002).unwrap();
 
         // Broadcast first one
         presigned_checkin_mark_broadcast(&conn, id0, 2000, "txid_broadcast_0").unwrap();

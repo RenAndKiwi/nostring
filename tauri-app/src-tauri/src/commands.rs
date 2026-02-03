@@ -362,12 +362,7 @@ pub async fn initiate_checkin(state: State<'_, AppState>) -> Result<CommandResul
 
     use nostring_inherit::checkin::{CheckinTxBuilder, InheritanceUtxo as InhUtxo};
 
-    let inheritance_utxo = InhUtxo::new(
-        utxo.outpoint,
-        utxo.value,
-        utxo.height,
-        script.to_owned(),
-    );
+    let inheritance_utxo = InhUtxo::new(utxo.outpoint, utxo.value, utxo.height, script.to_owned());
 
     let fee_rate = 10;
     let builder = CheckinTxBuilder::new(inheritance_utxo, descriptor, fee_rate);
@@ -570,9 +565,7 @@ pub async fn detect_spend_type(
 
 /// Get all spend events from the database.
 #[tauri::command]
-pub async fn get_spend_events(
-    state: State<'_, AppState>,
-) -> Result<Vec<SpendEventInfo>, ()> {
+pub async fn get_spend_events(state: State<'_, AppState>) -> Result<Vec<SpendEventInfo>, ()> {
     let conn = state.db.lock().unwrap();
     let rows = crate::db::spend_event_list(&conn).unwrap_or_default();
 
@@ -593,9 +586,7 @@ pub async fn get_spend_events(
 
 /// Check if any heir claims have been detected (for alert display).
 #[tauri::command]
-pub async fn check_heir_claims(
-    state: State<'_, AppState>,
-) -> Result<bool, ()> {
+pub async fn check_heir_claims(state: State<'_, AppState>) -> Result<bool, ()> {
     let conn = state.db.lock().unwrap();
     Ok(crate::db::has_heir_claims(&conn).unwrap_or(false))
 }
@@ -718,9 +709,7 @@ pub async fn list_heirs(state: State<'_, AppState>) -> Result<Vec<HeirInfo>, ()>
         .map(|heir| {
             let fp = heir.fingerprint.to_string();
             let row = crate::db::heir_get(&conn, &fp).ok().flatten();
-            let (npub, email) = row
-                .map(|r| (r.npub, r.email))
-                .unwrap_or((None, None));
+            let (npub, email) = row.map(|r| (r.npub, r.email)).unwrap_or((None, None));
             HeirInfo::from_key_with_contact(heir, npub, email)
         })
         .collect();
@@ -806,11 +795,7 @@ pub async fn set_heir_contact(
         }
     }
 
-    let updated = state.update_heir_contact(
-        &fingerprint,
-        npub.as_deref(),
-        email.as_deref(),
-    );
+    let updated = state.update_heir_contact(&fingerprint, npub.as_deref(), email.as_deref());
 
     if updated {
         Ok(CommandResult::ok(true))
@@ -961,7 +946,9 @@ pub async fn split_nsec(
     // Detect existing nsec inheritance (re-split scenario)
     let previous_npub = {
         let conn = state.db.lock().unwrap();
-        crate::db::config_get(&conn, "nsec_owner_npub").ok().flatten()
+        crate::db::config_get(&conn, "nsec_owner_npub")
+            .ok()
+            .flatten()
     };
     let was_resplit = previous_npub.is_some();
 
@@ -1022,7 +1009,10 @@ pub async fn split_nsec(
         Ok(s) => s,
         Err(e) => {
             secret_bytes.zeroize();
-            return Ok(CommandResult::err(format!("Share generation failed: {}", e)));
+            return Ok(CommandResult::err(format!(
+                "Share generation failed: {}",
+                e
+            )));
         }
     };
 
@@ -1112,9 +1102,7 @@ pub async fn get_nsec_inheritance_status(
 
 /// Get locked shares (for inclusion in descriptor backup).
 #[tauri::command]
-pub async fn get_locked_shares(
-    state: State<'_, AppState>,
-) -> Result<Option<Vec<String>>, ()> {
+pub async fn get_locked_shares(state: State<'_, AppState>) -> Result<Option<Vec<String>>, ()> {
     let conn = state.db.lock().unwrap();
     let locked_json = crate::db::config_get(&conn, "nsec_locked_shares")
         .ok()
@@ -1129,9 +1117,7 @@ pub async fn get_locked_shares(
 /// The heir pastes their pre-distributed share(s) plus locked shares
 /// from the descriptor backup. If threshold is met, the nsec is revealed.
 #[tauri::command]
-pub async fn recover_nsec(
-    shares: Vec<String>,
-) -> CommandResult<RecoveredNsec> {
+pub async fn recover_nsec(shares: Vec<String>) -> CommandResult<RecoveredNsec> {
     use nostring_shamir::codex32::combine_shares;
 
     if shares.len() < 2 {
@@ -1143,13 +1129,7 @@ pub async fn recover_nsec(
     for (i, share_str) in shares.iter().enumerate() {
         match parse_share(share_str) {
             Ok(s) => parsed.push(s),
-            Err(e) => {
-                return CommandResult::err(format!(
-                    "Invalid share #{}: {}",
-                    i + 1,
-                    e
-                ))
-            }
+            Err(e) => return CommandResult::err(format!("Invalid share #{}: {}", i + 1, e)),
         }
     }
 
@@ -1178,7 +1158,10 @@ pub async fn recover_nsec(
     };
 
     use nostr_sdk::ToBech32;
-    let nsec = keys.secret_key().to_bech32().unwrap_or_else(|_| recovered_hex.clone());
+    let nsec = keys
+        .secret_key()
+        .to_bech32()
+        .unwrap_or_else(|_| recovered_hex.clone());
     let npub = keys.public_key().to_bech32().unwrap_or_default();
 
     // Zero the intermediate bytes
@@ -1247,9 +1230,15 @@ pub async fn get_notification_settings(
     state: State<'_, AppState>,
 ) -> Result<NotificationSettings, ()> {
     let conn = state.db.lock().unwrap();
-    let owner_npub = crate::db::config_get(&conn, "notify_owner_npub").ok().flatten();
-    let email_address = crate::db::config_get(&conn, "notify_email_address").ok().flatten();
-    let email_smtp_host = crate::db::config_get(&conn, "notify_email_smtp_host").ok().flatten();
+    let owner_npub = crate::db::config_get(&conn, "notify_owner_npub")
+        .ok()
+        .flatten();
+    let email_address = crate::db::config_get(&conn, "notify_email_address")
+        .ok()
+        .flatten();
+    let email_smtp_host = crate::db::config_get(&conn, "notify_email_smtp_host")
+        .ok()
+        .flatten();
     drop(conn);
     let service_npub = state.service_npub.lock().unwrap().clone();
 
@@ -1273,16 +1262,20 @@ pub async fn send_test_notification(
         let sk = state.service_key.lock().unwrap();
         match &*sk {
             Some(s) => s.clone(),
-            None => return Ok(CommandResult::err(
-                "No service key generated. Go to Settings → Notifications to set up.",
-            )),
+            None => {
+                return Ok(CommandResult::err(
+                    "No service key generated. Go to Settings → Notifications to set up.",
+                ))
+            }
         }
     };
 
     // Get the owner's npub (recipient)
     let owner_npub = {
         let conn = state.db.lock().unwrap();
-        crate::db::config_get(&conn, "notify_owner_npub").ok().flatten()
+        crate::db::config_get(&conn, "notify_owner_npub")
+            .ok()
+            .flatten()
     };
 
     let Some(owner_npub) = owner_npub else {
@@ -1309,7 +1302,9 @@ pub async fn send_test_notification(
 
     // Send it
     match nostring_notify::nostr_dm::send_dm(&nostr_config, &message).await {
-        Ok(_) => Ok(CommandResult::ok("Test DM sent! Check your Nostr client.".to_string())),
+        Ok(_) => Ok(CommandResult::ok(
+            "Test DM sent! Check your Nostr client.".to_string(),
+        )),
         Err(e) => Ok(CommandResult::err(format!("Failed to send DM: {}", e))),
     }
 }
@@ -1325,15 +1320,17 @@ pub async fn send_test_notification(
 ///
 /// Rate limiting: heirs won't be spammed — a 24h cooldown prevents re-delivery.
 #[tauri::command]
-pub async fn check_and_notify(
-    state: State<'_, AppState>,
-) -> Result<CommandResult<String>, ()> {
+pub async fn check_and_notify(state: State<'_, AppState>) -> Result<CommandResult<String>, ()> {
     // Need policy status
     let status = {
         let s = state.policy_status.lock().unwrap();
         match &*s {
             Some(st) => st.clone(),
-            None => return Ok(CommandResult::err("No policy status. Refresh status first.")),
+            None => {
+                return Ok(CommandResult::err(
+                    "No policy status. Refresh status first.",
+                ))
+            }
         }
     };
 
@@ -1342,14 +1339,20 @@ pub async fn check_and_notify(
         let sk = state.service_key.lock().unwrap();
         match &*sk {
             Some(s) => s.clone(),
-            None => return Ok(CommandResult::ok("No service key — skipping notifications.".to_string())),
+            None => {
+                return Ok(CommandResult::ok(
+                    "No service key — skipping notifications.".to_string(),
+                ))
+            }
         }
     };
 
     // Get owner npub
     let owner_npub = {
         let conn = state.db.lock().unwrap();
-        crate::db::config_get(&conn, "notify_owner_npub").ok().flatten()
+        crate::db::config_get(&conn, "notify_owner_npub")
+            .ok()
+            .flatten()
     };
 
     // Build notification config
@@ -1367,10 +1370,18 @@ pub async fn check_and_notify(
     // Get email config
     let email_config = {
         let conn = state.db.lock().unwrap();
-        let address = crate::db::config_get(&conn, "notify_email_address").ok().flatten();
-        let host = crate::db::config_get(&conn, "notify_email_smtp_host").ok().flatten();
-        let user = crate::db::config_get(&conn, "notify_email_smtp_user").ok().flatten();
-        let pass = crate::db::config_get(&conn, "notify_email_smtp_password").ok().flatten();
+        let address = crate::db::config_get(&conn, "notify_email_address")
+            .ok()
+            .flatten();
+        let host = crate::db::config_get(&conn, "notify_email_smtp_host")
+            .ok()
+            .flatten();
+        let user = crate::db::config_get(&conn, "notify_email_smtp_user")
+            .ok()
+            .flatten();
+        let pass = crate::db::config_get(&conn, "notify_email_smtp_password")
+            .ok()
+            .flatten();
         match (address, host, user, pass) {
             (Some(addr), Some(h), Some(u), Some(p)) => Some(nostring_notify::EmailConfig {
                 enabled: true,
@@ -1402,7 +1413,9 @@ pub async fn check_and_notify(
             .await
         {
             Ok(Some(level)) => results.push(format!("Owner notification sent: {:?}", level)),
-            Ok(None) => results.push("No owner notification needed — timelock healthy.".to_string()),
+            Ok(None) => {
+                results.push("No owner notification needed — timelock healthy.".to_string())
+            }
             Err(e) => results.push(format!("Owner notification error: {}", e)),
         }
     } else {
@@ -1414,12 +1427,8 @@ pub async fn check_and_notify(
     let is_critical = status.blocks_remaining <= 144;
 
     if is_critical {
-        let heir_delivery_result = deliver_descriptor_to_heirs(
-            &state,
-            &service_secret,
-            email_config.as_ref(),
-        )
-        .await;
+        let heir_delivery_result =
+            deliver_descriptor_to_heirs(&state, &service_secret, email_config.as_ref()).await;
         results.push(heir_delivery_result);
     }
 
@@ -1446,7 +1455,9 @@ async fn deliver_descriptor_to_heirs(
             let config_lock = state.inheritance_config.lock().unwrap();
             match &*config_lock {
                 Some(c) => c.clone(),
-                None => return "Heir delivery skipped: no inheritance policy configured.".to_string(),
+                None => {
+                    return "Heir delivery skipped: no inheritance policy configured.".to_string()
+                }
             }
         };
 
@@ -1518,10 +1529,8 @@ async fn deliver_descriptor_to_heirs(
     let mut failed = 0u32;
 
     for heir in &heir_contacts {
-        let message = nostring_notify::templates::generate_heir_delivery_message(
-            &heir.label,
-            &backup_json,
-        );
+        let message =
+            nostring_notify::templates::generate_heir_delivery_message(&heir.label, &backup_json);
 
         // Nostr DM delivery
         if let Some(ref npub) = heir.npub {
@@ -1535,10 +1544,7 @@ async fn deliver_descriptor_to_heirs(
                 .await
                 {
                     Ok(_) => {
-                        log::info!(
-                            "Descriptor delivered to heir {} via Nostr DM",
-                            heir.label
-                        );
+                        log::info!("Descriptor delivered to heir {} via Nostr DM", heir.label);
                         state.log_delivery(&heir.fingerprint, "nostr", true, None);
                         delivered += 1;
                     }
@@ -1573,10 +1579,7 @@ async fn deliver_descriptor_to_heirs(
                 .await
                 {
                     Ok(_) => {
-                        log::info!(
-                            "Descriptor delivered to heir {} via email",
-                            heir.label
-                        );
+                        log::info!("Descriptor delivered to heir {} via email", heir.label);
                         state.log_delivery(&heir.fingerprint, "email", true, None);
                         delivered += 1;
                     }
@@ -1861,9 +1864,7 @@ pub async fn publish_locked_shares_to_relays(
         let heirs = crate::db::heir_list(&conn).unwrap_or_default();
         heirs
             .into_iter()
-            .filter_map(|h| {
-                h.npub.map(|npub| (h.fingerprint, h.label, npub))
-            })
+            .filter_map(|h| h.npub.map(|npub| (h.fingerprint, h.label, npub)))
             .collect()
     };
 
@@ -2046,13 +2047,12 @@ pub async fn get_relay_publication_status(
         }));
     };
 
-    let count = crate::db::relay_publication_success_count(&conn, &split_id)
-        .unwrap_or(0);
+    let count = crate::db::relay_publication_success_count(&conn, &split_id).unwrap_or(0);
     let last_at = crate::db::relay_publication_last(&conn, &split_id)
         .ok()
         .flatten();
-    let publications = crate::db::relay_publication_list_by_split(&conn, &split_id)
-        .unwrap_or_default();
+    let publications =
+        crate::db::relay_publication_list_by_split(&conn, &split_id).unwrap_or_default();
     drop(conn);
 
     let pub_info: Vec<RelayPubEntry> = publications
@@ -2544,19 +2544,10 @@ pub async fn generate_checkin_psbt_chain(
     use nostring_inherit::checkin::{CheckinTxBuilder, InheritanceUtxo as InhUtxo};
 
     let mut psbts: Vec<String> = Vec::with_capacity(count);
-    let mut current_utxo = InhUtxo::new(
-        utxo.outpoint,
-        utxo.value,
-        utxo.height,
-        script.to_owned(),
-    );
+    let mut current_utxo = InhUtxo::new(utxo.outpoint, utxo.value, utxo.height, script.to_owned());
 
     for i in 0..count {
-        let builder = CheckinTxBuilder::new(
-            current_utxo.clone(),
-            descriptor.clone(),
-            fee_rate,
-        );
+        let builder = CheckinTxBuilder::new(current_utxo.clone(), descriptor.clone(), fee_rate);
 
         let psbt = match builder.build_psbt() {
             Ok(p) => p,
@@ -2611,6 +2602,9 @@ pub async fn generate_checkin_psbt_chain(
         psbts.push(BASE64_STANDARD.encode(psbt.serialize()));
     }
 
-    log::info!("Generated {} unsigned check-in PSBTs for sequential signing", count);
+    log::info!(
+        "Generated {} unsigned check-in PSBTs for sequential signing",
+        count
+    );
     Ok(CommandResult::ok(psbts))
 }

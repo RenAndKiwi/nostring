@@ -65,7 +65,9 @@ fn main() -> Result<()> {
     server_config.apply_env_overrides();
 
     // Validate
-    server_config.validate().context("Configuration validation failed")?;
+    server_config
+        .validate()
+        .context("Configuration validation failed")?;
 
     // Init logger
     std::env::set_var("RUST_LOG", &server_config.server.log_level);
@@ -75,12 +77,30 @@ fn main() -> Result<()> {
         println!("✅ Configuration is valid.");
         println!("  Network:       {}", server_config.bitcoin.network);
         println!("  Electrum:      {}", server_config.bitcoin.electrum_url);
-        println!("  Descriptor:    {}…", &server_config.policy.descriptor[..server_config.policy.descriptor.len().min(60)]);
-        println!("  Timelock:      {} blocks", server_config.policy.timelock_blocks);
-        println!("  Check interval: {} secs", server_config.server.check_interval_secs);
-        println!("  Nostr notify:  {}", server_config.notifications.nostr.is_some());
-        println!("  Email notify:  {}", server_config.notifications.email.is_some());
-        println!("  Heirs:         {}", server_config.notifications.heirs.len());
+        println!(
+            "  Descriptor:    {}…",
+            &server_config.policy.descriptor[..server_config.policy.descriptor.len().min(60)]
+        );
+        println!(
+            "  Timelock:      {} blocks",
+            server_config.policy.timelock_blocks
+        );
+        println!(
+            "  Check interval: {} secs",
+            server_config.server.check_interval_secs
+        );
+        println!(
+            "  Nostr notify:  {}",
+            server_config.notifications.nostr.is_some()
+        );
+        println!(
+            "  Email notify:  {}",
+            server_config.notifications.email.is_some()
+        );
+        println!(
+            "  Heirs:         {}",
+            server_config.notifications.heirs.len()
+        );
         return Ok(());
     }
 

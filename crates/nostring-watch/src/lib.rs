@@ -38,7 +38,7 @@ pub mod spend_analysis;
 pub mod state;
 
 pub use events::{SpendType, WatchEvent};
-pub use spend_analysis::{analyze_spend, analyze_witness, SpendAnalysis, DetectionMethod};
+pub use spend_analysis::{analyze_spend, analyze_witness, DetectionMethod, SpendAnalysis};
 pub use state::{PolicyState, TrackedUtxo, WatchState};
 
 use bitcoin::hashes::Hash;
@@ -236,7 +236,12 @@ impl WatchService {
                 .collect();
             let timelock_blocks = policy.timelock_blocks;
 
-            (descriptor_str, known_outpoints, utxo_heights, timelock_blocks)
+            (
+                descriptor_str,
+                known_outpoints,
+                utxo_heights,
+                timelock_blocks,
+            )
         };
 
         // Parse descriptor and get script
@@ -284,12 +289,8 @@ impl WatchService {
                     .unwrap_or(0);
 
                 // UTXO was spent - determine how via witness + timing analysis
-                let (spend_type, spending_txid) = self.detect_spend_type_for_utxo(
-                    known,
-                    &script,
-                    utxo_height,
-                    timelock_blocks,
-                );
+                let (spend_type, spending_txid) =
+                    self.detect_spend_type_for_utxo(known, &script, utxo_height, timelock_blocks);
 
                 events.push(WatchEvent::UtxoSpent {
                     policy_id: policy_id.to_string(),

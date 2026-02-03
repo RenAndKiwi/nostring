@@ -10,31 +10,26 @@ use std::time::Duration;
 /// Run the daemon loop. Blocks forever (until shutdown signal).
 pub async fn run(config: ServerConfig) -> Result<()> {
     log::info!("NoString server starting…");
-    log::info!(
-        "  Network:    {}",
-        config.bitcoin.network
-    );
-    log::info!(
-        "  Electrum:   {}",
-        config.bitcoin.electrum_url
-    );
+    log::info!("  Network:    {}", config.bitcoin.network);
+    log::info!("  Electrum:   {}", config.bitcoin.electrum_url);
     log::info!(
         "  Interval:   {} seconds ({:.1} hours)",
         config.server.check_interval_secs,
         config.server.check_interval_secs as f64 / 3600.0
     );
-    log::info!(
-        "  Data dir:   {}",
-        config.server.data_dir.display()
-    );
+    log::info!("  Data dir:   {}", config.server.data_dir.display());
     log::info!(
         "  Descriptor: {}…",
         &config.policy.descriptor[..config.policy.descriptor.len().min(60)]
     );
 
     // Ensure data directory exists
-    std::fs::create_dir_all(&config.server.data_dir)
-        .with_context(|| format!("Failed to create data dir: {}", config.server.data_dir.display()))?;
+    std::fs::create_dir_all(&config.server.data_dir).with_context(|| {
+        format!(
+            "Failed to create data dir: {}",
+            config.server.data_dir.display()
+        )
+    })?;
 
     let interval = Duration::from_secs(config.server.check_interval_secs);
 
@@ -42,7 +37,10 @@ pub async fn run(config: ServerConfig) -> Result<()> {
     let mut first = true;
     loop {
         if !first {
-            log::info!("Sleeping {} seconds until next check…", config.server.check_interval_secs);
+            log::info!(
+                "Sleeping {} seconds until next check…",
+                config.server.check_interval_secs
+            );
             tokio::time::sleep(interval).await;
         }
         first = false;
@@ -60,8 +58,12 @@ pub async fn run_check_cycle(config: &ServerConfig) -> Result<()> {
 
     // Connect to Electrum
     let network = config.network();
-    let client = ElectrumClient::new(&config.bitcoin.electrum_url, network)
-        .with_context(|| format!("Failed to connect to Electrum at {}", config.bitcoin.electrum_url))?;
+    let client = ElectrumClient::new(&config.bitcoin.electrum_url, network).with_context(|| {
+        format!(
+            "Failed to connect to Electrum at {}",
+            config.bitcoin.electrum_url
+        )
+    })?;
 
     // Set up the watch service
     let watch_state_path = config.server.data_dir.join("watch_state.json");
@@ -72,8 +74,8 @@ pub async fn run_check_cycle(config: &ServerConfig) -> Result<()> {
         warning_threshold_blocks: largest_threshold_blocks(&config.notifications.threshold_days),
     };
 
-    let mut watch = WatchService::new(client, watch_config)
-        .context("Failed to create WatchService")?;
+    let mut watch =
+        WatchService::new(client, watch_config).context("Failed to create WatchService")?;
 
     // Add the policy if not already tracked
     if watch.get_policy(&config.policy.label).is_none() {
@@ -106,7 +108,10 @@ pub async fn run_check_cycle(config: &ServerConfig) -> Result<()> {
             } => {
                 log::info!(
                     "[{}] UTXO appeared: {} ({} sats) at height {}",
-                    policy_id, outpoint, value, height
+                    policy_id,
+                    outpoint,
+                    value,
+                    height
                 );
             }
             WatchEvent::UtxoSpent {
@@ -117,7 +122,10 @@ pub async fn run_check_cycle(config: &ServerConfig) -> Result<()> {
             } => {
                 log::warn!(
                     "[{}] UTXO spent: {} by {} (type: {:?})",
-                    policy_id, outpoint, spending_txid, spend_type
+                    policy_id,
+                    outpoint,
+                    spending_txid,
+                    spend_type
                 );
             }
             WatchEvent::TimelockWarning {
@@ -127,7 +135,9 @@ pub async fn run_check_cycle(config: &ServerConfig) -> Result<()> {
             } => {
                 log::warn!(
                     "[{}] ⚠️  Timelock warning: {} blocks (~{:.1} days) remaining",
-                    policy_id, br, days_remaining
+                    policy_id,
+                    br,
+                    days_remaining
                 );
                 blocks_remaining = Some(*br);
             }
@@ -157,7 +167,11 @@ pub async fn run_check_cycle(config: &ServerConfig) -> Result<()> {
 }
 
 /// Send owner notifications (and heir delivery when critical).
-async fn send_notifications(config: &ServerConfig, blocks_remaining: i64, current_height: u32) -> Result<()> {
+async fn send_notifications(
+    config: &ServerConfig,
+    blocks_remaining: i64,
+    current_height: u32,
+) -> Result<()> {
     let days_remaining = blocks_remaining as f64 * 10.0 / 60.0 / 24.0;
 
     log::info!(
@@ -201,7 +215,10 @@ async fn send_notifications(config: &ServerConfig, blocks_remaining: i64, curren
     let service = NotificationService::new(notify_config);
 
     // Owner notifications
-    match service.check_and_notify(blocks_remaining, current_height).await {
+    match service
+        .check_and_notify(blocks_remaining, current_height)
+        .await
+    {
         Ok(Some(level)) => {
             log::info!("✉️  Owner notification sent: {:?}", level);
         }
@@ -249,21 +266,14 @@ async fn deliver_to_heirs(config: &ServerConfig) {
     let backup_json = serde_json::to_string_pretty(&backup).unwrap_or_default();
 
     for heir in &config.notifications.heirs {
-        let msg = nostring_notify::templates::generate_heir_delivery_message(
-            &heir.label,
-            &backup_json,
-        );
+        let msg =
+            nostring_notify::templates::generate_heir_delivery_message(&heir.label, &backup_json);
 
         // Nostr DM delivery
         if let Some(ref npub) = heir.npub {
             log::info!("Sending descriptor to {} via Nostr DM…", heir.label);
-            match nostring_notify::nostr_dm::send_dm_to_recipient(
-                service_key,
-                npub,
-                &relays,
-                &msg,
-            )
-            .await
+            match nostring_notify::nostr_dm::send_dm_to_recipient(service_key, npub, &relays, &msg)
+                .await
             {
                 Ok(()) => log::info!("✅ Descriptor delivered to {} via Nostr", heir.label),
                 Err(e) => log::error!("❌ Nostr delivery to {} failed: {}", heir.label, e),

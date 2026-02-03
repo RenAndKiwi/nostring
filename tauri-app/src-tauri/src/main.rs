@@ -22,8 +22,7 @@ fn main() {
                 .expect("Failed to resolve app data directory");
 
             // Ensure the directory exists
-            fs::create_dir_all(&app_data)
-                .expect("Failed to create app data directory");
+            fs::create_dir_all(&app_data).expect("Failed to create app data directory");
 
             let db_path = app_data.join("nostring.db");
             log::info!("Database path: {}", db_path.display());

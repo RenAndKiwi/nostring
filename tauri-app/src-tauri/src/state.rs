@@ -73,9 +73,7 @@ impl AppState {
         let conn = db::open_db(&db_path).expect("Failed to open database");
 
         // Load persisted values
-        let owner_xpub = db::config_get(&conn, "owner_xpub")
-            .ok()
-            .flatten();
+        let owner_xpub = db::config_get(&conn, "owner_xpub").ok().flatten();
         let watch_only = db::config_get(&conn, "watch_only")
             .ok()
             .flatten()

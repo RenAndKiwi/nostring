@@ -122,8 +122,7 @@ pub async fn publish_shares_to_relays(
         })?;
 
         // Try NIP-44 first, fall back to NIP-04
-        let (encrypted, kind) =
-            encrypt_for_heir(&keys, &recipient, &payload_json)?;
+        let (encrypted, kind) = encrypt_for_heir(&keys, &recipient, &payload_json)?;
 
         let event = EventBuilder::new(kind, &encrypted)
             .tag(Tag::public_key(recipient))
@@ -344,19 +343,16 @@ fn encrypt_for_heir(
         Err(e) => {
             log::warn!("NIP-44 encryption failed ({}), falling back to NIP-04", e);
             // Fallback to NIP-04
-            let encrypted = nip04::encrypt(keys.secret_key(), recipient, content)
-                .map_err(|e| NotifyError::NostrFailed(format!("NIP-04 encryption failed: {}", e)))?;
+            let encrypted = nip04::encrypt(keys.secret_key(), recipient, content).map_err(|e| {
+                NotifyError::NostrFailed(format!("NIP-04 encryption failed: {}", e))
+            })?;
             Ok((encrypted, Kind::EncryptedDirectMessage))
         }
     }
 }
 
 /// Try to decrypt an event, attempting NIP-44 first then NIP-04.
-fn decrypt_event(
-    keys: &Keys,
-    sender_pk: &PublicKey,
-    event: &Event,
-) -> Result<String, NotifyError> {
+fn decrypt_event(keys: &Keys, sender_pk: &PublicKey, event: &Event) -> Result<String, NotifyError> {
     let content = &event.content;
 
     // Try NIP-44 first
@@ -434,12 +430,8 @@ mod tests {
         .expect("NIP-44 encryption should succeed");
 
         // Decrypt
-        let decrypted = nip44::decrypt(
-            recipient.secret_key(),
-            &sender.public_key(),
-            &encrypted,
-        )
-        .expect("NIP-44 decryption should succeed");
+        let decrypted = nip44::decrypt(recipient.secret_key(), &sender.public_key(), &encrypted)
+            .expect("NIP-44 decryption should succeed");
 
         assert_eq!(decrypted, plaintext);
 
@@ -458,19 +450,11 @@ mod tests {
 
         let plaintext = r#"{"share":"ms12test","index":0,"total":1,"split_id":"x"}"#;
 
-        let encrypted = nip04::encrypt(
-            sender.secret_key(),
-            &recipient.public_key(),
-            plaintext,
-        )
-        .expect("NIP-04 encryption should succeed");
+        let encrypted = nip04::encrypt(sender.secret_key(), &recipient.public_key(), plaintext)
+            .expect("NIP-04 encryption should succeed");
 
-        let decrypted = nip04::decrypt(
-            recipient.secret_key(),
-            &sender.public_key(),
-            &encrypted,
-        )
-        .expect("NIP-04 decryption should succeed");
+        let decrypted = nip04::decrypt(recipient.secret_key(), &sender.public_key(), &encrypted)
+            .expect("NIP-04 decryption should succeed");
 
         assert_eq!(decrypted, plaintext);
     }
@@ -480,20 +464,15 @@ mod tests {
         let sender = Keys::generate();
         let recipient = Keys::generate();
 
-        let (encrypted, kind) =
-            encrypt_for_heir(&sender, &recipient.public_key(), "test message")
-                .expect("encrypt_for_heir should succeed");
+        let (encrypted, kind) = encrypt_for_heir(&sender, &recipient.public_key(), "test message")
+            .expect("encrypt_for_heir should succeed");
 
         assert_eq!(kind, Kind::EncryptedDirectMessage);
         assert!(!encrypted.is_empty());
 
         // Should be decryptable with NIP-44
-        let decrypted = nip44::decrypt(
-            recipient.secret_key(),
-            &sender.public_key(),
-            &encrypted,
-        )
-        .expect("Should decrypt with NIP-44");
+        let decrypted = nip44::decrypt(recipient.secret_key(), &sender.public_key(), &encrypted)
+            .expect("Should decrypt with NIP-44");
 
         assert_eq!(decrypted, "test message");
     }
@@ -544,8 +523,8 @@ mod tests {
 
         assert!(!id1.is_empty());
         assert!(id1.len() >= 8); // timestamp hex + 4 random hex
-        // IDs should generally be different (unless called in same second with same random)
-        // Not asserting inequality since it could flake, but they should be usable
+                                 // IDs should generally be different (unless called in same second with same random)
+                                 // Not asserting inequality since it could flake, but they should be usable
     }
 
     #[test]
@@ -587,8 +566,7 @@ mod tests {
             };
             let json = serde_json::to_string(&payload).unwrap();
             let (encrypted, _kind) =
-                encrypt_for_heir(&service_keys, &heir_keys.public_key(), &json)
-                    .unwrap();
+                encrypt_for_heir(&service_keys, &heir_keys.public_key(), &json).unwrap();
             encrypted_payloads.push(encrypted);
         }
 

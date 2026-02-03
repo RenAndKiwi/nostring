@@ -539,7 +539,10 @@ timelock_blocks = 26280
 
         // Should be valid TOML that re-parses
         let reparsed: ServerConfig = toml::from_str(&serialized).unwrap();
-        assert_eq!(reparsed.policy.timelock_blocks, config.policy.timelock_blocks);
+        assert_eq!(
+            reparsed.policy.timelock_blocks,
+            config.policy.timelock_blocks
+        );
         assert_eq!(reparsed.bitcoin.network, config.bitcoin.network);
     }
 }

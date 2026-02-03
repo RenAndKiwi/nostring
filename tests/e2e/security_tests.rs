@@ -12,7 +12,7 @@ use nostring_core::seed::{derive_seed, generate_mnemonic, parse_mnemonic, WordCo
 use nostring_shamir::codex32::{
     combine_shares, generate_shares as codex32_generate, parse_share, Codex32Config,
 };
-use nostring_shamir::shamir::{split_secret, reconstruct_secret};
+use nostring_shamir::shamir::{reconstruct_secret, split_secret};
 use zeroize::Zeroize;
 
 // ============================================================================
@@ -28,7 +28,10 @@ fn test_wrong_password_fails_decryption() {
     let encrypted = encrypt_seed(&seed, correct_pw).unwrap();
     let result = decrypt_seed(&encrypted, wrong_pw);
 
-    assert!(result.is_err(), "Decryption with wrong password should fail");
+    assert!(
+        result.is_err(),
+        "Decryption with wrong password should fail"
+    );
 }
 
 #[test]
@@ -91,7 +94,10 @@ fn test_tampered_ciphertext_fails_decryption() {
 
     let tampered = EncryptedSeed::from_bytes(&bytes).unwrap();
     let result = decrypt_seed(&tampered, password);
-    assert!(result.is_err(), "Tampered ciphertext should fail (GCM auth tag)");
+    assert!(
+        result.is_err(),
+        "Tampered ciphertext should fail (GCM auth tag)"
+    );
 }
 
 #[test]
@@ -132,8 +138,10 @@ fn test_zeroize_works_on_vec() {
     secret.zeroize();
 
     // After zeroize, the vector should be empty or zeroed
-    assert!(secret.is_empty() || secret.iter().all(|&b| b == 0),
-        "Zeroize should clear the vector");
+    assert!(
+        secret.is_empty() || secret.iter().all(|&b| b == 0),
+        "Zeroize should clear the vector"
+    );
 }
 
 #[test]
@@ -225,8 +233,14 @@ fn test_shamir_reconstruct_mismatched_lengths() {
     use nostring_shamir::shamir::Share;
 
     let shares = vec![
-        Share { index: 1, data: vec![1, 2, 3] },
-        Share { index: 2, data: vec![4, 5] }, // Different length
+        Share {
+            index: 1,
+            data: vec![1, 2, 3],
+        },
+        Share {
+            index: 2,
+            data: vec![4, 5],
+        }, // Different length
     ];
     let result = reconstruct_secret(&shares);
     assert!(result.is_err(), "Mismatched share lengths should fail");
@@ -237,8 +251,14 @@ fn test_shamir_reconstruct_duplicate_indices() {
     use nostring_shamir::shamir::Share;
 
     let shares = vec![
-        Share { index: 1, data: vec![1, 2, 3] },
-        Share { index: 1, data: vec![4, 5, 6] }, // Duplicate index
+        Share {
+            index: 1,
+            data: vec![1, 2, 3],
+        },
+        Share {
+            index: 1,
+            data: vec![4, 5, 6],
+        }, // Duplicate index
     ];
     let result = reconstruct_secret(&shares);
     assert!(result.is_err(), "Duplicate indices should fail");
@@ -254,11 +274,11 @@ fn test_parse_mnemonic_garbage_does_not_panic() {
         "",
         "a",
         "hello world",
-        "abandon abandon abandon", // Too few words
-        &"abandon ".repeat(100),   // Too many words
+        "abandon abandon abandon",             // Too few words
+        &"abandon ".repeat(100),               // Too many words
         "🎉 🎊 🎈 🎃 🎄 🎅 🎆 🎇 🎁 🎂 🎀 🎍", // Unicode
-        "\0\0\0\0\0\0\0\0\0\0\0\0", // Null bytes
-        &"a".repeat(10000),          // Very long
+        "\0\0\0\0\0\0\0\0\0\0\0\0",            // Null bytes
+        &"a".repeat(10000),                    // Very long
     ];
 
     for input in &inputs {
@@ -386,9 +406,12 @@ fn test_wrong_password_timing_consistency() {
 
     // Try many wrong passwords — all should fail with the same error type
     let wrong_passwords = [
-        "wrong1", "wrong2", "wrong3", "",
+        "wrong1",
+        "wrong2",
+        "wrong3",
+        "",
         &"a".repeat(1000),
-        "correct passwor", // Off by one
+        "correct passwor",   // Off by one
         "correct password ", // Extra space
     ];
 
@@ -416,9 +439,7 @@ fn test_different_seeds_different_keys() {
     let m1 = parse_mnemonic(
         "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
     ).unwrap();
-    let m2 = parse_mnemonic(
-        "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong"
-    ).unwrap();
+    let m2 = parse_mnemonic("zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong").unwrap();
 
     let seed1 = derive_seed(&m1, "");
     let seed2 = derive_seed(&m2, "");
@@ -453,7 +474,13 @@ fn test_passphrase_changes_seed() {
 
 #[test]
 fn test_all_valid_word_counts() {
-    for wc in [WordCount::Words12, WordCount::Words15, WordCount::Words18, WordCount::Words21, WordCount::Words24] {
+    for wc in [
+        WordCount::Words12,
+        WordCount::Words15,
+        WordCount::Words18,
+        WordCount::Words21,
+        WordCount::Words24,
+    ] {
         let mnemonic = generate_mnemonic(wc).unwrap();
         assert_eq!(mnemonic.word_count(), wc as usize);
     }
