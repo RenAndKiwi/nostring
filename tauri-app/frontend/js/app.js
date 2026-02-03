@@ -28,8 +28,32 @@ const invoke = DEMO_MODE
                 { label: 'Children', fingerprint: 'e5f6g7h8', timelock: '12 months' },
             ],
             'initiate_checkin': { success: true, psbt: 'cHNidP8BAH...' },
+            'import_seed': { success: true },
+            'unlock_seed': { success: true },
+            'lock_wallet': { success: true },
+            'get_electrum_url': 'ssl://blockstream.info:700',
+            'set_electrum_url': { success: true },
+            'add_heir': { success: true },
+            'remove_heir': { success: true },
+            'refresh_policy_status': { 
+                success: true, 
+                data: {
+                    urgency: 'ok',
+                    days_remaining: 28.5,
+                    blocks_remaining: 4104,
+                    current_block: 934812
+                }
+            },
+            'generate_codex32_shares': {
+                success: true,
+                data: [
+                    'ms10testsxxxxxxxxxxxxxxxxxxxxxxxxxx',
+                    'ms10testayyyyyyyyyyyyyyyyyyyyyyyyyy', 
+                    'ms10testbzzzzzzzzzzzzzzzzzzzzzzzzzz'
+                ]
+            },
         };
-        return mocks[cmd] ?? null;
+        return mocks[cmd] ?? { success: true }
     }
     : window.__TAURI__.core.invoke;
 
@@ -99,10 +123,10 @@ function showSetupScreen() {
             <p>Sovereign Bitcoin inheritance. No trusted third parties.</p>
             
             <div class="setup-options">
-                <button id="btn-create-seed" class="btn-primary">
+                <button type="button" id="btn-create-seed" class="btn-primary">
                     ✨ Create New Seed
                 </button>
-                <button id="btn-import-seed" class="btn-secondary">
+                <button type="button" id="btn-import-seed" class="btn-secondary">
                     📥 Import Existing Seed
                 </button>
             </div>
@@ -116,7 +140,7 @@ function showSetupScreen() {
                     <input type="password" id="password-input" placeholder="Minimum 8 characters">
                     <label>Confirm Password:</label>
                     <input type="password" id="password-confirm" placeholder="Confirm password">
-                    <button id="btn-confirm-seed" class="btn-primary">Confirm & Encrypt</button>
+                    <button type="button" id="btn-confirm-seed" class="btn-primary">Confirm & Encrypt</button>
                 </div>
             </div>
             
@@ -128,8 +152,8 @@ function showSetupScreen() {
                     <input type="password" id="import-password" placeholder="Minimum 8 characters">
                     <label>Confirm Password:</label>
                     <input type="password" id="import-password-confirm" placeholder="Confirm password">
-                    <button id="btn-confirm-import" class="btn-primary">Import & Encrypt</button>
-                    <button id="btn-back-setup" class="btn-secondary">Back</button>
+                    <button type="button" id="btn-confirm-import" class="btn-primary">Import & Encrypt</button>
+                    <button type="button" id="btn-back-setup" class="btn-secondary">Back</button>
                 </div>
             </div>
         </div>
@@ -248,7 +272,7 @@ function showLockScreen() {
             <p>Enter your password to unlock NoString</p>
             <div class="password-setup">
                 <input type="password" id="unlock-password" placeholder="Password" autofocus>
-                <button id="btn-unlock" class="btn-primary">Unlock</button>
+                <button type="button" id="btn-unlock" class="btn-primary">Unlock</button>
             </div>
         </div>
     `;
@@ -287,7 +311,7 @@ function showMainApp() {
             <div class="status-card">
                 <div class="card-header">
                     <h2>📊 Inheritance Status</h2>
-                    <button id="btn-refresh-status" class="btn-secondary btn-icon" title="Refresh">🔄</button>
+                    <button type="button" id="btn-refresh-status" class="btn-secondary btn-icon" title="Refresh">🔄</button>
                 </div>
                 <div id="status-display">Loading...</div>
             </div>
@@ -295,7 +319,7 @@ function showMainApp() {
             <div class="checkin-card">
                 <h3>✅ Check In</h3>
                 <p class="text-muted">Prove you're alive and reset your inheritance timelock.</p>
-                <button id="btn-checkin" class="btn-primary mt-2">Initiate Check-in</button>
+                <button type="button" id="btn-checkin" class="btn-primary mt-2">Initiate Check-in</button>
             </div>
         </section>
         
@@ -303,7 +327,7 @@ function showMainApp() {
             <div class="heir-card">
                 <div class="card-header">
                     <h3>👥 Heirs</h3>
-                    <button id="btn-add-heir" class="btn-primary">+ Add Heir</button>
+                    <button type="button" id="btn-add-heir" class="btn-primary">+ Add Heir</button>
                 </div>
                 <p class="text-muted mb-2">Manage who can claim your Bitcoin if you stop checking in.</p>
                 <div id="heirs-list" class="heir-list">
@@ -322,8 +346,8 @@ function showMainApp() {
                     <textarea id="heir-xpub" placeholder="xpub... or [fingerprint/path]xpub..."></textarea>
                 </div>
                 <div style="display: flex; gap: 0.75rem; margin-top: 1rem;">
-                    <button id="btn-save-heir" class="btn-primary">Save Heir</button>
-                    <button id="btn-cancel-heir" class="btn-secondary">Cancel</button>
+                    <button type="button" id="btn-save-heir" class="btn-primary">Save Heir</button>
+                    <button type="button" id="btn-cancel-heir" class="btn-secondary">Cancel</button>
                 </div>
             </div>
         </section>
@@ -369,8 +393,8 @@ function showMainApp() {
                         <label>Identifier (4 characters)</label>
                         <input type="text" id="share-identifier" placeholder="TEST" maxlength="4">
                     </div>
-                    <button id="btn-generate-shares" class="btn-primary mt-2">Generate Shares</button>
-                    <button id="btn-cancel-shares" class="btn-secondary mt-2">Cancel</button>
+                    <button type="button" id="btn-generate-shares" class="btn-primary mt-2">Generate Shares</button>
+                    <button type="button" id="btn-cancel-shares" class="btn-secondary mt-2">Cancel</button>
                 </div>
             </div>
             
@@ -379,7 +403,7 @@ function showMainApp() {
                     <h3>🔑 Your Shares</h3>
                     <p class="warning">⚠️ Store each share separately. Keep them secure and private.</p>
                     <div id="shares-list" class="share-list"></div>
-                    <button id="btn-done-shares" class="btn-secondary mt-2">Done</button>
+                    <button type="button" id="btn-done-shares" class="btn-secondary mt-2">Done</button>
                 </div>
             </div>
         </section>
@@ -390,7 +414,7 @@ function showMainApp() {
                 <div class="setting">
                     <label>Electrum Server:</label>
                     <input type="text" id="electrum-url" placeholder="ssl://blockstream.info:700">
-                    <button id="btn-save-electrum" class="btn-secondary">Save</button>
+                    <button type="button" id="btn-save-electrum" class="btn-secondary">Save</button>
                 </div>
             </div>
             
@@ -398,7 +422,7 @@ function showMainApp() {
                 <h3>Security</h3>
                 <div class="setting">
                     <label>Lock Wallet:</label>
-                    <button id="btn-lock" class="btn-danger">Lock Now</button>
+                    <button type="button" id="btn-lock" class="btn-danger">Lock Now</button>
                 </div>
             </div>
             
@@ -413,10 +437,10 @@ function showMainApp() {
     
     // Update tabs
     document.querySelector('#tabs').innerHTML = `
-        <button data-tab="status" class="active">Status</button>
-        <button data-tab="heirs">Heirs</button>
-        <button data-tab="backup">Backup</button>
-        <button data-tab="settings">Settings</button>
+        <button type="button" data-tab="status" class="active">Status</button>
+        <button type="button" data-tab="heirs">Heirs</button>
+        <button type="button" data-tab="backup">Backup</button>
+        <button type="button" data-tab="settings">Settings</button>
     `;
     
     setupTabs();
@@ -529,7 +553,7 @@ async function loadHeirs() {
                     <span class="heir-fingerprint">Fingerprint: ${heir.fingerprint}</span>
                 </div>
                 <div class="heir-actions">
-                    <button class="btn-icon btn-remove-heir" title="Remove">🗑️</button>
+                    <button type="button" class="btn-icon btn-remove-heir" title="Remove">🗑️</button>
                 </div>
             </div>
         `).join('');
@@ -656,7 +680,7 @@ async function generateShares() {
                 <div class="share-item">
                     <span class="share-index">${i + 1}</span>
                     <span class="share-value">${share}</span>
-                    <button class="btn-icon btn-copy-share" data-share="${share}" title="Copy">📋</button>
+                    <button type="button" class="btn-icon btn-copy-share" data-share="${share}" title="Copy">📋</button>
                 </div>
             `).join('');
             
