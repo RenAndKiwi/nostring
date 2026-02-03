@@ -24,6 +24,7 @@ tokio.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 
+rustls = { version = "0.23", features = ["ring"] }
 toml = "0.8"
 log = "0.4"
 env_logger = "0.11"

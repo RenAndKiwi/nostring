@@ -13,6 +13,12 @@ use std::fs;
 use tauri::Manager;
 
 fn main() {
+    // Initialize rustls CryptoProvider before any Nostr/TLS operations.
+    // Without this, WebSocket connections via nostr-sdk will panic.
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .ok();
+
     tauri::Builder::default()
         .setup(|app| {
             // Resolve the app data directory (platform-specific)

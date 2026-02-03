@@ -18,6 +18,12 @@ use anyhow::{Context, Result};
 use std::path::PathBuf;
 
 fn main() -> Result<()> {
+    // Initialize rustls CryptoProvider before any Nostr/TLS operations.
+    // Without this, WebSocket connections via nostr-sdk will panic.
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .ok();
+
     // Parse CLI args (minimal — no clap dependency needed)
     let args: Vec<String> = std::env::args().collect();
 
