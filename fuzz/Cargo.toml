@@ -1,0 +1,36 @@
+[package]
+name = "nostring-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.nostring-core]
+path = "../crates/nostring-core"
+
+[dependencies.nostring-shamir]
+path = "../crates/nostring-shamir"
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "codex32_parse"
+path = "fuzz_targets/codex32_parse.rs"
+doc = false
+
+[[bin]]
+name = "mnemonic_parse"
+path = "fuzz_targets/mnemonic_parse.rs"
+doc = false
+
+[[bin]]
+name = "encrypted_seed_parse"
+path = "fuzz_targets/encrypted_seed_parse.rs"
+doc = false
