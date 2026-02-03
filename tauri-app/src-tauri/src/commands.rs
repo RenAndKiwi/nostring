@@ -3,6 +3,9 @@
 //! Architecture: watch-only first. The recommended path imports an xpub
 //! (no private keys). Seed import/create remain as advanced options.
 //! All commands are async and return JSON-serializable results.
+//!
+//! Every mutation writes through to SQLite via `AppState` helpers so
+//! state survives app restarts.
 
 use crate::state::{AppState, PolicyStatus};
 use bitcoin::psbt::Psbt;
@@ -69,31 +72,28 @@ pub async fn validate_seed(mnemonic: String) -> CommandResult<bool> {
     }
 }
 
-/// Import and encrypt a seed
+/// Import and encrypt a seed (persisted to SQLite)
 #[tauri::command]
 pub async fn import_seed(
     mnemonic: String,
     password: String,
     state: State<'_, AppState>,
 ) -> Result<CommandResult<bool>, ()> {
-    // Parse and validate mnemonic
     let parsed = match parse_mnemonic(&mnemonic) {
         Ok(m) => m,
         Err(e) => return Ok(CommandResult::err(format!("Invalid mnemonic: {}", e))),
     };
 
-    // Derive the 64-byte seed from mnemonic
     let seed = derive_seed(&parsed, "");
 
-    // Encrypt the seed
     match encrypt_seed(&seed, &password) {
         Ok(encrypted) => {
-            // Store encrypted bytes in state
             let encrypted_bytes = encrypted.to_bytes();
-            let mut seed_lock = state.encrypted_seed.lock().unwrap();
-            *seed_lock = Some(encrypted_bytes);
 
-            // Mark as unlocked
+            // Write-through: memory + SQLite
+            state.set_encrypted_seed(encrypted_bytes);
+            state.set_watch_only(false);
+
             let mut unlocked = state.unlocked.lock().unwrap();
             *unlocked = true;
 
@@ -105,16 +105,13 @@ pub async fn import_seed(
 
 /// Import a watch-only wallet (xpub only, no private keys).
 ///
-/// This is the **recommended** setup path. The owner's keys stay on their
-/// hardware wallet; NoString only coordinates check-ins and generates PSBTs
-/// for external signing.
+/// This is the **recommended** setup path. Persisted to SQLite.
 #[tauri::command]
 pub async fn import_watch_only(
     xpub: String,
     _password: String,
     state: State<'_, AppState>,
 ) -> Result<CommandResult<bool>, ()> {
-    // Validate xpub format
     if !xpub.starts_with("xpub")
         && !xpub.starts_with("ypub")
         && !xpub.starts_with("zpub")
@@ -126,15 +123,10 @@ pub async fn import_watch_only(
         ));
     }
 
-    // Store the xpub as the owner key (no private key needed)
-    let mut owner_xpub = state.owner_xpub.lock().unwrap();
-    *owner_xpub = Some(xpub);
+    // Write-through: memory + SQLite
+    state.set_owner_xpub(&xpub);
+    state.set_watch_only(true);
 
-    // Mark as watch-only mode
-    let mut watch_only = state.watch_only.lock().unwrap();
-    *watch_only = true;
-
-    // Mark as unlocked
     let mut unlocked = state.unlocked.lock().unwrap();
     *unlocked = true;
 
@@ -142,9 +134,6 @@ pub async fn import_watch_only(
 }
 
 /// Check if a wallet is configured (seed **or** watch-only xpub).
-///
-/// Returns `true` when either an encrypted seed or an owner xpub is present,
-/// meaning the user has already been through initial setup.
 #[tauri::command]
 pub async fn has_seed(state: State<'_, AppState>) -> Result<bool, ()> {
     let seed_lock = state.encrypted_seed.lock().unwrap();
@@ -170,7 +159,7 @@ pub async fn unlock_seed(
 
             match decrypt_seed(&encrypted, &password) {
                 Ok(_) => {
-                    drop(seed_lock); // Release lock before acquiring another
+                    drop(seed_lock);
                     let mut unlocked = state.unlocked.lock().unwrap();
                     *unlocked = true;
                     Ok(CommandResult::ok(true))
@@ -181,7 +170,7 @@ pub async fn unlock_seed(
     }
 }
 
-/// Lock the wallet (clear unlocked state)
+/// Lock the wallet (clear unlocked state — ephemeral only, no DB change)
 #[tauri::command]
 pub async fn lock_wallet(state: State<'_, AppState>) -> Result<(), ()> {
     let mut unlocked = state.unlocked.lock().unwrap();
@@ -194,10 +183,7 @@ pub async fn lock_wallet(state: State<'_, AppState>) -> Result<(), ()> {
 // ============================================================================
 
 /// Generate a random Nostr keypair for sending check-in reminders.
-///
-/// This key is NOT the owner's identity — it's a dedicated service key used
-/// only to send encrypted DM notifications. The owner follows this npub in
-/// their Nostr client to receive reminders.
+/// Persisted to SQLite so it survives restarts.
 #[tauri::command]
 pub async fn generate_service_key(state: State<'_, AppState>) -> Result<CommandResult<String>, ()> {
     use nostr_sdk::prelude::*;
@@ -206,17 +192,13 @@ pub async fn generate_service_key(state: State<'_, AppState>) -> Result<CommandR
     let secret_hex = keys.secret_key().to_secret_hex();
     let npub = keys.public_key().to_bech32().unwrap_or_default();
 
-    // Store in state
-    let mut sk = state.service_key.lock().unwrap();
-    *sk = Some(secret_hex);
-
-    let mut np = state.service_npub.lock().unwrap();
-    *np = Some(npub.clone());
+    // Write-through: memory + SQLite
+    state.set_service_key(&secret_hex, &npub);
 
     Ok(CommandResult::ok(npub))
 }
 
-/// Get the service key's npub (for the owner to follow in their Nostr client).
+/// Get the service key's npub.
 #[tauri::command]
 pub async fn get_service_npub(state: State<'_, AppState>) -> Result<Option<String>, ()> {
     let npub = state.service_npub.lock().unwrap();
@@ -239,11 +221,9 @@ pub async fn get_policy_status(state: State<'_, AppState>) -> Result<Option<Poli
 pub async fn refresh_policy_status(
     state: State<'_, AppState>,
 ) -> Result<CommandResult<PolicyStatus>, ()> {
-    // Get Electrum URL and network from state
     let electrum_url = state.electrum_url.lock().unwrap().clone();
     let network = *state.network.lock().unwrap();
 
-    // Connect to Electrum
     let client = match ElectrumClient::new(&electrum_url, network) {
         Ok(c) => c,
         Err(e) => {
@@ -254,7 +234,6 @@ pub async fn refresh_policy_status(
         }
     };
 
-    // Get current block height
     let current_block = match client.get_height() {
         Ok(h) => h as u64,
         Err(e) => {
@@ -265,32 +244,33 @@ pub async fn refresh_policy_status(
         }
     };
 
-    // Check if we have inheritance config
     let config_lock = state.inheritance_config.lock().unwrap();
     let (expiry_block, blocks_remaining, days_remaining, urgency) =
         if let Some(config) = &*config_lock {
-            // Calculate based on config
-            // For simplicity, assume UTXO was created at current_block - timelock_blocks
-            // In production, track the actual UTXO confirmation height
             let timelock = config.timelock_blocks as u64;
-            let expiry = current_block + timelock; // Simplified - should use actual UTXO height
+            let expiry = current_block + timelock;
             let remaining = expiry.saturating_sub(current_block) as i64;
-            let days = remaining as f64 * 10.0 / 60.0 / 24.0; // ~10 min per block
+            let days = remaining as f64 * 10.0 / 60.0 / 24.0;
 
             let urgency = if remaining > 4320 {
-                "ok" // > 30 days
+                "ok"
             } else if remaining > 1008 {
-                "warning" // > 7 days
+                "warning"
             } else {
                 "critical"
             };
 
             (expiry, remaining, days, urgency.to_string())
         } else {
-            // No config yet - return placeholder
             (current_block + 26280, 26280, 182.5, "ok".to_string())
         };
     drop(config_lock);
+
+    // Get last check-in from DB
+    let last_checkin = {
+        let conn = state.db.lock().unwrap();
+        crate::db::checkin_last(&conn).ok().flatten()
+    };
 
     let status = PolicyStatus {
         current_block,
@@ -298,7 +278,7 @@ pub async fn refresh_policy_status(
         blocks_remaining,
         days_remaining,
         urgency,
-        last_checkin: None, // TODO: track this
+        last_checkin,
     };
 
     let mut status_lock = state.policy_status.lock().unwrap();
@@ -320,7 +300,6 @@ pub async fn initiate_checkin(state: State<'_, AppState>) -> Result<CommandResul
     }
     drop(unlocked);
 
-    // Check if we have inheritance config
     let config = {
         let config_lock = state.inheritance_config.lock().unwrap();
         match &*config_lock {
@@ -333,11 +312,9 @@ pub async fn initiate_checkin(state: State<'_, AppState>) -> Result<CommandResul
         }
     };
 
-    // Get Electrum URL and network
     let electrum_url = state.electrum_url.lock().unwrap().clone();
     let network = *state.network.lock().unwrap();
 
-    // Connect to Electrum
     let client = match ElectrumClient::new(&electrum_url, network) {
         Ok(c) => c,
         Err(e) => {
@@ -348,7 +325,6 @@ pub async fn initiate_checkin(state: State<'_, AppState>) -> Result<CommandResul
         }
     };
 
-    // Parse the descriptor to get the script
     use miniscript::descriptor::DescriptorPublicKey;
     use miniscript::Descriptor;
     use std::str::FromStr;
@@ -359,7 +335,6 @@ pub async fn initiate_checkin(state: State<'_, AppState>) -> Result<CommandResul
         Err(e) => return Ok(CommandResult::err(format!("Invalid descriptor: {}", e))),
     };
 
-    // Get the script pubkey for the inheritance address (index 0)
     use miniscript::descriptor::DefiniteDescriptorKey;
     let derived: Descriptor<DefiniteDescriptorKey> = match descriptor.at_derivation_index(0) {
         Ok(d) => d,
@@ -372,7 +347,6 @@ pub async fn initiate_checkin(state: State<'_, AppState>) -> Result<CommandResul
     };
     let script = derived.script_pubkey();
 
-    // Find UTXOs
     let utxos = match client.get_utxos_for_script(&script) {
         Ok(u) => u,
         Err(e) => return Ok(CommandResult::err(format!("Failed to get UTXOs: {}", e))),
@@ -384,10 +358,8 @@ pub async fn initiate_checkin(state: State<'_, AppState>) -> Result<CommandResul
         ));
     }
 
-    // Use the first UTXO for check-in
     let utxo = &utxos[0];
 
-    // Build the check-in PSBT using nostring-inherit
     use bitcoin::ScriptBuf;
     use nostring_inherit::checkin::{CheckinTxBuilder, InheritanceUtxo as InhUtxo};
 
@@ -398,9 +370,7 @@ pub async fn initiate_checkin(state: State<'_, AppState>) -> Result<CommandResul
         ScriptBuf::from(script.to_owned()),
     );
 
-    // Fee rate (sats/vbyte) - TODO: make configurable or estimate
     let fee_rate = 10;
-
     let builder = CheckinTxBuilder::new(inheritance_utxo, descriptor, fee_rate);
 
     match builder.build_psbt_base64() {
@@ -410,18 +380,15 @@ pub async fn initiate_checkin(state: State<'_, AppState>) -> Result<CommandResul
 }
 
 /// Complete a check-in with signed PSBT
-///
-/// This is an alias for broadcast_signed_psbt - kept for API compatibility.
 #[tauri::command]
 pub async fn complete_checkin(
     signed_psbt: String,
     state: State<'_, AppState>,
 ) -> Result<CommandResult<String>, ()> {
-    // Delegate to broadcast_signed_psbt
     broadcast_signed_psbt(signed_psbt, state).await
 }
 
-/// Broadcast a signed PSBT (from QR scan)
+/// Broadcast a signed PSBT and log the check-in
 #[tauri::command]
 pub async fn broadcast_signed_psbt(
     signed_psbt: String,
@@ -433,28 +400,22 @@ pub async fn broadcast_signed_psbt(
     }
     drop(unlocked);
 
-    // 1. Decode base64 → PSBT bytes
     use base64::prelude::*;
     let psbt_bytes = match BASE64_STANDARD.decode(&signed_psbt) {
         Ok(b) => b,
         Err(e) => return Ok(CommandResult::err(format!("Invalid base64: {}", e))),
     };
 
-    // 2. Parse PSBT (PSBT has its own deserialize method)
     let psbt: Psbt = match Psbt::deserialize(&psbt_bytes) {
         Ok(p) => p,
         Err(e) => return Ok(CommandResult::err(format!("Invalid PSBT: {}", e))),
     };
 
-    // 3. Finalize PSBT → Transaction
-    // In a real implementation, we'd use miniscript to finalize properly
-    // For now, we assume the PSBT is already finalized with signatures
     let tx = match psbt.extract_tx() {
         Ok(t) => t,
         Err(e) => return Ok(CommandResult::err(format!("PSBT not fully signed: {}", e))),
     };
 
-    // 4. Get Electrum client
     let electrum_url = state.electrum_url.lock().unwrap().clone();
     let network = *state.network.lock().unwrap();
 
@@ -468,10 +429,13 @@ pub async fn broadcast_signed_psbt(
         }
     };
 
-    // 5. Broadcast transaction
     match client.broadcast(&tx) {
         Ok(txid) => {
             log::info!("Check-in broadcast successful: {}", txid);
+
+            // Log the check-in to SQLite
+            state.log_checkin(&txid.to_string());
+
             Ok(CommandResult::ok(txid.to_string()))
         }
         Err(e) => Ok(CommandResult::err(format!("Broadcast failed: {}", e))),
@@ -489,11 +453,10 @@ pub async fn get_electrum_url(state: State<'_, AppState>) -> Result<String, ()> 
     Ok(url.clone())
 }
 
-/// Set Electrum server URL
+/// Set Electrum server URL (persisted to SQLite)
 #[tauri::command]
 pub async fn set_electrum_url(url: String, state: State<'_, AppState>) -> Result<(), ()> {
-    let mut electrum_url = state.electrum_url.lock().unwrap();
-    *electrum_url = url;
+    state.set_electrum_url(&url);
     Ok(())
 }
 
@@ -525,11 +488,7 @@ impl From<&HeirKey> for HeirInfo {
     }
 }
 
-/// Add a new heir
-///
-/// Accepts either:
-/// - A full descriptor string: "[fingerprint/path]xpub..."
-/// - Just an xpub: "xpub..." (will use default fingerprint and BIP-84 path)
+/// Add a new heir (persisted to SQLite)
 #[tauri::command]
 pub async fn add_heir(
     label: String,
@@ -542,21 +501,17 @@ pub async fn add_heir(
     }
     drop(unlocked);
 
-    // Try parsing as descriptor first
     let heir = if xpub_or_descriptor.starts_with('[') {
-        // Full descriptor format: [fingerprint/path]xpub
         match HeirKey::from_descriptor_str(&label, &xpub_or_descriptor) {
             Ok(h) => h,
             Err(e) => return Ok(CommandResult::err(format!("Invalid descriptor: {}", e))),
         }
     } else {
-        // Just an xpub - generate fingerprint from xpub and use default path
         let xpub = match Xpub::from_str(&xpub_or_descriptor) {
             Ok(x) => x,
             Err(e) => return Ok(CommandResult::err(format!("Invalid xpub: {}", e))),
         };
 
-        // Use the xpub's fingerprint (first 4 bytes of hash160 of public key)
         let fingerprint = xpub.fingerprint();
         let derivation_path = DerivationPath::from_str("m/84'/0'/0'").unwrap();
 
@@ -565,7 +520,8 @@ pub async fn add_heir(
 
     let heir_info = HeirInfo::from(&heir);
 
-    // Add to registry
+    // Write-through: memory + SQLite
+    state.persist_heir(&heir);
     let mut registry = state.heir_registry.lock().unwrap();
     registry.add(heir);
 
@@ -580,7 +536,7 @@ pub async fn list_heirs(state: State<'_, AppState>) -> Result<Vec<HeirInfo>, ()>
     Ok(heirs)
 }
 
-/// Remove an heir by fingerprint
+/// Remove an heir by fingerprint (persisted to SQLite)
 #[tauri::command]
 pub async fn remove_heir(
     fingerprint: String,
@@ -597,6 +553,8 @@ pub async fn remove_heir(
         Err(e) => return Ok(CommandResult::err(format!("Invalid fingerprint: {}", e))),
     };
 
+    // Write-through: memory + SQLite
+    state.remove_heir_db(&fingerprint);
     let mut registry = state.heir_registry.lock().unwrap();
     match registry.remove(&fp) {
         Some(_) => Ok(CommandResult::ok(true)),
@@ -622,10 +580,9 @@ pub async fn get_heir(
     }
 }
 
-/// Validate an xpub string (for UI validation)
+/// Validate an xpub string
 #[tauri::command]
 pub async fn validate_xpub(xpub: String) -> CommandResult<bool> {
-    // Try as full descriptor
     if xpub.starts_with('[') {
         match HeirKey::from_descriptor_str("test", &xpub) {
             Ok(_) => return CommandResult::ok(true),
@@ -633,7 +590,6 @@ pub async fn validate_xpub(xpub: String) -> CommandResult<bool> {
         }
     }
 
-    // Try as plain xpub
     match Xpub::from_str(&xpub) {
         Ok(_) => CommandResult::ok(true),
         Err(e) => CommandResult::err(format!("Invalid xpub: {}", e)),
@@ -641,15 +597,12 @@ pub async fn validate_xpub(xpub: String) -> CommandResult<bool> {
 }
 
 // ============================================================================
-// Shamir Share Commands (for heir distribution)
+// Shamir Share Commands
 // ============================================================================
 
 use nostring_shamir::codex32::{parse_share, Codex32Config, Codex32Share};
 
 /// Generate Codex32 shares for a seed
-///
-/// Note: This generates shares for the OWNER's seed, to distribute to heirs
-/// as a backup mechanism. The heirs combine shares to recover the seed.
 #[tauri::command]
 pub async fn generate_codex32_shares(
     threshold: u8,
@@ -663,7 +616,6 @@ pub async fn generate_codex32_shares(
     }
     drop(unlocked);
 
-    // Validate parameters
     if threshold < 2 || threshold > 9 {
         return Ok(CommandResult::err("Threshold must be 2-9"));
     }
@@ -674,16 +626,13 @@ pub async fn generate_codex32_shares(
         return Ok(CommandResult::err("Maximum 31 shares supported"));
     }
 
-    // Use provided identifier or generate a default
     let id = identifier.unwrap_or_else(|| "TEST".to_string());
 
-    // Create Codex32 config
     let config = match Codex32Config::new(threshold, &id, total_shares) {
         Ok(c) => c,
         Err(e) => return Ok(CommandResult::err(format!("Invalid config: {}", e))),
     };
 
-    // Get the encrypted seed
     let _seed_bytes = {
         let seed_lock = state.encrypted_seed.lock().unwrap();
         match &*seed_lock {
@@ -692,19 +641,13 @@ pub async fn generate_codex32_shares(
         }
     };
 
-    // Note: In a real implementation, we'd need the password to decrypt
-    // For now, this is a placeholder that shows the structure
-    // TODO: Pass password or use cached decrypted seed
-
-    // For demo, use a test seed (in production, decrypt the actual seed)
-    // This is a security limitation that needs proper session key management
-    let demo_seed = [0u8; 32]; // Placeholder - need password management
+    // TODO: Decrypt actual seed with password (needs session key management)
+    let demo_seed = [0u8; 32];
 
     use nostring_shamir::codex32::generate_shares;
 
     match generate_shares(&demo_seed, &config) {
         Ok(shares) => {
-            // Convert Codex32Share objects to their encoded strings
             let share_strings: Vec<String> = shares.iter().map(|s| s.encoded.clone()).collect();
             Ok(CommandResult::ok(share_strings))
         }
@@ -722,7 +665,6 @@ pub async fn combine_codex32_shares(shares: Vec<String>) -> CommandResult<String
         return CommandResult::err("Need at least 2 shares to recover");
     }
 
-    // Parse string shares into Codex32Share objects
     let mut parsed_shares: Vec<Codex32Share> = Vec::new();
     for share_str in &shares {
         match parse_share(share_str) {
@@ -735,7 +677,6 @@ pub async fn combine_codex32_shares(shares: Vec<String>) -> CommandResult<String
 
     match combine_shares(&parsed_shares) {
         Ok(seed_bytes) => {
-            // Convert recovered seed to hex for display
             let hex_str = hex::encode(&seed_bytes);
             CommandResult::ok(hex_str)
         }
