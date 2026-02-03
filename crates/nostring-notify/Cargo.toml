@@ -10,7 +10,7 @@ license.workspace = true
 nostring-electrum = { path = "../nostring-electrum" }
 
 # Email
-lettre = { version = "0.11", default-features = false, features = ["smtp-transport", "rustls-tls", "builder"] }
+lettre = { version = "0.11", default-features = false, features = ["smtp-transport", "rustls-tls", "tokio1-rustls-tls", "builder"] }
 
 # Nostr (with nip04 + nip44 for encrypted DMs and relay storage)
 nostr-sdk = { workspace = true, features = ["nip04", "nip44"] }

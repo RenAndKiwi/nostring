@@ -4,41 +4,20 @@ use crate::config::EmailConfig;
 use crate::templates::NotificationMessage;
 use crate::NotifyError;
 use lettre::transport::smtp::authentication::Credentials;
-use lettre::{Message, SmtpTransport, Transport};
+use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 
-/// Send an email notification
+/// Send an email notification (async — safe for tokio runtimes)
 pub async fn send_email(
     config: &EmailConfig,
     notification: &NotificationMessage,
 ) -> Result<(), NotifyError> {
-    // Build the email message
-    let email = Message::builder()
-        .from(
-            config
-                .from_address
-                .parse()
-                .map_err(|e| NotifyError::EmailFailed(format!("Invalid from address: {}", e)))?,
-        )
-        .to(config
-            .to_address
-            .parse()
-            .map_err(|e| NotifyError::EmailFailed(format!("Invalid to address: {}", e)))?)
-        .subject(&notification.subject)
-        .body(notification.body.clone())
-        .map_err(|e| NotifyError::EmailFailed(format!("Failed to build email: {}", e)))?;
+    let email = build_message(&config.from_address, &config.to_address, notification)?;
 
-    // Configure SMTP transport
-    let creds = Credentials::new(config.smtp_user.clone(), config.smtp_password.clone());
+    let mailer = build_async_transport(config)?;
 
-    let mailer = SmtpTransport::relay(&config.smtp_host)
-        .map_err(|e| NotifyError::EmailFailed(format!("SMTP relay error: {}", e)))?
-        .credentials(creds)
-        .port(config.smtp_port)
-        .build();
-
-    // Send the email
     mailer
-        .send(&email)
+        .send(email)
+        .await
         .map_err(|e| NotifyError::EmailFailed(format!("SMTP send failed: {}", e)))?;
 
     log::info!(
@@ -50,7 +29,7 @@ pub async fn send_email(
     Ok(())
 }
 
-/// Send an email notification to an arbitrary recipient using the configured SMTP.
+/// Send an email notification to an arbitrary recipient (async).
 ///
 /// Unlike `send_email`, this overrides the `to_address` with a custom recipient.
 /// Used for heir descriptor delivery.
@@ -59,30 +38,13 @@ pub async fn send_email_to_recipient(
     recipient_email: &str,
     notification: &NotificationMessage,
 ) -> Result<(), NotifyError> {
-    let email = Message::builder()
-        .from(
-            config
-                .from_address
-                .parse()
-                .map_err(|e| NotifyError::EmailFailed(format!("Invalid from address: {}", e)))?,
-        )
-        .to(recipient_email
-            .parse()
-            .map_err(|e| NotifyError::EmailFailed(format!("Invalid to address: {}", e)))?)
-        .subject(&notification.subject)
-        .body(notification.body.clone())
-        .map_err(|e| NotifyError::EmailFailed(format!("Failed to build email: {}", e)))?;
+    let email = build_message(&config.from_address, recipient_email, notification)?;
 
-    let creds = Credentials::new(config.smtp_user.clone(), config.smtp_password.clone());
-
-    let mailer = SmtpTransport::relay(&config.smtp_host)
-        .map_err(|e| NotifyError::EmailFailed(format!("SMTP relay error: {}", e)))?
-        .credentials(creds)
-        .port(config.smtp_port)
-        .build();
+    let mailer = build_async_transport(config)?;
 
     mailer
-        .send(&email)
+        .send(email)
+        .await
         .map_err(|e| NotifyError::EmailFailed(format!("SMTP send failed: {}", e)))?;
 
     log::info!(
@@ -92,6 +54,40 @@ pub async fn send_email_to_recipient(
     );
 
     Ok(())
+}
+
+/// Build a `lettre::Message` from addresses and notification content.
+fn build_message(
+    from: &str,
+    to: &str,
+    notification: &NotificationMessage,
+) -> Result<Message, NotifyError> {
+    Message::builder()
+        .from(
+            from.parse()
+                .map_err(|e| NotifyError::EmailFailed(format!("Invalid from address: {}", e)))?,
+        )
+        .to(to
+            .parse()
+            .map_err(|e| NotifyError::EmailFailed(format!("Invalid to address: {}", e)))?)
+        .subject(&notification.subject)
+        .body(notification.body.clone())
+        .map_err(|e| NotifyError::EmailFailed(format!("Failed to build email: {}", e)))
+}
+
+/// Build an async SMTP transport from config.
+fn build_async_transport(
+    config: &EmailConfig,
+) -> Result<AsyncSmtpTransport<Tokio1Executor>, NotifyError> {
+    let creds = Credentials::new(config.smtp_user.clone(), config.smtp_password.clone());
+
+    Ok(
+        AsyncSmtpTransport::<Tokio1Executor>::relay(&config.smtp_host)
+            .map_err(|e| NotifyError::EmailFailed(format!("SMTP relay error: {}", e)))?
+            .credentials(creds)
+            .port(config.smtp_port)
+            .build(),
+    )
 }
 
 #[cfg(test)]
@@ -104,11 +100,7 @@ mod tests {
         // Test that we can build a valid email message
         let notification = generate_message(NotificationLevel::Reminder, 25.0, 3600, 934000);
 
-        let email = Message::builder()
-            .from("noreply@nostring.dev".parse().unwrap())
-            .to("test@example.com".parse().unwrap())
-            .subject(&notification.subject)
-            .body(notification.body.clone());
+        let email = build_message("noreply@nostring.dev", "test@example.com", &notification);
 
         assert!(email.is_ok());
     }
