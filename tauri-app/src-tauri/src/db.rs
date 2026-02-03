@@ -222,6 +222,7 @@ pub fn heir_get(conn: &Connection, fingerprint: &str) -> SqlResult<Option<HeirRo
 
 /// Serialisable spend event row.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct SpendEventRow {
     pub id: i64,
     pub timestamp: u64,
@@ -234,6 +235,7 @@ pub struct SpendEventRow {
 }
 
 /// Insert a spend event.
+#[allow(dead_code)]
 pub fn spend_event_insert(
     conn: &Connection,
     timestamp: u64,
@@ -274,6 +276,7 @@ pub fn spend_event_list(conn: &Connection) -> SqlResult<Vec<SpendEventRow>> {
 }
 
 /// List spend events filtered by type.
+#[allow(dead_code)]
 pub fn spend_event_list_by_type(conn: &Connection, spend_type: &str) -> SqlResult<Vec<SpendEventRow>> {
     let mut stmt = conn.prepare(
         "SELECT id, timestamp, txid, spend_type, confidence, method, policy_id, outpoint
@@ -295,6 +298,7 @@ pub fn spend_event_list_by_type(conn: &Connection, spend_type: &str) -> SqlResul
 }
 
 /// Check if any heir claims have been detected.
+#[allow(dead_code)]
 pub fn has_heir_claims(conn: &Connection) -> SqlResult<bool> {
     let mut stmt = conn.prepare_cached(
         "SELECT COUNT(*) FROM spend_events WHERE spend_type = 'heir_claim'",
@@ -370,6 +374,7 @@ pub fn delivery_log_list(conn: &Connection) -> SqlResult<Vec<DeliveryLogEntry>> 
 
 /// A delivery log entry.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct DeliveryLogEntry {
     pub id: i64,
     pub heir_fingerprint: String,
@@ -393,6 +398,7 @@ pub fn checkin_log_insert(conn: &Connection, timestamp: u64, txid: &str) -> SqlR
 }
 
 /// Record a check-in with explicit spend type.
+#[allow(dead_code)]
 pub fn checkin_log_insert_with_type(
     conn: &Connection,
     timestamp: u64,
