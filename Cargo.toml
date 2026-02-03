@@ -29,7 +29,7 @@ nostr-sdk = { version = "0.39", features = ["nip44"] }
 # Encryption
 aes-gcm = "0.10"
 argon2 = "0.5"
-rand = "0.8"
+rand = "0.9"
 zeroize = { version = "1.8", features = ["derive"] }
 
 # Miniscript (from Liana)
