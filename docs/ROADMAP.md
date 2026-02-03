@@ -208,9 +208,9 @@ Sovereign Bitcoin inheritance with optional Nostr identity inheritance. Watch-on
 
 - [ ] Build release binaries (macOS/Win/Linux)
 - [ ] Security audit preparation
-- [ ] Docker compose for self-hosting
+- [x] Docker compose for self-hosting (nostring-server daemon)
 - [ ] Mobile consideration (Tauri mobile or separate app)
-- [ ] nsec revocation / re-split flow
+- [x] nsec revocation / re-split flow
 - [ ] Dashboard UI: spend type icons (✅ Owner check-in vs ⚠️ Heir claim)
 - [ ] Heir claim alert banner in dashboard
 
@@ -225,11 +225,12 @@ nostring/
 │   ├── nostring-inherit   # Policies, miniscript (25 tests)
 │   ├── nostring-shamir    # SLIP-39, Codex32 (39 tests)
 │   ├── nostring-electrum  # Bitcoin network (3 tests, 2 ignored)
-│   ├── nostring-notify    # Email + Nostr DM (27 tests)
+│   ├── nostring-notify    # Email + Nostr DM + relay storage (27 tests)
 │   ├── nostring-watch     # UTXO monitoring + spend analysis (29 tests, 2 ignored)
+│   ├── nostring-server    # Headless daemon for self-hosting (10 tests)
 │   └── nostring-email     # IMAP (placeholder)
-├── tauri-app/             # Desktop application (13 tests)
-├── tests/e2e/             # Integration test suite (18 tests, 2 ignored)
+├── tauri-app/             # Desktop application (25 tests)
+├── tests/e2e/             # Integration + security tests (56 tests, 2 ignored)
 └── docs/                  # Documentation
 ```
 
@@ -239,18 +240,21 @@ nostring/
 
 | Crate | Tests | Status |
 |-------|-------|--------|
-| nostring-app | 13 | ✅ |
+| nostring-app (Tauri) | 25 | ✅ |
 | nostring-core | 22 | ✅ |
 | nostring-inherit | 25 | ✅ |
 | nostring-shamir | 39 | ✅ |
 | nostring-electrum | 3 | ✅ (2 ignored) |
 | nostring-notify | 27 | ✅ (2 ignored) |
 | nostring-watch | 29 | ✅ (2 ignored) |
-| nostring-e2e | 18 | ✅ (2 ignored) |
-| **Total** | **172** | ✅ |
+| nostring-server | 10 | ✅ |
+| e2e integration | 25 | ✅ |
+| security tests | 31 | ✅ |
+| doc-tests | 1 | ✅ (4 ignored) |
+| **Total** | **232** | ✅ |
 
-*Ignored tests require network access. Run with `--ignored`.*
+*Ignored tests require network access or are doc-test placeholders. Run with `--ignored`.*
 
 ---
 
-*Last updated: 2026-02-04*
+*Last updated: 2026-02-03*
