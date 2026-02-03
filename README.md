@@ -32,11 +32,12 @@ You've taken custody of your Bitcoin. But what happens to it when you die?
 
 ## Features
 
-- **🔐 Single Seed** — One BIP-39 mnemonic for Bitcoin and Nostr identity
+- **👁️ Watch-Only First** — Import your xpub. Your keys never leave your hardware wallet.
 - **⏱️ Timelock Inheritance** — Miniscript policies with configurable check-in periods
 - **👥 Multi-Heir Cascade** — Spouse at 6 months → Children at 12 months → Executor at 18 months
+- **📋 Descriptor Backup** — Download your inheritance descriptor for recovery in any miniscript wallet
 - **🔑 Shamir Backup** — Split your seed with SLIP-39 or Codex32 (2-of-3, 3-of-5, etc.)
-- **📱 Air-Gap Signing** — QR-based PSBT flow for Electrum or hardware wallets
+- **📱 Air-Gap Signing** — QR-based PSBT flow for hardware wallets
 - **🔔 Notifications** — Email and Nostr DM reminders before timelock expiry
 - **💻 Desktop App** — Cross-platform Tauri application (macOS, Windows, Linux)
 
@@ -108,20 +109,29 @@ Coming soon — see [Releases](https://github.com/RenAndKiwi/nostring/releases).
 ```
 
 ### 1. Setup
-- Generate or import a BIP-39 seed
-- Add heirs by importing their xpub
-- Configure timelock periods
-- Fund the inheritance address
+- **Import your xpub** (watch-only) — your keys stay on your hardware wallet
+- **Add heirs** by importing their xpub from their own wallet
+- **Configure timelock** — how long before heirs can claim (e.g. 6 months)
+- NoString creates a **miniscript descriptor** combining both xpubs + timelock
+- **Fund the inheritance address** generated from the descriptor
+- **Download your descriptor backup** — this is your recovery key
 
 ### 2. Check-In
-- Periodically sign a transaction to prove you're alive
-- This resets the timelock countdown
-- Miss enough check-ins and the clock starts ticking
+- Periodically sign a PSBT to prove you're alive
+- Sign with your hardware wallet (QR code or copy/paste)
+- This spends to a new inheritance address, resetting the timelock
+- NoString prompts you to download the updated descriptor after each check-in
 
 ### 3. Inheritance
-- When the timelock expires, heirs can claim with their key
-- No intermediaries, no permission, no court orders
-- Just Bitcoin script doing its job
+- If you stop checking in, the timelock countdown begins
+- When it expires, **heirs claim using their own wallet** (their key becomes valid)
+- No intermediaries, no permission, no seed sharing
+- Just Bitcoin script enforced by the network
+
+### 4. Recovery
+- **You lose NoString but have your hardware wallet?** Import the descriptor backup into any miniscript wallet (Liana, Electrum) — full access restored
+- **You lose your hardware wallet?** Use your Shamir backup (Codex32/SLIP-39 shares) to reconstruct your seed
+- **Heir needs to claim?** They use their own wallet — no access to your seed needed
 
 ---
 

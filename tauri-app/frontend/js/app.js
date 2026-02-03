@@ -30,6 +30,18 @@ const invoke = DEMO_MODE
             'initiate_checkin': { success: true, psbt: 'cHNidP8BAH...' },
             'import_seed': { success: true },
             'import_watch_only': { success: true },
+            'get_descriptor_backup': {
+                success: true,
+                data: {
+                    descriptor: 'wsh(or_d(pk([owner_fp/84h/0h/0h]xpub6ABC.../0/*),and_v(v:pk([heir_fp/84h/0h/0h]xpub6DEF.../0/*),older(26280))))',
+                    network: 'bitcoin',
+                    timelock_blocks: 26280,
+                    address: 'bc1q_example_inheritance_address',
+                    heirs: [
+                        { label: 'Spouse', xpub: 'xpub6DEF...', timelock_months: 6 }
+                    ]
+                }
+            },
             'unlock_seed': { success: true },
             'lock_wallet': { success: true },
             'get_electrum_url': 'ssl://blockstream.info:700',
@@ -629,8 +641,12 @@ function showMainApp() {
                         <p>After the timelock expires (e.g. 6 months), your heirs can claim using their own wallet. No seed sharing needed — it's all in the Bitcoin script.</p>
                     </div>
                     <div class="how-step">
-                        <strong>4. Shamir backup is for YOU</strong>
-                        <p>Codex32/SLIP-39 splits are for backing up your own seed. Your heirs don't need your seed — they use their own keys.</p>
+                        <strong>4. Save your descriptor backup</strong>
+                        <p>The descriptor is the recipe that combines your xpub + heir xpubs + timelock into the inheritance address. Download it from Settings — you need it to recover if you ever lose access to NoString.</p>
+                    </div>
+                    <div class="how-step">
+                        <strong>5. Shamir backup is for YOUR seed</strong>
+                        <p>Codex32/SLIP-39 splits are for backing up your own seed phrase. Your heirs don't need your seed — they use their own keys after the timelock expires.</p>
                     </div>
                 </div>
             </div>
@@ -724,6 +740,14 @@ function showMainApp() {
         
         <section id="settings-tab" class="tab-content">
             <div class="settings-group">
+                <h3>📋 Descriptor Backup</h3>
+                <p class="text-muted">Your descriptor is the key to recovery. If you lose access to NoString, import this into any miniscript wallet (Liana, Electrum) to recover your funds.</p>
+                <div class="setting">
+                    <button type="button" id="btn-download-backup" class="btn-primary">Download Descriptor Backup</button>
+                </div>
+            </div>
+            
+            <div class="settings-group">
                 <h3>Network</h3>
                 <div class="setting">
                     <label>Electrum Server:</label>
@@ -764,6 +788,7 @@ function showMainApp() {
     document.getElementById('btn-checkin').addEventListener('click', initiateCheckin);
     document.getElementById('btn-lock').addEventListener('click', lockWallet);
     document.getElementById('btn-save-electrum').addEventListener('click', saveElectrumUrl);
+    document.getElementById('btn-download-backup').addEventListener('click', downloadDescriptorBackup);
     
     // How it works toggle
     document.getElementById('btn-toggle-how').addEventListener('click', () => {
@@ -1156,8 +1181,10 @@ async function handleScannedPsbt(psbtData) {
         
         if (result.success) {
             closeScanner();
-            showSuccess('Check-in broadcast successfully!\n\nTxid: ' + result.data);
+            showSuccess('Check-in broadcast successfully! Txid: ' + result.data);
             refreshStatus();
+            // Prompt to download updated descriptor backup
+            setTimeout(() => promptDescriptorBackup(), 1500);
         } else {
             status.textContent = 'Error: ' + result.error;
             status.classList.remove('scanner-success');
@@ -1167,6 +1194,94 @@ async function handleScannedPsbt(psbtData) {
         status.textContent = 'Failed to broadcast: ' + err.message;
         status.classList.remove('scanner-success');
     }
+}
+
+// ============================================================================
+// Descriptor Backup
+// ============================================================================
+async function downloadDescriptorBackup() {
+    try {
+        const result = await invoke('get_descriptor_backup');
+        
+        if (!result.success) {
+            showError(result.error || 'No descriptor configured yet. Add heirs first.');
+            return;
+        }
+        
+        const backup = result.data;
+        const content = `# NoString Descriptor Backup
+# Generated: ${new Date().toISOString()}
+# 
+# ⚠️  KEEP THIS FILE SAFE. You need it to recover your inheritance
+#     policy if you lose access to NoString.
+#
+# To recover: Import this descriptor into any miniscript-compatible
+# wallet (Liana, Electrum, etc.) to regain control of your funds.
+
+## Descriptor
+${backup.descriptor}
+
+## Details
+Network: ${backup.network}
+Timelock: ${backup.timelock_blocks} blocks (~${Math.round(backup.timelock_blocks / 144)} days)
+Inheritance Address: ${backup.address || 'N/A'}
+
+## Heirs
+${(backup.heirs || []).map(h => `- ${h.label}: ${h.xpub} (${h.timelock_months} months)`).join('\n')}
+
+## Recovery Instructions
+1. Install a miniscript wallet (e.g., Liana: wizardsardine.com/liana)
+2. Import the descriptor above
+3. Sign with your hardware wallet to move funds
+`;
+        
+        // Trigger file download
+        const blob = new Blob([content], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `nostring-descriptor-backup-${new Date().toISOString().split('T')[0]}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        showSuccess('Descriptor backup downloaded');
+    } catch (err) {
+        console.error('Failed to get descriptor backup:', err);
+        showError('Failed to generate descriptor backup');
+    }
+}
+
+function promptDescriptorBackup() {
+    // Show a modal prompting the user to download after check-in
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.id = 'descriptor-prompt';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>📋 Save Your Descriptor Backup</h3>
+            </div>
+            <div class="modal-body">
+                <p>Your check-in created a new inheritance address. <strong>Download your updated descriptor backup</strong> so you can always recover your funds.</p>
+                <p class="text-muted" style="font-size: 0.9rem;">Without this backup, you'd need to manually reconstruct the descriptor from your xpub, heir xpubs, and timelock settings.</p>
+                <div class="qr-actions" style="margin-top: 1.5rem;">
+                    <button type="button" id="btn-download-descriptor" class="btn-primary">Download Backup</button>
+                    <button type="button" id="btn-skip-descriptor" class="btn-secondary">Skip for Now</button>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    
+    document.getElementById('btn-download-descriptor').addEventListener('click', async () => {
+        await downloadDescriptorBackup();
+        modal.remove();
+    });
+    document.getElementById('btn-skip-descriptor').addEventListener('click', () => {
+        modal.remove();
+    });
 }
 
 // ============================================================================
