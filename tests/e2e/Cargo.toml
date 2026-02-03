@@ -16,6 +16,10 @@ path = "security_tests.rs"
 name = "live_integration"
 path = "live_integration.rs"
 
+[[test]]
+name = "testnet_checkin_broadcast"
+path = "testnet_checkin_broadcast.rs"
+
 [dependencies]
 nostring-core = { path = "../../crates/nostring-core" }
 nostring-inherit = { path = "../../crates/nostring-inherit" }
