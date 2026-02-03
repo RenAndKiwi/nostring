@@ -136,6 +136,51 @@ NoString"#,
     }
 }
 
+/// Generate a descriptor delivery message for an heir.
+///
+/// This is sent when the timelock is critical — it contains the full
+/// descriptor backup that the heir needs to claim the inheritance.
+pub fn generate_heir_delivery_message(
+    heir_label: &str,
+    descriptor_backup_json: &str,
+) -> NotificationMessage {
+    let subject = "🔑 NoString: Inheritance Descriptor Backup Delivery".to_string();
+    let body = format!(
+        r#"Dear {heir_label},
+
+You are receiving this message because a NoString inheritance timelock
+has reached critical status. The owner has not checked in, and the
+timelock is expired or about to expire.
+
+Below is the descriptor backup file you need to claim your inheritance.
+It contains the wallet descriptor and locked Shamir shares for the
+owner's Nostr identity (nsec).
+
+=== BEGIN NOSTRING DESCRIPTOR BACKUP ===
+{descriptor_backup_json}
+=== END NOSTRING DESCRIPTOR BACKUP ===
+
+INSTRUCTIONS:
+1. Save the backup data above (between the BEGIN/END markers)
+2. Open NoString and go to the Recovery tab
+3. Import the descriptor backup
+4. Use your pre-distributed Shamir share along with the locked shares
+   to recover the owner's nsec (if applicable)
+5. Use your signing device to claim the Bitcoin from the inheritance
+   address
+
+If you have questions, refer to the NoString documentation.
+
+This message was sent automatically by the NoString inheritance system."#,
+    );
+
+    NotificationMessage {
+        subject,
+        body,
+        level: NotificationLevel::Critical,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,5 +212,16 @@ mod tests {
         assert!(NotificationLevel::Critical > NotificationLevel::Urgent);
         assert!(NotificationLevel::Urgent > NotificationLevel::Warning);
         assert!(NotificationLevel::Warning > NotificationLevel::Reminder);
+    }
+
+    #[test]
+    fn test_generate_heir_delivery() {
+        let backup_json = r#"{"descriptor":"wsh(...)","network":"bitcoin"}"#;
+        let msg = generate_heir_delivery_message("Alice", backup_json);
+        assert_eq!(msg.level, NotificationLevel::Critical);
+        assert!(msg.subject.contains("Inheritance"));
+        assert!(msg.body.contains("Alice"));
+        assert!(msg.body.contains("BEGIN NOSTRING DESCRIPTOR BACKUP"));
+        assert!(msg.body.contains(backup_json));
     }
 }

@@ -51,6 +51,15 @@ pub enum Error {
     NoUtxos,
 }
 
+/// A transaction in a script's history
+#[derive(Debug, Clone)]
+pub struct ScriptHistoryItem {
+    /// Transaction ID
+    pub txid: Txid,
+    /// Block height (0 if unconfirmed)
+    pub height: u32,
+}
+
 /// A UTXO (unspent transaction output) discovered via Electrum
 #[derive(Debug, Clone)]
 pub struct Utxo {
@@ -151,6 +160,21 @@ impl ElectrumClient {
             .collect();
 
         Ok(utxos)
+    }
+
+    /// Get transaction history for a script (both spent and unspent)
+    ///
+    /// Returns all transactions that have interacted with this script,
+    /// including both funding and spending transactions.
+    pub fn get_script_history(&self, script: &Script) -> Result<Vec<ScriptHistoryItem>, Error> {
+        let history = self.client.script_get_history(script)?;
+        Ok(history
+            .into_iter()
+            .map(|h| ScriptHistoryItem {
+                txid: h.tx_hash,
+                height: h.height as u32,
+            })
+            .collect())
     }
 
     /// Get UTXOs for an address

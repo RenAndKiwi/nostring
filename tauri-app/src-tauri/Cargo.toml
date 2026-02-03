@@ -15,6 +15,7 @@ nostring-email = { path = "../../crates/nostring-email" }
 nostring-inherit = { path = "../../crates/nostring-inherit" }
 nostring-notify = { path = "../../crates/nostring-notify" }
 nostring-shamir = { path = "../../crates/nostring-shamir" }
+nostring-watch = { path = "../../crates/nostring-watch" }
 tauri.workspace = true
 rusqlite.workspace = true
 bitcoin.workspace = true

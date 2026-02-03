@@ -76,6 +76,60 @@ pub async fn send_dm(
     Ok(())
 }
 
+/// Send a Nostr DM to an arbitrary recipient npub using the provided secret key.
+///
+/// Unlike `send_dm`, this doesn't require a full `NostrConfig` — just the
+/// sender secret key, recipient npub, and relay list. Used for heir delivery.
+pub async fn send_dm_to_recipient(
+    sender_secret: &str,
+    recipient_npub: &str,
+    relays: &[String],
+    notification: &NotificationMessage,
+) -> Result<(), NotifyError> {
+    let recipient = parse_pubkey(recipient_npub)
+        .map_err(|e| NotifyError::NostrFailed(format!("Invalid recipient pubkey: {}", e)))?;
+
+    let keys = Keys::parse(sender_secret)
+        .map_err(|e| NotifyError::NostrFailed(format!("Invalid secret key: {}", e)))?;
+
+    let client = Client::new(keys.clone());
+
+    for relay in relays {
+        if let Err(e) = client.add_relay(relay).await {
+            log::warn!("Failed to add relay {}: {}", relay, e);
+        }
+    }
+
+    client.connect().await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let dm_content = format!("📢 {}\n\n{}", notification.subject, notification.body);
+
+    use nostr_sdk::nostr::nips::nip04;
+    let encrypted = nip04::encrypt(keys.secret_key(), &recipient, &dm_content)
+        .map_err(|e| NotifyError::NostrFailed(format!("Encryption failed: {}", e)))?;
+
+    let event = EventBuilder::new(Kind::EncryptedDirectMessage, encrypted)
+        .tag(Tag::public_key(recipient))
+        .sign_with_keys(&keys)
+        .map_err(|e| NotifyError::NostrFailed(format!("Failed to build event: {}", e)))?;
+
+    let output = client
+        .send_event(event)
+        .await
+        .map_err(|e| NotifyError::NostrFailed(format!("Failed to send event: {}", e)))?;
+
+    log::info!(
+        "Nostr DM sent to {} (event: {}, level: {:?})",
+        recipient_npub,
+        output.id(),
+        notification.level
+    );
+
+    client.disconnect().await;
+    Ok(())
+}
+
 /// Parse a public key from npub or hex format
 fn parse_pubkey(input: &str) -> Result<PublicKey, String> {
     // Try npub first

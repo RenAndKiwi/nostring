@@ -28,7 +28,7 @@
 
 mod config;
 pub mod nostr_dm;
-mod smtp;
+pub mod smtp;
 pub mod templates;
 
 pub use config::{EmailConfig, NostrConfig, NotifyConfig, Threshold};

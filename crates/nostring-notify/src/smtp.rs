@@ -50,6 +50,50 @@ pub async fn send_email(
     Ok(())
 }
 
+/// Send an email notification to an arbitrary recipient using the configured SMTP.
+///
+/// Unlike `send_email`, this overrides the `to_address` with a custom recipient.
+/// Used for heir descriptor delivery.
+pub async fn send_email_to_recipient(
+    config: &EmailConfig,
+    recipient_email: &str,
+    notification: &NotificationMessage,
+) -> Result<(), NotifyError> {
+    let email = Message::builder()
+        .from(
+            config
+                .from_address
+                .parse()
+                .map_err(|e| NotifyError::EmailFailed(format!("Invalid from address: {}", e)))?,
+        )
+        .to(recipient_email
+            .parse()
+            .map_err(|e| NotifyError::EmailFailed(format!("Invalid to address: {}", e)))?)
+        .subject(&notification.subject)
+        .body(notification.body.clone())
+        .map_err(|e| NotifyError::EmailFailed(format!("Failed to build email: {}", e)))?;
+
+    let creds = Credentials::new(config.smtp_user.clone(), config.smtp_password.clone());
+
+    let mailer = SmtpTransport::relay(&config.smtp_host)
+        .map_err(|e| NotifyError::EmailFailed(format!("SMTP relay error: {}", e)))?
+        .credentials(creds)
+        .port(config.smtp_port)
+        .build();
+
+    mailer
+        .send(&email)
+        .map_err(|e| NotifyError::EmailFailed(format!("SMTP send failed: {}", e)))?;
+
+    log::info!(
+        "Email notification sent to {} (level: {:?})",
+        recipient_email,
+        notification.level
+    );
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

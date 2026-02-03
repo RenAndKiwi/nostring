@@ -475,6 +475,10 @@ pub struct HeirInfo {
     pub fingerprint: String,
     pub xpub: String,
     pub derivation_path: String,
+    /// Nostr npub for descriptor delivery (optional, v0.2)
+    pub npub: Option<String>,
+    /// Email address for descriptor delivery (optional, v0.2)
+    pub email: Option<String>,
 }
 
 impl From<&HeirKey> for HeirInfo {
@@ -484,6 +488,22 @@ impl From<&HeirKey> for HeirInfo {
             fingerprint: heir.fingerprint.to_string(),
             xpub: heir.xpub.to_string(),
             derivation_path: heir.derivation_path.to_string(),
+            npub: None,
+            email: None,
+        }
+    }
+}
+
+impl HeirInfo {
+    /// Create from HeirKey + contact info from DB
+    fn from_key_with_contact(heir: &HeirKey, npub: Option<String>, email: Option<String>) -> Self {
+        Self {
+            label: heir.label.clone(),
+            fingerprint: heir.fingerprint.to_string(),
+            xpub: heir.xpub.to_string(),
+            derivation_path: heir.derivation_path.to_string(),
+            npub,
+            email,
         }
     }
 }
@@ -528,11 +548,26 @@ pub async fn add_heir(
     Ok(CommandResult::ok(heir_info))
 }
 
-/// List all heirs
+/// List all heirs (with contact info from DB)
 #[tauri::command]
 pub async fn list_heirs(state: State<'_, AppState>) -> Result<Vec<HeirInfo>, ()> {
     let registry = state.heir_registry.lock().unwrap();
-    let heirs: Vec<HeirInfo> = registry.list().iter().map(HeirInfo::from).collect();
+    let conn = state.db.lock().unwrap();
+
+    let heirs: Vec<HeirInfo> = registry
+        .list()
+        .iter()
+        .map(|heir| {
+            let fp = heir.fingerprint.to_string();
+            let row = crate::db::heir_get(&conn, &fp).ok().flatten();
+            let (npub, email) = row
+                .map(|r| (r.npub, r.email))
+                .unwrap_or((None, None));
+            HeirInfo::from_key_with_contact(heir, npub, email)
+        })
+        .collect();
+
+    drop(conn);
     Ok(heirs)
 }
 
@@ -578,6 +613,82 @@ pub async fn get_heir(
         Some(heir) => Ok(CommandResult::ok(HeirInfo::from(heir))),
         None => Ok(CommandResult::err("Heir not found")),
     }
+}
+
+/// Set contact info (npub and/or email) for an heir, used for descriptor delivery.
+#[tauri::command]
+pub async fn set_heir_contact(
+    fingerprint: String,
+    npub: Option<String>,
+    email: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<CommandResult<bool>, ()> {
+    let unlocked = state.unlocked.lock().unwrap();
+    if !*unlocked {
+        return Ok(CommandResult::err("Wallet is locked"));
+    }
+    drop(unlocked);
+
+    // Validate npub format if provided
+    if let Some(ref npub_str) = npub {
+        if !npub_str.starts_with("npub1") {
+            return Ok(CommandResult::err(
+                "Invalid npub format. Must start with 'npub1'.",
+            ));
+        }
+        if nostr_sdk::prelude::PublicKey::parse(npub_str).is_err() {
+            return Ok(CommandResult::err("Invalid npub: failed to decode."));
+        }
+    }
+
+    // Validate email format if provided (basic check)
+    if let Some(ref email_str) = email {
+        if !email_str.contains('@') || !email_str.contains('.') {
+            return Ok(CommandResult::err("Invalid email format."));
+        }
+    }
+
+    let updated = state.update_heir_contact(
+        &fingerprint,
+        npub.as_deref(),
+        email.as_deref(),
+    );
+
+    if updated {
+        Ok(CommandResult::ok(true))
+    } else {
+        Ok(CommandResult::err("Heir not found with that fingerprint."))
+    }
+}
+
+/// Get contact info for an heir.
+#[tauri::command]
+pub async fn get_heir_contact(
+    fingerprint: String,
+    state: State<'_, AppState>,
+) -> Result<CommandResult<HeirContactInfo>, ()> {
+    let conn = state.db.lock().unwrap();
+    let row = crate::db::heir_get(&conn, &fingerprint).ok().flatten();
+    drop(conn);
+
+    match row {
+        Some(r) => Ok(CommandResult::ok(HeirContactInfo {
+            fingerprint: r.fingerprint,
+            label: r.label,
+            npub: r.npub,
+            email: r.email,
+        })),
+        None => Ok(CommandResult::err("Heir not found")),
+    }
+}
+
+/// Contact info for an heir
+#[derive(Debug, Serialize, Deserialize)]
+pub struct HeirContactInfo {
+    pub fingerprint: String,
+    pub label: String,
+    pub npub: Option<String>,
+    pub email: Option<String>,
 }
 
 /// Validate an xpub string
@@ -628,6 +739,35 @@ pub struct NsecSplitResult {
     pub threshold: u8,
     /// Total shares generated
     pub total_shares: u8,
+    /// Whether this was a re-split (previous config existed)
+    pub was_resplit: bool,
+    /// The previous npub if re-splitting (may differ if owner changed identity)
+    pub previous_npub: Option<String>,
+}
+
+/// Revoke nsec inheritance — clears locked shares and owner npub.
+///
+/// After revocation, old pre-distributed shares are useless (they can't
+/// reconstruct without the locked shares). The owner must re-split if
+/// they want to set up inheritance again.
+#[tauri::command]
+pub async fn revoke_nsec_inheritance(
+    state: State<'_, AppState>,
+) -> Result<CommandResult<bool>, ()> {
+    // Require wallet to be unlocked
+    let unlocked = state.unlocked.lock().unwrap();
+    if !*unlocked {
+        return Ok(CommandResult::err("Wallet is locked. Unlock first."));
+    }
+    drop(unlocked);
+
+    // Clear nsec inheritance data from SQLite
+    state.delete_config("nsec_locked_shares");
+    state.delete_config("nsec_owner_npub");
+
+    log::info!("nsec inheritance revoked — locked shares and owner npub cleared");
+
+    Ok(CommandResult::ok(true))
 }
 
 /// Split an nsec into Shamir shares for identity inheritance.
@@ -635,6 +775,10 @@ pub struct NsecSplitResult {
 /// The nsec is held in memory ONLY during this call, then zeroed.
 /// Pre-distributed shares go to heirs (1 each).
 /// Locked shares go into the descriptor backup.
+///
+/// If inheritance is already configured, this acts as a **re-split**:
+/// old locked shares are replaced and old pre-distributed shares become
+/// useless.  The caller is warned via the `was_resplit` field.
 ///
 /// Formula: N heirs → (N+1)-of-(2N+1) split
 ///   - Pre-distributed: N (one per heir)
@@ -648,6 +792,27 @@ pub async fn split_nsec(
 ) -> Result<CommandResult<NsecSplitResult>, ()> {
     use nostr_sdk::prelude::*;
     use nostring_shamir::codex32::generate_shares;
+
+    // Require wallet to be unlocked
+    let unlocked = state.unlocked.lock().unwrap();
+    if !*unlocked {
+        return Ok(CommandResult::err("Wallet is locked. Unlock first."));
+    }
+    drop(unlocked);
+
+    // Detect existing nsec inheritance (re-split scenario)
+    let previous_npub = {
+        let conn = state.db.lock().unwrap();
+        crate::db::config_get(&conn, "nsec_owner_npub").ok().flatten()
+    };
+    let was_resplit = previous_npub.is_some();
+
+    if was_resplit {
+        log::info!(
+            "Re-splitting nsec inheritance (previous npub: {})",
+            previous_npub.as_deref().unwrap_or("unknown")
+        );
+    }
 
     // Parse and validate the nsec
     let keys = match Keys::parse(&nsec_input) {
@@ -738,12 +903,18 @@ pub async fn split_nsec(
     state.persist_config("nsec_locked_shares", &locked_json);
     state.persist_config("nsec_owner_npub", &owner_npub);
 
+    if was_resplit {
+        log::info!("nsec re-split complete — old shares are now invalid");
+    }
+
     Ok(CommandResult::ok(NsecSplitResult {
         owner_npub,
         pre_distributed,
         locked_shares,
         threshold,
         total_shares,
+        was_resplit,
+        previous_npub,
     }))
 }
 
@@ -988,6 +1159,13 @@ pub async fn send_test_notification(
 /// Check the inheritance timelock and send notifications if thresholds are hit.
 ///
 /// This should be called periodically (e.g., on app open, on refresh).
+///
+/// **Escalation logic (v0.2):**
+/// - Warning/Reminder levels → notify the OWNER only (existing behavior)
+/// - Critical level (timelock expired or <1 day) → deliver descriptor backup
+///   to HEIRS via their configured npub/email channels
+///
+/// Rate limiting: heirs won't be spammed — a 24h cooldown prevents re-delivery.
 #[tauri::command]
 pub async fn check_and_notify(
     state: State<'_, AppState>,
@@ -1025,7 +1203,7 @@ pub async fn check_and_notify(
             "wss://relay.nostr.band".into(),
             "wss://nos.lol".into(),
         ],
-        secret_key: Some(service_secret),
+        secret_key: Some(service_secret.clone()),
     });
 
     // Get email config
@@ -1049,26 +1227,227 @@ pub async fn check_and_notify(
         }
     };
 
-    if nostr_config.is_none() && email_config.is_none() {
-        return Ok(CommandResult::ok("No notification channels configured.".to_string()));
+    let mut results = Vec::new();
+
+    // ── Phase 1: Owner notifications (existing behavior) ──
+    if nostr_config.is_some() || email_config.is_some() {
+        let config = nostring_notify::NotifyConfig {
+            thresholds: nostring_notify::NotifyConfig::default().thresholds,
+            email: email_config.clone(),
+            nostr: nostr_config,
+        };
+
+        let service = nostring_notify::NotificationService::new(config);
+
+        match service
+            .check_and_notify(status.blocks_remaining, status.current_block as u32)
+            .await
+        {
+            Ok(Some(level)) => results.push(format!("Owner notification sent: {:?}", level)),
+            Ok(None) => results.push("No owner notification needed — timelock healthy.".to_string()),
+            Err(e) => results.push(format!("Owner notification error: {}", e)),
+        }
+    } else {
+        results.push("No owner notification channels configured.".to_string());
     }
 
-    let config = nostring_notify::NotifyConfig {
-        thresholds: nostring_notify::NotifyConfig::default().thresholds,
-        email: email_config,
-        nostr: nostr_config,
+    // ── Phase 2: Heir descriptor delivery (v0.2 escalation) ──
+    // Only trigger when timelock is critical (≤1 day / ≤144 blocks)
+    let is_critical = status.blocks_remaining <= 144;
+
+    if is_critical {
+        let heir_delivery_result = deliver_descriptor_to_heirs(
+            &state,
+            &service_secret,
+            email_config.as_ref(),
+        )
+        .await;
+        results.push(heir_delivery_result);
+    }
+
+    Ok(CommandResult::ok(results.join(" | ")))
+}
+
+/// Deliver the descriptor backup to all heirs with configured contact info.
+///
+/// This is the core inheritance mechanism — when the owner hasn't checked in
+/// and the timelock is critical, heirs receive everything they need.
+///
+/// Rate limited: 24h cooldown per heir per channel to prevent spam.
+async fn deliver_descriptor_to_heirs(
+    state: &State<'_, AppState>,
+    service_secret: &str,
+    email_config: Option<&nostring_notify::EmailConfig>,
+) -> String {
+    // 24-hour cooldown between deliveries to the same heir on the same channel
+    const DELIVERY_COOLDOWN_SECS: u64 = 86400;
+
+    // Get the descriptor backup data
+    let backup_data = {
+        let config = {
+            let config_lock = state.inheritance_config.lock().unwrap();
+            match &*config_lock {
+                Some(c) => c.clone(),
+                None => return "Heir delivery skipped: no inheritance policy configured.".to_string(),
+            }
+        };
+
+        let heirs: Vec<DescriptorBackupHeir> = {
+            let registry = state.heir_registry.lock().unwrap();
+            registry
+                .list()
+                .iter()
+                .map(|h| DescriptorBackupHeir {
+                    label: h.label.clone(),
+                    xpub: h.xpub.to_string(),
+                    timelock_months: config.timelock_blocks as f64 * 10.0 / 60.0 / 24.0 / 30.0,
+                })
+                .collect()
+        };
+
+        let address = {
+            use miniscript::descriptor::DescriptorPublicKey;
+            use miniscript::Descriptor;
+            let desc: Result<Descriptor<DescriptorPublicKey>, _> = config.descriptor.parse();
+            desc.ok()
+                .and_then(|d| d.at_derivation_index(0).ok())
+                .map(|d| {
+                    let network = *state.network.lock().unwrap();
+                    d.address(network).map(|a| a.to_string()).ok()
+                })
+                .flatten()
+        };
+
+        let conn = state.db.lock().unwrap();
+        let nsec_owner_npub = crate::db::config_get(&conn, "nsec_owner_npub")
+            .ok()
+            .flatten();
+        let locked_shares = crate::db::config_get(&conn, "nsec_locked_shares")
+            .ok()
+            .flatten()
+            .and_then(|j| serde_json::from_str::<Vec<String>>(&j).ok());
+        drop(conn);
+
+        DescriptorBackupData {
+            descriptor: config.descriptor,
+            network: config.network,
+            timelock_blocks: config.timelock_blocks,
+            address,
+            heirs,
+            nsec_owner_npub,
+            locked_shares,
+        }
     };
 
-    let service = nostring_notify::NotificationService::new(config);
+    let backup_json = match serde_json::to_string_pretty(&backup_data) {
+        Ok(j) => j,
+        Err(e) => return format!("Heir delivery failed: could not serialize backup: {}", e),
+    };
 
-    match service
-        .check_and_notify(status.blocks_remaining, status.current_block as u32)
-        .await
-    {
-        Ok(Some(level)) => Ok(CommandResult::ok(format!("Notification sent: {:?}", level))),
-        Ok(None) => Ok(CommandResult::ok("No notification needed — timelock healthy.".to_string())),
-        Err(e) => Ok(CommandResult::err(format!("Notification error: {}", e))),
+    // Get heirs with contact info from DB
+    let heir_contacts = {
+        let conn = state.db.lock().unwrap();
+        crate::db::heir_list(&conn).unwrap_or_default()
+    };
+
+    let relays = vec![
+        "wss://relay.damus.io".into(),
+        "wss://relay.nostr.band".into(),
+        "wss://nos.lol".into(),
+    ];
+
+    let mut delivered = 0u32;
+    let mut skipped = 0u32;
+    let mut failed = 0u32;
+
+    for heir in &heir_contacts {
+        let message = nostring_notify::templates::generate_heir_delivery_message(
+            &heir.label,
+            &backup_json,
+        );
+
+        // Nostr DM delivery
+        if let Some(ref npub) = heir.npub {
+            if state.can_deliver_to_heir(&heir.fingerprint, "nostr", DELIVERY_COOLDOWN_SECS) {
+                match nostring_notify::nostr_dm::send_dm_to_recipient(
+                    service_secret,
+                    npub,
+                    &relays,
+                    &message,
+                )
+                .await
+                {
+                    Ok(_) => {
+                        log::info!(
+                            "Descriptor delivered to heir {} via Nostr DM",
+                            heir.label
+                        );
+                        state.log_delivery(&heir.fingerprint, "nostr", true, None);
+                        delivered += 1;
+                    }
+                    Err(e) => {
+                        let err_msg = format!("{}", e);
+                        log::error!(
+                            "Failed to deliver descriptor to heir {} via Nostr: {}",
+                            heir.label,
+                            err_msg
+                        );
+                        state.log_delivery(&heir.fingerprint, "nostr", false, Some(&err_msg));
+                        failed += 1;
+                    }
+                }
+            } else {
+                log::info!(
+                    "Skipping Nostr delivery to heir {} (cooldown active)",
+                    heir.label
+                );
+                skipped += 1;
+            }
+        }
+
+        // Email delivery
+        if let (Some(ref heir_email), Some(smtp_config)) = (&heir.email, email_config) {
+            if state.can_deliver_to_heir(&heir.fingerprint, "email", DELIVERY_COOLDOWN_SECS) {
+                match nostring_notify::smtp::send_email_to_recipient(
+                    smtp_config,
+                    heir_email,
+                    &message,
+                )
+                .await
+                {
+                    Ok(_) => {
+                        log::info!(
+                            "Descriptor delivered to heir {} via email",
+                            heir.label
+                        );
+                        state.log_delivery(&heir.fingerprint, "email", true, None);
+                        delivered += 1;
+                    }
+                    Err(e) => {
+                        let err_msg = format!("{}", e);
+                        log::error!(
+                            "Failed to deliver descriptor to heir {} via email: {}",
+                            heir.label,
+                            err_msg
+                        );
+                        state.log_delivery(&heir.fingerprint, "email", false, Some(&err_msg));
+                        failed += 1;
+                    }
+                }
+            } else {
+                log::info!(
+                    "Skipping email delivery to heir {} (cooldown active)",
+                    heir.label
+                );
+                skipped += 1;
+            }
+        }
     }
+
+    format!(
+        "Heir descriptor delivery: {} sent, {} skipped (cooldown), {} failed",
+        delivered, skipped, failed
+    )
 }
 
 // ============================================================================

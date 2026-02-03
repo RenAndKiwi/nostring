@@ -34,9 +34,11 @@
 //! ```
 
 pub mod events;
+pub mod spend_analysis;
 pub mod state;
 
 pub use events::{SpendType, WatchEvent};
+pub use spend_analysis::{analyze_spend, analyze_witness, SpendAnalysis, DetectionMethod};
 pub use state::{PolicyState, TrackedUtxo, WatchState};
 
 use bitcoin::hashes::Hash;
@@ -217,14 +219,28 @@ impl WatchService {
     ) -> Result<Vec<WatchEvent>, WatchError> {
         let mut events = Vec::new();
 
-        // Get policy state
-        let policy = self
-            .state
-            .get_policy(policy_id)
-            .ok_or_else(|| WatchError::PolicyNotFound(policy_id.to_string()))?;
+        // Get policy state — extract needed values upfront to avoid borrow issues
+        let (descriptor_str, known_outpoints, utxo_heights, timelock_blocks) = {
+            let policy = self
+                .state
+                .get_policy(policy_id)
+                .ok_or_else(|| WatchError::PolicyNotFound(policy_id.to_string()))?;
+
+            let descriptor_str = policy.descriptor.clone();
+            let known_outpoints = policy.outpoints();
+            // Pre-compute utxo heights for timing analysis
+            let utxo_heights: Vec<(OutPoint, u32)> = policy
+                .utxos
+                .iter()
+                .map(|u| (u.outpoint, u.height))
+                .collect();
+            let timelock_blocks = policy.timelock_blocks;
+
+            (descriptor_str, known_outpoints, utxo_heights, timelock_blocks)
+        };
 
         // Parse descriptor and get script
-        let descriptor: Descriptor<DescriptorPublicKey> = Descriptor::from_str(&policy.descriptor)
+        let descriptor: Descriptor<DescriptorPublicKey> = Descriptor::from_str(&descriptor_str)
             .map_err(|e| WatchError::InvalidDescriptor(e.to_string()))?;
 
         // Derive address at index 0
@@ -232,9 +248,6 @@ impl WatchService {
 
         // Get current UTXOs from blockchain
         let current_utxos: Vec<Utxo> = self.client.get_utxos_for_script(&script)?;
-
-        // Get previously known outpoints
-        let known_outpoints: Vec<OutPoint> = policy.outpoints();
 
         // Detect new UTXOs (appeared)
         let now = current_timestamp();
@@ -263,13 +276,25 @@ impl WatchService {
         let current_outpoints: Vec<OutPoint> = current_utxos.iter().map(|u| u.outpoint).collect();
         for known in &known_outpoints {
             if !current_outpoints.contains(known) {
-                // UTXO was spent - try to determine how
-                let spend_type = self.detect_spend_type(known);
+                // Get UTXO height for timing analysis
+                let utxo_height = utxo_heights
+                    .iter()
+                    .find(|(op, _)| op == known)
+                    .map(|(_, h)| *h)
+                    .unwrap_or(0);
+
+                // UTXO was spent - determine how via witness + timing analysis
+                let (spend_type, spending_txid) = self.detect_spend_type_for_utxo(
+                    known,
+                    &script,
+                    utxo_height,
+                    timelock_blocks,
+                );
 
                 events.push(WatchEvent::UtxoSpent {
                     policy_id: policy_id.to_string(),
                     outpoint: *known,
-                    spending_txid: Txid::all_zeros(), // TODO: find actual spending tx
+                    spending_txid,
                     spend_type,
                 });
 
@@ -298,13 +323,74 @@ impl WatchService {
         Ok(events)
     }
 
-    /// Detect how a UTXO was spent (heuristic)
-    fn detect_spend_type(&self, _outpoint: &OutPoint) -> SpendType {
-        // TODO: Implement proper detection by analyzing the spending transaction
-        // - If spent via witness with owner key -> OwnerCheckin
-        // - If spent via witness with timelock path -> HeirClaim
-        // For now, return Unknown
-        SpendType::Unknown
+    /// Detect how a UTXO was spent by analyzing the spending transaction's witness.
+    ///
+    /// Fetches the script history to find the spending transaction, then
+    /// analyzes the witness data to determine owner vs heir path.
+    fn detect_spend_type_for_utxo(
+        &self,
+        outpoint: &OutPoint,
+        script: &ScriptBuf,
+        utxo_height: u32,
+        timelock_blocks: u32,
+    ) -> (SpendType, Txid) {
+        // Find the spending transaction by looking at script history
+        match self.find_spending_tx(outpoint, script) {
+            Some((spending_tx, spend_height)) => {
+                // Analyze the witness of the input that spent our UTXO
+                if let Some(analysis) = spend_analysis::analyze_transaction_for_outpoint(
+                    &spending_tx,
+                    &outpoint.txid,
+                    outpoint.vout,
+                ) {
+                    // If witness analysis is inconclusive, try timing
+                    if analysis.spend_type == SpendType::Unknown
+                        && spend_height > 0
+                        && utxo_height > 0
+                    {
+                        if let Some(timing_type) = spend_analysis::analyze_timing(
+                            spend_height,
+                            utxo_height,
+                            timelock_blocks,
+                        ) {
+                            return (timing_type, spending_tx.compute_txid());
+                        }
+                    }
+                    (analysis.spend_type, spending_tx.compute_txid())
+                } else {
+                    (SpendType::Unknown, spending_tx.compute_txid())
+                }
+            }
+            None => (SpendType::Unknown, Txid::all_zeros()),
+        }
+    }
+
+    /// Find the transaction that spent a given outpoint by scanning script history.
+    fn find_spending_tx(
+        &self,
+        outpoint: &OutPoint,
+        script: &ScriptBuf,
+    ) -> Option<(bitcoin::Transaction, u32)> {
+        // Get all transactions for this script
+        let history = self.client.get_script_history(script).ok()?;
+
+        for hist_item in &history {
+            // Skip the funding transaction itself
+            if hist_item.txid == outpoint.txid {
+                continue;
+            }
+
+            // Fetch the full transaction
+            if let Ok(tx) = self.client.get_transaction(&hist_item.txid) {
+                // Check if any input spends our outpoint
+                for input in &tx.input {
+                    if input.previous_output == *outpoint {
+                        return Some((tx, hist_item.height));
+                    }
+                }
+            }
+        }
+        None
     }
 
     /// Save state to disk

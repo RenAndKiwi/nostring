@@ -78,8 +78,11 @@ const invoke = DEMO_MODE
                 locked_shares: ['ms12nsecbyyyyyyyyyyyyyyyyyyyyyyy', 'ms12nsecczzzzzzzzzzzzzzzzzzzzzzz'],
                 threshold: 2,
                 total_shares: 3,
+                was_resplit: false,
+                previous_npub: null,
             }},
             'get_nsec_inheritance_status': { configured: false, owner_npub: null, locked_share_count: 0 },
+            'revoke_nsec_inheritance': { success: true },
             'get_locked_shares': null,
             'recover_nsec': { success: true, data: { nsec: 'nsec1demorecovered...', npub: 'npub1demorecovered...' } },
             'configure_notifications': { success: true },
@@ -1678,9 +1681,13 @@ async function loadNsecInheritanceStatus() {
                 <p>✅ Identity inheritance configured.</p>
                 <p class="text-muted">npub: <code style="font-size: 0.8rem;">${escapeHtml(status.owner_npub || 'unknown')}</code></p>
                 <p class="text-muted">${status.locked_share_count} locked shares in descriptor backup.</p>
-                <button type="button" id="btn-manage-nsec" class="btn-secondary" style="margin-top: 0.5rem;">Manage / Re-split</button>
+                <div style="display: flex; gap: 0.75rem; margin-top: 0.75rem;">
+                    <button type="button" id="btn-resplit-nsec-settings" class="btn-secondary">🔄 Re-split</button>
+                    <button type="button" id="btn-revoke-nsec-settings" class="btn-danger">🗑️ Revoke</button>
+                </div>
             `;
-            document.getElementById('btn-manage-nsec').addEventListener('click', showNsecSplitUI);
+            document.getElementById('btn-resplit-nsec-settings').addEventListener('click', showNsecSplitUI);
+            document.getElementById('btn-revoke-nsec-settings').addEventListener('click', revokeNsecInheritance);
         } else {
             container.innerHTML = `
                 <p class="text-muted">Not configured. Optionally pass down your Nostr identity to heirs.</p>
@@ -1690,6 +1697,45 @@ async function loadNsecInheritanceStatus() {
         }
     } catch (err) {
         console.error('Failed to load nsec status:', err);
+    }
+}
+
+// ============================================================================
+// nsec Inheritance — Revocation
+// ============================================================================
+async function revokeNsecInheritance() {
+    if (!confirm(
+        '⚠️ REVOKE nsec inheritance?\n\n' +
+        '• All locked shares will be deleted from your wallet\n' +
+        '• Old pre-distributed shares given to heirs become USELESS\n' +
+        '• Your descriptor backup becomes stale — you should re-download it\n\n' +
+        'This cannot be undone. Continue?'
+    )) {
+        return;
+    }
+    
+    // Double-confirm
+    if (!confirm('Are you absolutely sure? Heirs will NOT be able to recover your Nostr identity with their old shares.')) {
+        return;
+    }
+    
+    try {
+        const result = await invoke('revoke_nsec_inheritance');
+        if (result.success) {
+            showSuccess('nsec inheritance revoked. Old shares are now useless.');
+            loadNsecInheritanceStatus(); // Refresh the UI
+            // Prompt descriptor backup re-download
+            setTimeout(() => {
+                if (confirm('Your descriptor backup is now stale (locked shares removed). Download an updated backup?')) {
+                    downloadDescriptorBackup();
+                }
+            }, 500);
+        } else {
+            showError(result.error || 'Failed to revoke');
+        }
+    } catch (err) {
+        console.error('Failed to revoke nsec inheritance:', err);
+        showError('Failed to revoke: ' + err.message);
     }
 }
 
@@ -1710,14 +1756,28 @@ async function showNsecSplitUI() {
                     <p class="text-muted">npub: <code>${escapeHtml(status.owner_npub || 'unknown')}</code></p>
                     <p class="text-muted">${status.locked_share_count} locked shares stored in descriptor backup.</p>
                 </div>
-                <p class="warning" style="margin-top: 1rem;">To re-split with different heirs, you'll need your nsec again. The old shares will become invalid.</p>
-                <div style="margin-top: 1rem;">
-                    <button type="button" id="btn-resplit-nsec" class="btn-secondary">Re-split nsec</button>
-                    <button type="button" id="btn-back-nsec" class="btn-secondary">Back to Dashboard</button>
+                
+                <div class="warning" style="margin-top: 1.5rem;">
+                    <strong>⚠️ Re-splitting or revoking invalidates all existing shares.</strong><br>
+                    Old pre-distributed shares given to heirs will no longer work. You must give heirs their new shares after re-splitting.
+                </div>
+                
+                <div style="display: flex; gap: 0.75rem; margin-top: 1.5rem;">
+                    <button type="button" id="btn-resplit-nsec" class="btn-secondary">🔄 Re-split nsec</button>
+                    <button type="button" id="btn-revoke-nsec-full" class="btn-danger">🗑️ Revoke Inheritance</button>
+                    <button type="button" id="btn-back-nsec" class="btn-secondary">← Back</button>
                 </div>
             </div>
         `;
-        document.getElementById('btn-resplit-nsec').addEventListener('click', showNsecInputForm);
+        document.getElementById('btn-resplit-nsec').addEventListener('click', () => {
+            if (confirm('Re-splitting will invalidate ALL existing shares.\\nHeirs must receive new shares after this.\\n\\nYou will need your nsec again. Continue?')) {
+                showNsecInputForm();
+            }
+        });
+        document.getElementById('btn-revoke-nsec-full').addEventListener('click', async () => {
+            await revokeNsecInheritance();
+            showMainApp();
+        });
         document.getElementById('btn-back-nsec').addEventListener('click', showMainApp);
         return;
     }
@@ -1792,6 +1852,15 @@ async function performNsecSplit() {
 function showNsecSplitResult(data) {
     const content = document.getElementById('content');
     
+    const resplitWarning = data.was_resplit ? `
+        <div class="warning" style="margin-bottom: 1.5rem; padding: 1rem; border-radius: 8px; border: 1px solid var(--warning, #f59e0b);">
+            <strong>⚠️ This was a RE-SPLIT.</strong> Old shares are now INVALID.<br>
+            ${data.previous_npub ? `Previous npub: <code style="font-size: 0.8rem;">${escapeHtml(data.previous_npub)}</code><br>` : ''}
+            <strong>You MUST give your heirs their new shares below.</strong> The old pre-distributed shares will no longer reconstruct the nsec.
+            Also download an updated descriptor backup — the old one has stale locked shares.
+        </div>
+    ` : '';
+    
     const heirShares = data.pre_distributed.map((h, i) => `
         <div class="share-item" style="margin-bottom: 1rem; padding: 1rem; border-radius: 8px; background: var(--card-bg, #1a1a2e);">
             <h4>📨 Share for: ${escapeHtml(h.heir_label)}</h4>
@@ -1809,7 +1878,9 @@ function showNsecSplitResult(data) {
     
     content.innerHTML = `
         <div class="setup-screen">
-            <h2>✅ nsec Split Complete</h2>
+            <h2>✅ nsec ${data.was_resplit ? 'Re-split' : 'Split'} Complete</h2>
+            
+            ${resplitWarning}
             
             <div style="padding: 1rem; border-radius: 8px; background: var(--card-bg, #1a1a2e); border: 1px solid var(--success, #10b981); margin-bottom: 1.5rem;">
                 <p><strong>Identity:</strong> <code>${escapeHtml(data.owner_npub)}</code></p>

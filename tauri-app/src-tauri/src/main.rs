@@ -56,6 +56,9 @@ fn main() {
             commands::remove_heir,
             commands::get_heir,
             commands::validate_xpub,
+            // Heir contact info (v0.2 - descriptor delivery)
+            commands::set_heir_contact,
+            commands::get_heir_contact,
             // Shamir shares
             commands::generate_codex32_shares,
             commands::combine_codex32_shares,
@@ -64,6 +67,7 @@ fn main() {
             commands::get_nsec_inheritance_status,
             commands::get_locked_shares,
             commands::recover_nsec,
+            commands::revoke_nsec_inheritance,
             // Service key (notifications)
             commands::generate_service_key,
             commands::get_service_npub,

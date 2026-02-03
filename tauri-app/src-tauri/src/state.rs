@@ -195,8 +195,68 @@ impl AppState {
             label: heir.label.clone(),
             xpub: heir.xpub.to_string(),
             derivation_path: heir.derivation_path.to_string(),
+            npub: None,
+            email: None,
         };
         let _ = db::heir_upsert(&conn, &row);
+    }
+
+    /// Update heir contact info (npub/email) in the database.
+    pub fn update_heir_contact(
+        &self,
+        fingerprint: &str,
+        npub: Option<&str>,
+        email: Option<&str>,
+    ) -> bool {
+        let conn = self.db.lock().unwrap();
+        db::heir_update_contact(&conn, fingerprint, npub, email).unwrap_or(false)
+    }
+
+    /// Log a descriptor delivery attempt.
+    pub fn log_delivery(
+        &self,
+        heir_fingerprint: &str,
+        channel: &str,
+        success: bool,
+        error_msg: Option<&str>,
+    ) {
+        let conn = self.db.lock().unwrap();
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let _ = db::delivery_log_insert(
+            &conn,
+            heir_fingerprint,
+            channel,
+            timestamp,
+            success,
+            error_msg,
+        );
+    }
+
+    /// Check if we already delivered to this heir on this channel recently
+    /// (within the cooldown period). Returns true if delivery is allowed.
+    pub fn can_deliver_to_heir(
+        &self,
+        heir_fingerprint: &str,
+        channel: &str,
+        cooldown_secs: u64,
+    ) -> bool {
+        let conn = self.db.lock().unwrap();
+        let last = db::delivery_last_success(&conn, heir_fingerprint, channel)
+            .ok()
+            .flatten();
+        match last {
+            None => true, // Never delivered
+            Some(ts) => {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                now.saturating_sub(ts) >= cooldown_secs
+            }
+        }
     }
 
     /// Remove an heir from the database.
