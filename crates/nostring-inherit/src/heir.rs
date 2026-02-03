@@ -228,7 +228,7 @@ mod tests {
         let mut registry = HeirRegistry::new();
         assert!(registry.is_empty());
 
-        registry.add(HeirKey::new("Alice", fg1, xpub.clone(), None));
+        registry.add(HeirKey::new("Alice", fg1, xpub, None));
         registry.add(HeirKey::new("Bob", fg2, xpub, None));
 
         assert_eq!(registry.len(), 2);

@@ -191,7 +191,7 @@ mod tests {
         };
 
         // 45 days remaining - no notification
-        let blocks_45 = NotificationService::days_to_blocks(45.0);
+        let _blocks_45 = NotificationService::days_to_blocks(45.0);
         let level = config
             .thresholds
             .iter()

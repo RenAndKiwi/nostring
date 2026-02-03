@@ -46,7 +46,7 @@ fn test_empty_password_decryption_fails_with_wrong_password() {
     // Correct empty password should succeed
     let result = decrypt_seed(&encrypted, "");
     assert!(result.is_ok());
-    assert_eq!(result.unwrap(), seed);
+    assert_eq!(result.unwrap(), seed.into());
 }
 
 #[test]
@@ -132,7 +132,6 @@ fn test_encrypted_seed_from_bytes_min_length() {
 fn test_zeroize_works_on_vec() {
     // Verify the zeroize crate actually zeroes memory
     let mut secret = vec![0xAB_u8; 32];
-    let ptr = secret.as_ptr();
 
     // Zeroize the vector
     secret.zeroize();

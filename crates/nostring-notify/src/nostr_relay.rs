@@ -523,8 +523,7 @@ mod tests {
 
         assert!(!id1.is_empty());
         assert!(id1.len() >= 8); // timestamp hex + 4 random hex
-                                 // IDs should generally be different (unless called in same second with same random)
-                                 // Not asserting inequality since it could flake, but they should be usable
+        assert_ne!(id1, id2, "Two generated split IDs should differ");
     }
 
     #[test]
@@ -547,7 +546,7 @@ mod tests {
         let service_keys = Keys::generate();
         let heir_keys = Keys::generate();
 
-        let locked_shares = vec![
+        let locked_shares = [
             "ms12nsecshare_a_data".to_string(),
             "ms12nsecshare_b_data".to_string(),
             "ms12nsecshare_c_data".to_string(),

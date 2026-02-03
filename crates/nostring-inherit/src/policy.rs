@@ -338,6 +338,19 @@ impl PartialOrd for Timelock {
     }
 }
 
+impl InheritancePolicy {
+    /// Create a simple policy with a multi-sig heir group
+    pub fn simple_with_multisig_heir(
+        owner: DescriptorPublicKey,
+        heirs: PathInfo,
+        timelock: Timelock,
+    ) -> Result<Self, PolicyError> {
+        let mut recovery = BTreeMap::new();
+        recovery.insert(timelock, heirs);
+        Self::new(PathInfo::Single(owner), recovery)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -589,18 +602,5 @@ mod tests {
             }
             _ => panic!("Expected multi-sig primary path"),
         }
-    }
-}
-
-impl InheritancePolicy {
-    /// Create a simple policy with a multi-sig heir group
-    pub fn simple_with_multisig_heir(
-        owner: DescriptorPublicKey,
-        heirs: PathInfo,
-        timelock: Timelock,
-    ) -> Result<Self, PolicyError> {
-        let mut recovery = BTreeMap::new();
-        recovery.insert(timelock, heirs);
-        Self::new(PathInfo::Single(owner), recovery)
     }
 }

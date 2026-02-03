@@ -366,8 +366,8 @@ fn test_revocation_full_crypto_flow() {
     );
 
     // Verify all heirs can recover the new identity
-    for heir_idx in 0..n_heirs as usize {
-        let mut heir_recovery = vec![parse_share(&pre_dist_v2[heir_idx]).expect("parse")];
+    for (heir_idx, pre_share) in pre_dist_v2.iter().enumerate().take(n_heirs as usize) {
+        let mut heir_recovery = vec![parse_share(pre_share).expect("parse")];
         for s in &locked_v2 {
             heir_recovery.push(parse_share(s).expect("parse"));
         }
@@ -616,7 +616,7 @@ fn test_delivery_flow_multiple_heirs() {
         .map(|s| s.encoded.clone())
         .collect();
 
-    let heir_labels = vec!["Spouse", "Child-1", "Child-2"];
+    let heir_labels = ["Spouse", "Child-1", "Child-2"];
 
     // Generate a delivery message for each heir
     for (heir_idx, label) in heir_labels.iter().enumerate() {
