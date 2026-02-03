@@ -89,10 +89,9 @@ fn main() {
             commands::delete_presigned_checkin,
             commands::generate_checkin_psbt_chain,
             // Relay storage (v0.3.1 — locked share relay backup)
-            // TODO: Re-enable after fixing Send issue for async state access
-            // commands::publish_locked_shares_to_relays,
-            // commands::fetch_locked_shares_from_relays,
-            // commands::get_relay_publication_status,
+            commands::publish_locked_shares_to_relays,
+            commands::fetch_locked_shares_from_relays,
+            commands::get_relay_publication_status,
             // Settings
             commands::get_electrum_url,
             commands::set_electrum_url,

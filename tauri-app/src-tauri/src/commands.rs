@@ -1835,7 +1835,6 @@ pub struct RelayHeirStatus {
 /// beyond the descriptor backup file.
 ///
 /// The encrypted shares are useless without threshold — this is defense in depth.
-#[allow(dead_code)]
 #[tauri::command]
 pub async fn publish_locked_shares_to_relays(
     state: State<'_, AppState>,
@@ -2003,7 +2002,6 @@ pub async fn publish_locked_shares_to_relays(
 ///
 /// The heir provides their nsec and the service key's npub to find
 /// and decrypt the encrypted shares published to relays.
-#[allow(dead_code)]
 #[tauri::command]
 pub async fn fetch_locked_shares_from_relays(
     heir_nsec: String,
@@ -2039,7 +2037,6 @@ pub async fn fetch_locked_shares_from_relays(
 }
 
 /// Result of fetching shares from relays
-#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FetchedSharesResult {
     pub shares: Vec<String>,
@@ -2048,7 +2045,6 @@ pub struct FetchedSharesResult {
 }
 
 /// Get relay publication status (last publish info).
-#[allow(dead_code)]
 #[tauri::command]
 pub async fn get_relay_publication_status(
     state: State<'_, AppState>,
