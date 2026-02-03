@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/RenAndKiwi/nostring/actions/workflows/ci.yml/badge.svg)](https://github.com/RenAndKiwi/nostring/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-138%20passing-brightgreen.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-232%20passing-brightgreen.svg)](#)
 
 *Your heirs inherit your Bitcoin when you stop checking in. No custodians. No monthly fees. Just math.*
 
@@ -41,6 +41,10 @@ You've taken custody of your Bitcoin. But what happens to it when you die?
 - **🔔 Notifications** — Nostr DM + email reminders before timelock expiry (service key → owner npub)
 - **💾 Persistent State** — SQLite-backed storage; close and reopen without losing anything
 - **🪪 Nostr Identity Inheritance** — Shamir-split your nsec so heirs can recover your Nostr identity after Bitcoin inheritance triggers
+- **📤 Automated Heir Delivery** — Descriptor backup auto-delivered to heirs via Nostr DM + email when check-in fails
+- **🔄 nsec Revocation** — Revoke and re-split Nostr identity shares if heirs change or shares are compromised
+- **🔍 Spend Detection** — Witness analysis distinguishes owner check-ins from heir claims on-chain
+- **🐳 Docker Self-Hosting** — Headless server daemon for 24/7 monitoring without the desktop app
 - **💻 Desktop App** — Cross-platform Tauri application (macOS, Windows, Linux)
 
 ---
@@ -96,6 +100,18 @@ cargo tauri build
 
 Pre-built binaries for macOS (arm64 + x64) and Linux are available on the [Releases](https://github.com/RenAndKiwi/nostring/releases) page.
 
+### Docker (Headless Server)
+
+```bash
+# Copy and edit config
+cp config/nostring-server.example.toml config/nostring-server.toml
+
+# Run with Docker Compose
+docker compose up -d
+```
+
+See [SELF_HOSTING.md](docs/SELF_HOSTING.md) for full setup.
+
 ---
 
 ## How It Works
@@ -147,7 +163,8 @@ nostring/
 │   ├── nostring-shamir    # SLIP-39 and Codex32 secret sharing
 │   ├── nostring-electrum  # Bitcoin network via Electrum
 │   ├── nostring-notify    # Nostr DM + email notifications
-│   └── nostring-watch     # UTXO monitoring service
+│   ├── nostring-watch     # UTXO monitoring + spend analysis
+│   └── nostring-server    # Headless daemon for Docker/server deployment
 ├── tauri-app/             # Desktop application (Rust + vanilla JS)
 │   └── src-tauri/src/
 │       ├── db.rs          # SQLite persistence layer
@@ -175,10 +192,41 @@ nostring/
 |----------|-------------|
 | [HEIR_GUIDE.md](docs/HEIR_GUIDE.md) | How heirs set up their wallet |
 | [CLAIM_GUIDE.md](docs/CLAIM_GUIDE.md) | How heirs claim when the time comes |
-| [SELF_HOSTING.md](docs/SELF_HOSTING.md) | Run your own infrastructure |
+| [SELF_HOSTING.md](docs/SELF_HOSTING.md) | Docker + server deployment guide |
 | [OPERATIONS.md](docs/OPERATIONS.md) | Operational runbook |
 | [NOSTR_INHERITANCE.md](docs/NOSTR_INHERITANCE.md) | Shamir-gated nsec inheritance spec |
 | [SECURITY_AUDIT.md](docs/SECURITY_AUDIT.md) | Pre-audit security review |
+
+---
+
+## Roadmap
+
+### v0.1 ✅ — Core Inheritance
+- Watch-only wallet, timelocked policies, multi-heir cascade
+- Codex32 Shamir backup, air-gap PSBT signing
+- Nostr DM + email notifications, SQLite persistence
+- Nostr identity inheritance (Shamir-split nsec + heir recovery)
+- Cross-platform desktop app (Tauri)
+
+### v0.2 ✅ — Hardening
+- Automated descriptor delivery to heirs (Nostr DM + email escalation)
+- nsec revocation and re-split flow
+- Spend type detection (witness analysis: owner check-in vs heir claim)
+- 31 security audit tests (crypto fuzzing, input validation, zeroization)
+
+### v0.3 🔄 — Infrastructure
+- [x] Docker self-hosting (headless `nostring-server` daemon)
+- [ ] Nostr relay storage for locked shares (encrypted redundancy)
+- [ ] Auto check-in (pre-signed PSBT stack)
+- [ ] Full security audit preparation
+
+### Future
+- Mobile app (Tauri mobile or standalone)
+- NIP-26 delegation (post as deceased without full nsec)
+- Multi-sig heir consensus (2-of-3 heirs agree before claiming)
+- Testnet mode toggle in UI
+
+See [ROADMAP.md](docs/ROADMAP.md) for details.
 
 ---
 
