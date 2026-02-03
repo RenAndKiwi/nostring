@@ -1,7 +1,37 @@
 // NoString Desktop App - Frontend Logic
 // Brand colors aligned with Bitcoin Butlers
 
-const { invoke } = window.__TAURI__.core;
+// Demo mode when running outside Tauri
+const DEMO_MODE = !window.__TAURI__;
+
+const invoke = DEMO_MODE 
+    ? async (cmd, args) => {
+        console.log('[DEMO] invoke:', cmd, args);
+        // Mock responses for demo mode
+        const mocks = {
+            'has_seed': false,
+            'create_seed': { 
+                success: true, 
+                data: 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art'
+            },
+            'store_seed': { success: true },
+            'unlock': { success: true },
+            'get_policy_status': { 
+                isActive: true, 
+                lastCheckin: Date.now() - 86400000 * 2,
+                nextDue: Date.now() + 86400000 * 28,
+                blockHeight: 934812,
+                heirsCount: 3
+            },
+            'list_heirs': [
+                { label: 'Spouse', fingerprint: 'a1b2c3d4', timelock: '6 months' },
+                { label: 'Children', fingerprint: 'e5f6g7h8', timelock: '12 months' },
+            ],
+            'initiate_checkin': { success: true, psbt: 'cHNidP8BAH...' },
+        };
+        return mocks[cmd] ?? null;
+    }
+    : window.__TAURI__.core.invoke;
 
 // ============================================================================
 // State
