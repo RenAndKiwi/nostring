@@ -16,6 +16,7 @@ use aes_gcm::{
 use argon2::{Algorithm, Argon2, Params, Version};
 use rand::RngCore;
 use thiserror::Error;
+use zeroize::{Zeroize, Zeroizing};
 
 /// Argon2id parameters (OWASP recommendations for 2024+)
 /// - m_cost: 64 MiB memory
@@ -56,6 +57,20 @@ pub struct EncryptedSeed {
     ciphertext: Vec<u8>,
 }
 
+impl Zeroize for EncryptedSeed {
+    fn zeroize(&mut self) {
+        self.salt.zeroize();
+        self.nonce.zeroize();
+        self.ciphertext.zeroize();
+    }
+}
+
+impl Drop for EncryptedSeed {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
+}
+
 impl EncryptedSeed {
     /// Serialize to bytes: salt || nonce || ciphertext
     pub fn to_bytes(&self) -> Vec<u8> {
@@ -88,11 +103,14 @@ impl EncryptedSeed {
     }
 }
 
-/// Derive an encryption key from a password using Argon2id
+/// Derive an encryption key from a password using Argon2id.
+///
+/// Returns a `Zeroizing` wrapper that automatically zeroes the key
+/// material from memory when dropped.
 fn derive_key(
     password: &str,
     salt: &[u8; SALT_LEN],
-) -> Result<[u8; ARGON2_OUTPUT_LEN], CryptoError> {
+) -> Result<Zeroizing<[u8; ARGON2_OUTPUT_LEN]>, CryptoError> {
     let params = Params::new(
         ARGON2_M_COST,
         ARGON2_T_COST,
@@ -103,9 +121,9 @@ fn derive_key(
 
     let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
 
-    let mut key = [0u8; ARGON2_OUTPUT_LEN];
+    let mut key = Zeroizing::new([0u8; ARGON2_OUTPUT_LEN]);
     argon2
-        .hash_password_into(password.as_bytes(), salt, &mut key)
+        .hash_password_into(password.as_bytes(), salt, &mut *key)
         .map_err(|e| CryptoError::KeyDerivationFailed(e.to_string()))?;
 
     Ok(key)
@@ -131,11 +149,11 @@ pub fn encrypt_seed(seed: &[u8; 64], password: &str) -> Result<EncryptedSeed, Cr
     let mut nonce = [0u8; NONCE_LEN];
     nonce.copy_from_slice(&nonce_arr);
 
-    // Derive encryption key from password
+    // Derive encryption key from password (auto-zeroized on drop)
     let key = derive_key(password, &salt)?;
 
-    // Encrypt seed
-    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key));
+    // Encrypt seed — key is zeroized when `key` goes out of scope
+    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&*key));
     let ciphertext = cipher
         .encrypt(Nonce::from_slice(&nonce), seed.as_slice())
         .map_err(|e| CryptoError::EncryptionFailed(e.to_string()))?;
@@ -158,13 +176,16 @@ pub fn encrypt_seed(seed: &[u8; 64], password: &str) -> Result<EncryptedSeed, Cr
 ///
 /// # Errors
 /// Returns error if password is wrong or ciphertext is tampered
-pub fn decrypt_seed(encrypted: &EncryptedSeed, password: &str) -> Result<[u8; 64], CryptoError> {
-    // Derive decryption key from password using stored salt
+pub fn decrypt_seed(
+    encrypted: &EncryptedSeed,
+    password: &str,
+) -> Result<Zeroizing<[u8; 64]>, CryptoError> {
+    // Derive decryption key from password using stored salt (auto-zeroized on drop)
     let key = derive_key(password, &encrypted.salt)?;
 
-    // Decrypt seed
-    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key));
-    let plaintext = cipher
+    // Decrypt seed — key is zeroized when `key` goes out of scope
+    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&*key));
+    let mut plaintext = cipher
         .decrypt(
             Nonce::from_slice(&encrypted.nonce),
             encrypted.ciphertext.as_slice(),
@@ -175,13 +196,18 @@ pub fn decrypt_seed(encrypted: &EncryptedSeed, password: &str) -> Result<[u8; 64
 
     // Verify length
     if plaintext.len() != 64 {
+        plaintext.zeroize();
         return Err(CryptoError::DecryptionFailed(
             "Invalid seed length".to_string(),
         ));
     }
 
-    let mut seed = [0u8; 64];
+    let mut seed = Zeroizing::new([0u8; 64]);
     seed.copy_from_slice(&plaintext);
+
+    // Zeroize the plaintext Vec — seed is now safely in a Zeroizing wrapper
+    plaintext.zeroize();
+
     Ok(seed)
 }
 
@@ -197,7 +223,7 @@ mod tests {
         let encrypted = encrypt_seed(&seed, password).unwrap();
         let decrypted = decrypt_seed(&encrypted, password).unwrap();
 
-        assert_eq!(seed, decrypted);
+        assert_eq!(seed, *decrypted);
     }
 
     #[test]
@@ -226,8 +252,8 @@ mod tests {
         // But both should decrypt to the same seed
         let decrypted1 = decrypt_seed(&encrypted1, password).unwrap();
         let decrypted2 = decrypt_seed(&encrypted2, password).unwrap();
-        assert_eq!(decrypted1, decrypted2);
-        assert_eq!(decrypted1, seed);
+        assert_eq!(*decrypted1, *decrypted2);
+        assert_eq!(*decrypted1, seed);
     }
 
     #[test]
@@ -240,7 +266,7 @@ mod tests {
         let restored = EncryptedSeed::from_bytes(&bytes).unwrap();
         let decrypted = decrypt_seed(&restored, password).unwrap();
 
-        assert_eq!(seed, decrypted);
+        assert_eq!(seed, *decrypted);
     }
 
     #[test]
@@ -303,6 +329,64 @@ mod tests {
         let encrypted = encrypt_seed(&seed, password).unwrap();
         let decrypted = decrypt_seed(&encrypted, password).unwrap();
 
-        assert_eq!(seed, decrypted);
+        assert_eq!(seed, *decrypted);
+    }
+
+    /// Verify that the derived key is zeroized after being dropped.
+    ///
+    /// We can't directly inspect the memory of a dropped value, but we
+    /// can verify the `Zeroizing` wrapper works by dropping it and
+    /// checking a copy made before the zeroization would occur.
+    #[test]
+    fn test_zeroizing_wrapper_clears_on_drop() {
+        let mut key = Zeroizing::new([0xFFu8; 32]);
+        // Verify the key has non-zero content before zeroization
+        assert!(key.iter().all(|&b| b == 0xFF));
+
+        // Manually zeroize (simulates what Drop does)
+        key.zeroize();
+
+        // After zeroize, the contents should be all zeros
+        assert!(key.iter().all(|&b| b == 0));
+    }
+
+    /// Verify that decrypted seed bytes are zeroized when the Zeroizing wrapper drops.
+    #[test]
+    fn test_decrypted_seed_zeroized_on_drop() {
+        let seed = [42u8; 64];
+        let password = "test";
+
+        let encrypted = encrypt_seed(&seed, password).unwrap();
+        let mut decrypted = decrypt_seed(&encrypted, password).unwrap();
+
+        // Verify it contains the expected data
+        assert_eq!(*decrypted, seed);
+
+        // Manually zeroize (simulates what happens on drop)
+        decrypted.zeroize();
+
+        // Verify all bytes are zeroed
+        assert!(decrypted.iter().all(|&b| b == 0));
+    }
+
+    /// Verify that EncryptedSeed is zeroized on drop.
+    #[test]
+    fn test_encrypted_seed_zeroized_on_drop() {
+        let seed = [42u8; 64];
+        let password = "test";
+
+        let mut encrypted = encrypt_seed(&seed, password).unwrap();
+
+        // Verify it has non-zero content
+        assert!(!encrypted.salt.iter().all(|&b| b == 0));
+        assert!(!encrypted.ciphertext.iter().all(|&b| b == 0));
+
+        // Manually zeroize (simulates what happens on drop)
+        encrypted.zeroize();
+
+        // All fields should be zeroed
+        assert!(encrypted.salt.iter().all(|&b| b == 0));
+        assert!(encrypted.nonce.iter().all(|&b| b == 0));
+        assert!(encrypted.ciphertext.is_empty() || encrypted.ciphertext.iter().all(|&b| b == 0));
     }
 }

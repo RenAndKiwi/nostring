@@ -13,6 +13,7 @@ nostr-sdk.workspace = true
 aes-gcm.workspace = true
 argon2.workspace = true
 rand.workspace = true
+zeroize.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 

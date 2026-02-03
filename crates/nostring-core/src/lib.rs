@@ -19,3 +19,6 @@ pub mod seed;
 pub use crypto::{decrypt_seed, encrypt_seed, CryptoError, EncryptedSeed};
 pub use keys::*;
 pub use seed::*;
+
+// Re-export Zeroizing for callers that handle seed material
+pub use zeroize::Zeroizing;

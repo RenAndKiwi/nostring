@@ -18,6 +18,7 @@
 
 use bip39::{Language, Mnemonic};
 use thiserror::Error;
+use zeroize::Zeroizing;
 
 /// Supported word counts for BIP-39 mnemonics
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,14 +109,18 @@ pub fn parse_mnemonic(words: &str) -> Result<Mnemonic, SeedError> {
 /// Uses PBKDF2-HMAC-SHA512 with 2048 iterations.
 /// Salt is "mnemonic" + passphrase.
 ///
+/// Returns a `Zeroizing` wrapper that automatically zeroes the seed
+/// bytes from memory when dropped, preventing key material from
+/// persisting in memory after use.
+///
 /// # Arguments
 /// * `mnemonic` - A valid BIP-39 mnemonic
 /// * `passphrase` - Optional passphrase (empty string if none)
 ///
 /// # Returns
-/// A 64-byte (512-bit) seed suitable for BIP-32 key derivation
-pub fn derive_seed(mnemonic: &Mnemonic, passphrase: &str) -> [u8; 64] {
-    mnemonic.to_seed(passphrase)
+/// A `Zeroizing<[u8; 64]>` (512-bit) seed suitable for BIP-32 key derivation
+pub fn derive_seed(mnemonic: &Mnemonic, passphrase: &str) -> Zeroizing<[u8; 64]> {
+    Zeroizing::new(mnemonic.to_seed(passphrase))
 }
 
 /// Validate a mnemonic string without parsing.

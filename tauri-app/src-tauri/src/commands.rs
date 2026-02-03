@@ -14,6 +14,7 @@ use nostring_core::seed::{derive_seed, generate_mnemonic, parse_mnemonic, WordCo
 use nostring_electrum::ElectrumClient;
 use serde::{Deserialize, Serialize};
 use tauri::State;
+use zeroize::Zeroize;
 
 /// Result type for commands
 #[derive(Debug, Serialize, Deserialize)]
@@ -75,18 +76,27 @@ pub async fn validate_seed(mnemonic: String) -> CommandResult<bool> {
 /// Import and encrypt a seed (persisted to SQLite)
 #[tauri::command]
 pub async fn import_seed(
-    mnemonic: String,
-    password: String,
+    mut mnemonic: String,
+    mut password: String,
     state: State<'_, AppState>,
 ) -> Result<CommandResult<bool>, ()> {
     let parsed = match parse_mnemonic(&mnemonic) {
         Ok(m) => m,
-        Err(e) => return Ok(CommandResult::err(format!("Invalid mnemonic: {}", e))),
+        Err(e) => {
+            // Zeroize sensitive inputs before returning
+            mnemonic.zeroize();
+            password.zeroize();
+            return Ok(CommandResult::err(format!("Invalid mnemonic: {}", e)));
+        }
     };
 
+    // Zeroize the mnemonic string — we have the parsed form now
+    mnemonic.zeroize();
+
+    // derive_seed returns Zeroizing<[u8; 64]> — auto-zeroized on drop
     let seed = derive_seed(&parsed, "");
 
-    match encrypt_seed(&seed, &password) {
+    let result = match encrypt_seed(&seed, &password) {
         Ok(encrypted) => {
             let encrypted_bytes = encrypted.to_bytes();
 
@@ -100,7 +110,12 @@ pub async fn import_seed(
             Ok(CommandResult::ok(true))
         }
         Err(e) => Ok(CommandResult::err(format!("Failed to encrypt seed: {}", e))),
-    }
+    };
+
+    // Zeroize password after use (seed is auto-zeroized via Zeroizing wrapper)
+    password.zeroize();
+
+    result
 }
 
 /// Import a watch-only wallet (xpub only, no private keys).
@@ -144,12 +159,12 @@ pub async fn has_seed(state: State<'_, AppState>) -> Result<bool, ()> {
 /// Unlock (decrypt) the seed with password
 #[tauri::command]
 pub async fn unlock_seed(
-    password: String,
+    mut password: String,
     state: State<'_, AppState>,
 ) -> Result<CommandResult<bool>, ()> {
     let seed_lock = state.encrypted_seed.lock().unwrap();
 
-    match &*seed_lock {
+    let result = match &*seed_lock {
         None => Ok(CommandResult::err("No seed loaded")),
         Some(encrypted_bytes) => {
             let encrypted = match EncryptedSeed::from_bytes(encrypted_bytes) {
@@ -158,7 +173,8 @@ pub async fn unlock_seed(
             };
 
             match decrypt_seed(&encrypted, &password) {
-                Ok(_) => {
+                // Decrypted seed is wrapped in Zeroizing — auto-zeroed on drop
+                Ok(_decrypted_seed) => {
                     drop(seed_lock);
                     let mut unlocked = state.unlocked.lock().unwrap();
                     *unlocked = true;
@@ -167,7 +183,12 @@ pub async fn unlock_seed(
                 Err(_) => Ok(CommandResult::err("Incorrect password")),
             }
         }
-    }
+    };
+
+    // Zeroize password after use
+    password.zeroize();
+
+    result
 }
 
 /// Lock the wallet (clear unlocked state — ephemeral only, no DB change)
@@ -365,7 +386,7 @@ pub async fn initiate_checkin(state: State<'_, AppState>) -> Result<CommandResul
     let inheritance_utxo = InhUtxo::new(utxo.outpoint, utxo.value, utxo.height, script.to_owned());
 
     let fee_rate = 10;
-    let builder = CheckinTxBuilder::new(inheritance_utxo, descriptor, fee_rate);
+    let builder = CheckinTxBuilder::new(inheritance_utxo, descriptor, fee_rate, 0);
 
     match builder.build_psbt_base64() {
         Ok(psbt_base64) => Ok(CommandResult::ok(psbt_base64)),
@@ -855,7 +876,6 @@ pub async fn validate_xpub(xpub: String) -> CommandResult<bool> {
 // ============================================================================
 
 use nostring_shamir::codex32::{parse_share, Codex32Config, Codex32Share};
-use zeroize::Zeroize;
 
 // ============================================================================
 // nsec Shamir Inheritance Commands
@@ -1776,8 +1796,10 @@ pub async fn combine_codex32_shares(shares: Vec<String>) -> CommandResult<String
     use nostring_shamir::codex32::combine_shares;
 
     match combine_shares(&parsed_shares) {
-        Ok(seed_bytes) => {
+        Ok(mut seed_bytes) => {
             let hex_str = hex::encode(&seed_bytes);
+            // Zeroize recovered seed bytes from memory
+            seed_bytes.zeroize();
             CommandResult::ok(hex_str)
         }
         Err(e) => CommandResult::err(format!("Failed to combine shares: {}", e)),
@@ -2547,7 +2569,7 @@ pub async fn generate_checkin_psbt_chain(
     let mut current_utxo = InhUtxo::new(utxo.outpoint, utxo.value, utxo.height, script.to_owned());
 
     for i in 0..count {
-        let builder = CheckinTxBuilder::new(current_utxo.clone(), descriptor.clone(), fee_rate);
+        let builder = CheckinTxBuilder::new(current_utxo.clone(), descriptor.clone(), fee_rate, 0);
 
         let psbt = match builder.build_psbt() {
             Ok(p) => p,
