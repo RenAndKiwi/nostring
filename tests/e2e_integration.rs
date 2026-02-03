@@ -29,7 +29,6 @@ use std::str::FromStr;
 #[test]
 fn test_real_miniscript_owner_witness_detection() {
     use bitcoin::Witness;
-    use bitcoin::hashes::Hash;
     use miniscript::{Descriptor, Miniscript, Segwitv0};
     use miniscript::policy::Concrete;
     use nostring_watch::{analyze_witness, SpendType, DetectionMethod};
@@ -241,11 +240,11 @@ fn test_revocation_full_crypto_flow() {
     // Pre-distributed to heirs: shares[0], shares[1]
     let pre_dist_v1: Vec<String> = shares_v1[..2].iter().map(|s| s.encoded.clone()).collect();
     // Locked in backup: shares[2], shares[3], shares[4]
-    let locked_v1: Vec<String> = shares_v1[2..].iter().map(|s| s.encoded.clone()).collect();
+    let _locked_v1: Vec<String> = shares_v1[2..].iter().map(|s| s.encoded.clone()).collect();
 
-    // Verify recovery works with heir 0 + locked shares
+    // Verify recovery works with heir 0 + all locked shares
     let mut recovery_v1 = vec![parse_share(&pre_dist_v1[0]).expect("parse")];
-    for s in &locked_v1 {
+    for s in &_locked_v1 {
         recovery_v1.push(parse_share(s).expect("parse"));
     }
     let recovered_v1 = combine_shares(&recovery_v1).expect("combine");
@@ -255,7 +254,8 @@ fn test_revocation_full_crypto_flow() {
 
     // === Step 3: Simulate revocation — clear locked shares ===
     // In the real app, this is config_delete("nsec_locked_shares") + config_delete("nsec_owner_npub")
-    let locked_v1_cleared: Vec<String> = Vec::new(); // Simulates deletion from DB
+    // After revocation, the locked shares vector is empty (deleted from DB).
+    // We drop `locked_v1` to simulate this — heirs only have their pre-distributed shares.
 
     // === Step 4: Verify old shares can't reconstruct without locked shares ===
     // Heirs only have their pre-distributed shares (2 shares, but threshold is 3)
@@ -264,11 +264,6 @@ fn test_revocation_full_crypto_flow() {
         .collect();
     assert!(combine_shares(&heir_only).is_err(),
         "Post-revocation: heirs' shares alone (2 < threshold 3) should fail");
-
-    // Even if an attacker somehow got one locked share, they need 3 total
-    // but the locked shares are gone from the system
-    assert!(locked_v1_cleared.is_empty(),
-        "Locked shares should be cleared after revocation");
 
     // === Step 5: Re-split with NEW Nostr identity ===
     let new_keys = Keys::generate();
@@ -350,7 +345,8 @@ fn test_revocation_same_key_resplit() {
     let config_v1 = Codex32Config::new(2, "sp0a", 3).expect("config");
     let shares_v1 = generate_shares(&nsec_bytes, &config_v1).expect("shares");
     let pre_dist_v1 = shares_v1[0].encoded.clone();
-    let locked_v1: Vec<String> = shares_v1[1..].iter().map(|s| s.encoded.clone()).collect();
+    let _locked_v1: Vec<String> = shares_v1[1..].iter().map(|s| s.encoded.clone()).collect();
+    // locked_v1 is intentionally unused — simulates revocation (cleared from DB)
 
     // Revoke and re-split SAME key with different polynomial
     let config_v2 = Codex32Config::new(2, "sp0c", 3).expect("config");
