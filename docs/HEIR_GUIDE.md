@@ -120,6 +120,38 @@ Details you'll need to claim:
 
 ---
 
+## Nostr Identity Inheritance (If Applicable)
+
+The owner may also set up **Nostr identity inheritance**. If they did, you'll receive:
+
+### Your Shamir Share
+
+A Codex32 string that looks like this:
+```
+ms12nsecaxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+**This is one piece of a cryptographic key.** By itself, it's useless — it can't reconstruct anything. But combined with the "locked shares" from the descriptor backup file (available after inheritance), it reconstructs the owner's Nostr secret key (nsec).
+
+### How to Store Your Share
+
+- **Write it on paper** or engrave on steel (like a Bitcoin seed backup)
+- **Store it separately from the descriptor backup** — they should not be in the same location
+- **Do not share it** with other heirs (each heir gets their own unique share)
+- **Do not try to combine it** with other heirs' shares — it won't work without the locked shares
+
+### When the Time Comes
+
+After the Bitcoin inheritance triggers:
+1. Obtain the **descriptor backup file** (from safe deposit box, lawyer, etc.)
+2. Download **NoString** and choose "Recover a Loved One's Identity"
+3. Enter your share + the locked shares from the backup
+4. The owner's nsec is revealed — import it into a Nostr client
+
+See **CLAIM_GUIDE.md** Step 8 for full recovery instructions.
+
+---
+
 ## Security Reminders
 
 - **Your xpub is safe to share** with the owner (it's view-only)

@@ -184,6 +184,37 @@ If multiple heirs are required:
 
 ---
 
+## Step 8: Recover Nostr Identity (Optional)
+
+If the owner set up Nostr identity inheritance, you can recover their nsec:
+
+### What You Need
+- **Your pre-distributed share** — a Codex32 string (starting with `ms1...`) given to you by the owner during setup
+- **The descriptor backup file** — contains "Locked Shares" section with additional Codex32 strings
+
+### How to Recover
+
+1. **Download NoString** from [github.com/RenAndKiwi/nostring](https://github.com/RenAndKiwi/nostring)
+2. On the setup screen, choose **"Recover a Loved One's Identity"**
+3. Enter **your pre-distributed share** (Share 1)
+4. Enter **all locked shares** from the descriptor backup file (Share 2, 3, etc.)
+5. Click **"Recover Identity"**
+6. If the threshold is met, the **nsec** (Nostr secret key) and **npub** (public key) are revealed
+7. **Verify the npub** matches your loved one's known Nostr identity
+8. **Copy the nsec** and import it into any Nostr client:
+   - **Damus** (iOS): Settings → Keys → Import
+   - **Primal** (iOS/Android): Settings → Keys
+   - **Amethyst** (Android): Login with nsec
+   - **Nostrudel** (Web): Login with nsec
+
+### Security Notes
+- The nsec gives **full control** of the Nostr identity — treat it like a master password
+- Consider whether to post a memorial note or transfer the identity
+- If multiple heirs exist, coordinate who controls the identity
+- The nsec is shown once — copy it immediately and store securely
+
+---
+
 ## After Claiming
 
 1. **Move funds to your own wallet** if not already there

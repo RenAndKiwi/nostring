@@ -70,6 +70,18 @@ const invoke = DEMO_MODE
                 data: 'npub1demo0servicekey0placeholder0000000000000000000000000000000'
             },
             'get_service_npub': 'npub1demo0servicekey0placeholder0000000000000000000000000000000',
+            'split_nsec': { success: true, data: {
+                owner_npub: 'npub1demo_owner_identity_placeholder',
+                pre_distributed: [
+                    { heir_label: 'Spouse', heir_fingerprint: 'a1b2c3d4', share: 'ms12nsecaxxxxxxxxxxxxxxxxxxxxxxxxxx' },
+                ],
+                locked_shares: ['ms12nsecbyyyyyyyyyyyyyyyyyyyyyyy', 'ms12nsecczzzzzzzzzzzzzzzzzzzzzzz'],
+                threshold: 2,
+                total_shares: 3,
+            }},
+            'get_nsec_inheritance_status': { configured: false, owner_npub: null, locked_share_count: 0 },
+            'get_locked_shares': null,
+            'recover_nsec': { success: true, data: { nsec: 'nsec1demorecovered...', npub: 'npub1demorecovered...' } },
             'configure_notifications': { success: true },
             'get_notification_settings': { owner_npub: null, email_address: null, email_smtp_host: null, service_npub: 'npub1demo...' },
             'send_test_notification': { success: true, data: 'Test DM sent!' },
@@ -162,6 +174,11 @@ function showSetupScreen() {
                     <h3>✨ Generate New Seed</h3>
                     <p>Create a new wallet for testing or if you don't have one yet.</p>
                 </div>
+                
+                <div class="setup-card" id="opt-heir-recovery" style="border-color: var(--warning, #f59e0b);">
+                    <h3>🕊️ Recover a Loved One's Identity</h3>
+                    <p>I'm an heir. I have Shamir shares and need to recover a Nostr identity (nsec).</p>
+                </div>
             </div>
             
             <!-- Watch-Only Form -->
@@ -220,6 +237,7 @@ function showSetupScreen() {
     document.getElementById('opt-watch-only').addEventListener('click', showWatchOnlyForm);
     document.getElementById('opt-import-seed').addEventListener('click', showImportForm);
     document.getElementById('opt-create-seed').addEventListener('click', createNewSeed);
+    document.getElementById('opt-heir-recovery').addEventListener('click', showHeirRecoveryScreen);
 }
 
 function showWatchOnlyForm() {
@@ -451,6 +469,8 @@ function renderWizardStep() {
                     <span class="step">2</span>
                     <span class="step-line"></span>
                     <span class="step">3</span>
+                    <span class="step-line"></span>
+                    <span class="step">4</span>
                 </div>
                 
                 <h2>👥 Add Your First Heir</h2>
@@ -489,7 +509,7 @@ function renderWizardStep() {
         
         document.getElementById('btn-wizard-next').addEventListener('click', wizardAddHeir);
         document.getElementById('btn-wizard-skip').addEventListener('click', () => {
-            wizardStep = 3;
+            wizardStep = 4; // Skip heirs + nsec → go to completion
             renderWizardStep();
         });
         
@@ -509,6 +529,8 @@ function renderWizardStep() {
                     <span class="step active">2</span>
                     <span class="step-line"></span>
                     <span class="step">3</span>
+                    <span class="step-line"></span>
+                    <span class="step">4</span>
                 </div>
                 
                 <h2>📋 Review Your Policy</h2>
@@ -529,7 +551,7 @@ function renderWizardStep() {
         `;
         
         document.getElementById('btn-wizard-next').addEventListener('click', () => {
-            wizardStep = 3;
+            wizardStep = 3; // nsec inheritance (optional)
             renderWizardStep();
         });
         document.getElementById('btn-wizard-add-more').addEventListener('click', () => {
@@ -538,6 +560,7 @@ function renderWizardStep() {
         });
         
     } else if (wizardStep === 3) {
+        // Optional nsec inheritance step
         content.innerHTML = `
             <div class="wizard">
                 <div class="wizard-progress">
@@ -546,6 +569,60 @@ function renderWizardStep() {
                     <span class="step done">✓</span>
                     <span class="step-line done"></span>
                     <span class="step active">3</span>
+                    <span class="step-line"></span>
+                    <span class="step">4</span>
+                </div>
+                
+                <h2>🔑 Nostr Identity Inheritance (Optional)</h2>
+                <p class="text-muted">Want your heirs to inherit your Nostr identity too? Enter your nsec to split it across your heirs using Shamir secret sharing.</p>
+                
+                <div class="form-row" style="margin-top: 1.5rem;">
+                    <label>Your Nostr Secret Key (nsec or hex)</label>
+                    <input type="password" id="wizard-nsec-input" placeholder="nsec1... or hex secret key">
+                    <p class="hint">Find this in your Nostr client's settings. Your nsec is destroyed from memory immediately after splitting.</p>
+                </div>
+                
+                <div class="wizard-actions">
+                    <button type="button" id="btn-wizard-skip-nsec" class="btn-secondary">Skip</button>
+                    <button type="button" id="btn-wizard-split-nsec" class="btn-primary">Split nsec →</button>
+                </div>
+            </div>
+        `;
+        
+        document.getElementById('btn-wizard-skip-nsec').addEventListener('click', () => {
+            wizardStep = 4;
+            renderWizardStep();
+        });
+        document.getElementById('btn-wizard-split-nsec').addEventListener('click', async () => {
+            const nsecInput = document.getElementById('wizard-nsec-input').value.trim();
+            if (!nsecInput) {
+                showError('Please enter your nsec or click Skip.');
+                return;
+            }
+            try {
+                const result = await invoke('split_nsec', { nsecInput });
+                if (result.success) {
+                    // Show the shares briefly, then continue
+                    showNsecSplitResult(result.data);
+                } else {
+                    showError(result.error || 'Failed to split nsec.');
+                }
+            } catch (err) {
+                showError('Failed: ' + err.message);
+            }
+        });
+        
+    } else if (wizardStep === 4) {
+        content.innerHTML = `
+            <div class="wizard">
+                <div class="wizard-progress">
+                    <span class="step done">✓</span>
+                    <span class="step-line done"></span>
+                    <span class="step done">✓</span>
+                    <span class="step-line done"></span>
+                    <span class="step done">✓</span>
+                    <span class="step-line done"></span>
+                    <span class="step active">4</span>
                 </div>
                 
                 <h2>🎉 You're All Set!</h2>
@@ -794,6 +871,13 @@ function showMainApp() {
             </div>
             
             <div class="settings-group">
+                <h3>🔑 Nostr Identity Inheritance</h3>
+                <div id="nsec-inheritance-status">
+                    <p class="text-muted">Loading...</p>
+                </div>
+            </div>
+            
+            <div class="settings-group">
                 <h3>Network</h3>
                 <div class="setting">
                     <label>Electrum Server:</label>
@@ -866,6 +950,7 @@ function showMainApp() {
     loadElectrumUrl();
     loadServiceNpub();
     loadNotificationSettings();
+    loadNsecInheritanceStatus();
 }
 
 // ============================================================================
@@ -1303,6 +1388,36 @@ ${(backup.heirs || []).map(h => `- ${h.label}: ${h.xpub} (${h.timelock_months} m
 2. Import the descriptor above
 3. Sign with your hardware wallet to move funds
 `;
+
+        // Add nsec inheritance section if configured
+        try {
+            const nsecStatus = await invoke('get_nsec_inheritance_status');
+            if (nsecStatus.configured) {
+                const lockedShares = await invoke('get_locked_shares');
+                if (lockedShares && lockedShares.length > 0) {
+                    content += `
+## Nostr Identity Inheritance
+Owner npub: ${nsecStatus.owner_npub}
+
+### Locked Shares
+These Codex32 shares, combined with the heir's pre-distributed share,
+reconstruct the owner's nsec (Nostr secret key).
+
+${lockedShares.map((s, i) => `Share ${i + 1}: ${s}`).join('\n')}
+
+### Heir Recovery Instructions
+1. Download NoString from github.com/RenAndKiwi/nostring
+2. On the setup screen, choose "Recover a Loved One's Identity"
+3. Enter YOUR pre-distributed share (given to you by the owner)
+4. Enter ALL locked shares listed above
+5. Click "Recover Identity" — your loved one's nsec will be revealed
+6. Import the nsec into any Nostr client (Damus, Primal, Amethyst, etc.)
+`;
+                }
+            }
+        } catch (err) {
+            console.error('Failed to add nsec info to backup:', err);
+        }
         
         // Trigger file download
         const blob = new Blob([content], { type: 'text/plain' });
@@ -1421,6 +1536,316 @@ async function loadServiceNpub() {
     } catch (err) {
         console.error('Failed to load service npub:', err);
     }
+}
+
+// ============================================================================
+// Heir Recovery Screen
+// ============================================================================
+function showHeirRecoveryScreen() {
+    const content = document.getElementById('content');
+    content.innerHTML = `
+        <div class="setup-screen">
+            <h2>🕊️ Recover a Nostr Identity</h2>
+            <p class="text-muted">If your loved one set up NoString with Nostr identity inheritance, you can recover their nsec by combining Shamir shares.</p>
+            
+            <div class="recovery-info" style="margin: 1.5rem 0; padding: 1rem; border-radius: 8px; background: var(--card-bg, #1a1a2e);">
+                <h4>What you need:</h4>
+                <ol style="margin: 0.5rem 0; padding-left: 1.5rem;">
+                    <li><strong>Your pre-distributed share</strong> — given to you during setup (a Codex32 string starting with "ms1...")</li>
+                    <li><strong>Locked shares</strong> — from the descriptor backup file (found in a safe deposit box, with a lawyer, etc.)</li>
+                </ol>
+                <p class="text-muted" style="font-size: 0.85rem; margin-top: 0.75rem;">The descriptor backup file has a section called "Locked Shares" with one or more Codex32 strings. Enter all shares below — yours plus the locked ones.</p>
+            </div>
+            
+            <div id="share-inputs">
+                <div class="form-row">
+                    <label>Share 1 (your pre-distributed share)</label>
+                    <input type="text" class="recovery-share" placeholder="ms12nsec...">
+                </div>
+                <div class="form-row">
+                    <label>Share 2 (from descriptor backup)</label>
+                    <input type="text" class="recovery-share" placeholder="ms12nsec...">
+                </div>
+            </div>
+            
+            <div style="display: flex; gap: 0.75rem; margin-top: 0.75rem;">
+                <button type="button" id="btn-add-share-input" class="btn-secondary">+ Add Another Share</button>
+            </div>
+            
+            <div style="display: flex; gap: 0.75rem; margin-top: 1.5rem;">
+                <button type="button" id="btn-recover-nsec" class="btn-primary">Recover Identity</button>
+                <button type="button" id="btn-back-recovery" class="btn-secondary">Back</button>
+            </div>
+            
+            <div id="recovery-result" class="hidden" style="margin-top: 1.5rem;">
+            </div>
+        </div>
+    `;
+    
+    document.getElementById('btn-add-share-input').addEventListener('click', () => {
+        const container = document.getElementById('share-inputs');
+        const count = container.querySelectorAll('.recovery-share').length + 1;
+        const row = document.createElement('div');
+        row.className = 'form-row';
+        row.innerHTML = '<label>Share ' + count + '</label><input type="text" class="recovery-share" placeholder="ms12nsec...">';
+        container.appendChild(row);
+    });
+    
+    document.getElementById('btn-recover-nsec').addEventListener('click', attemptNsecRecovery);
+    document.getElementById('btn-back-recovery').addEventListener('click', showSetupScreen);
+}
+
+async function attemptNsecRecovery() {
+    const inputs = document.querySelectorAll('.recovery-share');
+    const shares = [];
+    inputs.forEach(input => {
+        const val = input.value.trim();
+        if (val) shares.push(val);
+    });
+    
+    if (shares.length < 2) {
+        showError('Need at least 2 shares to recover.');
+        return;
+    }
+    
+    try {
+        const result = await invoke('recover_nsec', { shares });
+        const resultDiv = document.getElementById('recovery-result');
+        
+        if (result.success) {
+            resultDiv.classList.remove('hidden');
+            resultDiv.innerHTML = `
+                <div style="padding: 1.5rem; border-radius: 8px; background: var(--card-bg, #1a1a2e); border: 1px solid var(--success, #10b981);">
+                    <h3>✅ Identity Recovered</h3>
+                    <p>This is the Nostr identity of your loved one.</p>
+                    
+                    <div class="form-row" style="margin-top: 1rem;">
+                        <label>Public Key (npub) — verify this matches</label>
+                        <code style="word-break: break-all; display: block; padding: 0.5rem;">${escapeHtml(result.data.npub)}</code>
+                    </div>
+                    
+                    <div class="form-row" style="margin-top: 1rem;">
+                        <label>Secret Key (nsec) — import this into your Nostr client</label>
+                        <div style="position: relative;">
+                            <code id="recovered-nsec" style="word-break: break-all; display: block; padding: 0.5rem; filter: blur(5px); cursor: pointer;" title="Click to reveal">${escapeHtml(result.data.nsec)}</code>
+                            <button type="button" id="btn-reveal-nsec" class="btn-secondary" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);">👁️ Reveal</button>
+                        </div>
+                    </div>
+                    
+                    <div style="display: flex; gap: 0.75rem; margin-top: 1rem;">
+                        <button type="button" id="btn-copy-nsec" class="btn-primary">📋 Copy nsec</button>
+                    </div>
+                    
+                    <p class="warning" style="margin-top: 1rem;">⚠️ This nsec gives full control of the Nostr identity. Store it as securely as you would a password. Anyone with this key can post as this identity.</p>
+                </div>
+            `;
+            
+            document.getElementById('btn-reveal-nsec').addEventListener('click', () => {
+                document.getElementById('recovered-nsec').style.filter = 'none';
+                document.getElementById('btn-reveal-nsec').remove();
+            });
+            
+            document.getElementById('btn-copy-nsec').addEventListener('click', () => {
+                navigator.clipboard.writeText(result.data.nsec);
+                showSuccess('nsec copied to clipboard');
+            });
+        } else {
+            resultDiv.classList.remove('hidden');
+            resultDiv.innerHTML = `
+                <div style="padding: 1rem; border-radius: 8px; background: var(--card-bg, #1a1a2e); border: 1px solid var(--error, #ef4444);">
+                    <p class="error">${escapeHtml(result.error)}</p>
+                    <p class="text-muted" style="font-size: 0.85rem;">Make sure you have enough shares. Check that all shares are from the same split (same identifier).</p>
+                </div>
+            `;
+        }
+    } catch (err) {
+        console.error('Recovery failed:', err);
+        showError('Recovery failed: ' + err.message);
+    }
+}
+
+// ============================================================================
+// nsec Inheritance Status (Settings tab)
+// ============================================================================
+async function loadNsecInheritanceStatus() {
+    try {
+        const status = await invoke('get_nsec_inheritance_status');
+        const container = document.getElementById('nsec-inheritance-status');
+        if (!container) return;
+        
+        if (status.configured) {
+            container.innerHTML = `
+                <p>✅ Identity inheritance configured.</p>
+                <p class="text-muted">npub: <code style="font-size: 0.8rem;">${escapeHtml(status.owner_npub || 'unknown')}</code></p>
+                <p class="text-muted">${status.locked_share_count} locked shares in descriptor backup.</p>
+                <button type="button" id="btn-manage-nsec" class="btn-secondary" style="margin-top: 0.5rem;">Manage / Re-split</button>
+            `;
+            document.getElementById('btn-manage-nsec').addEventListener('click', showNsecSplitUI);
+        } else {
+            container.innerHTML = `
+                <p class="text-muted">Not configured. Optionally pass down your Nostr identity to heirs.</p>
+                <button type="button" id="btn-setup-nsec" class="btn-secondary" style="margin-top: 0.5rem;">Set Up Identity Inheritance</button>
+            `;
+            document.getElementById('btn-setup-nsec').addEventListener('click', showNsecSplitUI);
+        }
+    } catch (err) {
+        console.error('Failed to load nsec status:', err);
+    }
+}
+
+// ============================================================================
+// nsec Inheritance (Split) — Owner Side
+// ============================================================================
+async function showNsecSplitUI() {
+    const content = document.getElementById('content');
+    // Check current status first
+    const status = await invoke('get_nsec_inheritance_status');
+    
+    if (status.configured) {
+        content.innerHTML = `
+            <div class="setup-screen">
+                <h2>🔑 Nostr Identity Inheritance</h2>
+                <div style="padding: 1rem; border-radius: 8px; background: var(--card-bg, #1a1a2e); border: 1px solid var(--success, #10b981);">
+                    <p>✅ Identity inheritance is configured.</p>
+                    <p class="text-muted">npub: <code>${escapeHtml(status.owner_npub || 'unknown')}</code></p>
+                    <p class="text-muted">${status.locked_share_count} locked shares stored in descriptor backup.</p>
+                </div>
+                <p class="warning" style="margin-top: 1rem;">To re-split with different heirs, you'll need your nsec again. The old shares will become invalid.</p>
+                <div style="margin-top: 1rem;">
+                    <button type="button" id="btn-resplit-nsec" class="btn-secondary">Re-split nsec</button>
+                    <button type="button" id="btn-back-nsec" class="btn-secondary">Back to Dashboard</button>
+                </div>
+            </div>
+        `;
+        document.getElementById('btn-resplit-nsec').addEventListener('click', showNsecInputForm);
+        document.getElementById('btn-back-nsec').addEventListener('click', showMainApp);
+        return;
+    }
+    
+    showNsecInputForm();
+}
+
+function showNsecInputForm() {
+    const content = document.getElementById('content');
+    content.innerHTML = `
+        <div class="setup-screen">
+            <h2>🔑 Nostr Identity Inheritance</h2>
+            <p class="text-muted">Optionally pass down your Nostr identity to your heirs using Shamir secret sharing.</p>
+            
+            <div style="margin: 1.5rem 0; padding: 1rem; border-radius: 8px; background: var(--card-bg, #1a1a2e);">
+                <h4>How it works:</h4>
+                <ol style="margin: 0.5rem 0; padding-left: 1.5rem; line-height: 1.8;">
+                    <li>You enter your nsec (Nostr secret key)</li>
+                    <li>NoString splits it into Shamir shares using the (N+1)-of-(2N+1) formula</li>
+                    <li>Each heir gets one share — <strong>not enough to reconstruct alone</strong></li>
+                    <li>Remaining shares are locked in your descriptor backup</li>
+                    <li>After Bitcoin inheritance triggers, heirs combine shares to recover your nsec</li>
+                    <li><strong>Your nsec is destroyed from memory immediately after splitting</strong></li>
+                </ol>
+            </div>
+            
+            <div class="form-row">
+                <label>Your Nostr Secret Key (nsec or hex)</label>
+                <input type="password" id="nsec-input" placeholder="nsec1... or hex secret key">
+                <p class="hint">Find this in your Nostr client's settings (Damus: Settings → Keys, Primal: Settings → Keys, etc.)</p>
+            </div>
+            
+            <div class="warning" style="margin-top: 1rem;">
+                ⚠️ Your nsec will be held in memory ONLY during the split, then immediately zeroed. It is never saved to disk.
+            </div>
+            
+            <div style="display: flex; gap: 0.75rem; margin-top: 1.5rem;">
+                <button type="button" id="btn-split-nsec" class="btn-primary">Split nsec</button>
+                <button type="button" id="btn-skip-nsec" class="btn-secondary">Skip</button>
+            </div>
+        </div>
+    `;
+    
+    document.getElementById('btn-split-nsec').addEventListener('click', performNsecSplit);
+    document.getElementById('btn-skip-nsec').addEventListener('click', showMainApp);
+}
+
+async function performNsecSplit() {
+    const nsecInput = document.getElementById('nsec-input').value.trim();
+    
+    if (!nsecInput) {
+        showError('Please enter your nsec.');
+        return;
+    }
+    
+    try {
+        const result = await invoke('split_nsec', { nsecInput });
+        
+        if (!result.success) {
+            showError(result.error || 'Split failed.');
+            return;
+        }
+        
+        const data = result.data;
+        showNsecSplitResult(data);
+    } catch (err) {
+        console.error('nsec split failed:', err);
+        showError('Failed to split nsec: ' + err.message);
+    }
+}
+
+function showNsecSplitResult(data) {
+    const content = document.getElementById('content');
+    
+    const heirShares = data.pre_distributed.map((h, i) => `
+        <div class="share-item" style="margin-bottom: 1rem; padding: 1rem; border-radius: 8px; background: var(--card-bg, #1a1a2e);">
+            <h4>📨 Share for: ${escapeHtml(h.heir_label)}</h4>
+            <p class="text-muted" style="font-size: 0.85rem;">Give this to ${escapeHtml(h.heir_label)}. Tell them to store it securely (paper, steel backup).</p>
+            <code style="word-break: break-all; display: block; padding: 0.5rem; margin-top: 0.5rem;">${escapeHtml(h.share)}</code>
+            <button type="button" class="btn-secondary btn-copy-heir-share" data-share="${escapeHtml(h.share)}" style="margin-top: 0.5rem;">📋 Copy</button>
+        </div>
+    `).join('');
+    
+    const lockedShares = data.locked_shares.map((s, i) => `
+        <div style="margin-bottom: 0.5rem;">
+            <code style="word-break: break-all; font-size: 0.85rem;">${escapeHtml(s)}</code>
+        </div>
+    `).join('');
+    
+    content.innerHTML = `
+        <div class="setup-screen">
+            <h2>✅ nsec Split Complete</h2>
+            
+            <div style="padding: 1rem; border-radius: 8px; background: var(--card-bg, #1a1a2e); border: 1px solid var(--success, #10b981); margin-bottom: 1.5rem;">
+                <p><strong>Identity:</strong> <code>${escapeHtml(data.owner_npub)}</code></p>
+                <p><strong>Scheme:</strong> ${data.threshold}-of-${data.total_shares} Shamir split</p>
+                <p><strong>Pre-distributed:</strong> ${data.pre_distributed.length} shares (one per heir)</p>
+                <p><strong>Locked:</strong> ${data.locked_shares.length} shares (in descriptor backup)</p>
+                <p class="text-muted" style="font-size: 0.85rem; margin-top: 0.5rem;">Your nsec has been destroyed from memory. It cannot be recovered from NoString.</p>
+            </div>
+            
+            <h3>📨 Heir Shares — Distribute These</h3>
+            <p class="warning" style="margin-bottom: 1rem;">Write down or print each share and give it to the corresponding heir. Tell them: "This is one piece of a key to my Nostr identity. Keep it safe. You'll get the rest when the time comes."</p>
+            ${heirShares}
+            
+            <h3 style="margin-top: 2rem;">🔒 Locked Shares — Included in Descriptor Backup</h3>
+            <p class="text-muted" style="margin-bottom: 1rem;">These are automatically included when you download your descriptor backup. Your heirs will get them from the backup file (safe deposit box, lawyer, etc.).</p>
+            ${lockedShares}
+            
+            <div style="display: flex; gap: 0.75rem; margin-top: 2rem;">
+                <button type="button" id="btn-download-backup-after-split" class="btn-primary">📋 Download Descriptor Backup Now</button>
+                <button type="button" id="btn-done-nsec-split" class="btn-secondary">Done</button>
+            </div>
+        </div>
+    `;
+    
+    // Copy handlers
+    document.querySelectorAll('.btn-copy-heir-share').forEach(btn => {
+        btn.addEventListener('click', () => {
+            navigator.clipboard.writeText(btn.dataset.share);
+            showSuccess('Share copied to clipboard');
+        });
+    });
+    
+    document.getElementById('btn-download-backup-after-split').addEventListener('click', async () => {
+        await downloadDescriptorBackup();
+    });
+    document.getElementById('btn-done-nsec-split').addEventListener('click', showMainApp);
 }
 
 // ============================================================================

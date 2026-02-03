@@ -29,6 +29,7 @@ nostr-sdk = "0.39"
 aes-gcm = "0.10"
 argon2 = "0.5"
 rand = "0.8"
+zeroize = { version = "1.8", features = ["derive"] }
 
 # Miniscript (from Liana)
 miniscript = { version = "12.3", features = ["compiler"] }

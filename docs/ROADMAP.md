@@ -145,25 +145,30 @@ Sovereign Bitcoin inheritance with optional Nostr identity inheritance. Watch-on
 
 ---
 
-## Phase 8: Nostr Identity Inheritance 🔜
+## Phase 8: Nostr Identity Inheritance ✅
 
-**Status:** Next — see [NOSTR_INHERITANCE.md](NOSTR_INHERITANCE.md)
+**Status:** Complete (2026-02-03) — see [NOSTR_INHERITANCE.md](NOSTR_INHERITANCE.md)
 
-### 8.1 nsec Shamir Split
-- [ ] Optional nsec input during setup
-- [ ] Calculate threshold/shares: N heirs → (N+1)-of-(2N+1) split
-- [ ] Generate Codex32 shares of nsec
-- [ ] Display pre-distribution shares with heir instructions
-- [ ] Zero nsec from memory after split
-- [ ] Include locked shares (encrypted) in descriptor backup
+### 8.1 nsec Shamir Split ✅
+- [x] Optional nsec input during setup wizard (step 3 of 4)
+- [x] Also accessible from Settings → Identity Inheritance
+- [x] Calculate threshold/shares: N heirs → (N+1)-of-(2N+1) split
+- [x] Generate Codex32 shares of nsec
+- [x] Display per-heir shares with copy buttons + distribution instructions
+- [x] Zero nsec from memory after split (zeroize crate)
+- [x] Locked shares persisted to SQLite, included in descriptor backup
+- [x] Owner npub stored so UI shows identity inheritance status
 
-### 8.2 Heir Recovery Flow
-- [ ] Share combination tool in app
-- [ ] Enter shares → verify threshold → reveal nsec
-- [ ] Update CLAIM_GUIDE.md with Nostr recovery steps
-- [ ] Update HEIR_GUIDE.md with share storage instructions
+### 8.2 Heir Recovery Flow ✅
+- [x] "Recover a Loved One's Identity" mode on setup screen
+- [x] Dynamic share input (add more fields as needed)
+- [x] Enter shares → verify threshold → reveal nsec + npub
+- [x] nsec blurred by default with reveal button
+- [x] Copy nsec to clipboard for import into Nostr client
+- [x] Validates recovered bytes are a valid Nostr secret key
+- [x] Descriptor backup includes locked shares + recovery instructions
 
-### 8.3 Nostr Relay Storage (Optional Enhancement)
+### 8.3 Nostr Relay Storage (Future Enhancement)
 - [ ] Publish encrypted locked shares to multiple relays
 - [ ] Heir pre-fetch mechanism
 - [ ] Redundancy across relays

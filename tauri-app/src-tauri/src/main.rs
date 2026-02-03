@@ -59,6 +59,11 @@ fn main() {
             // Shamir shares
             commands::generate_codex32_shares,
             commands::combine_codex32_shares,
+            // nsec inheritance (Shamir split + recovery)
+            commands::split_nsec,
+            commands::get_nsec_inheritance_status,
+            commands::get_locked_shares,
+            commands::recover_nsec,
             // Service key (notifications)
             commands::generate_service_key,
             commands::get_service_npub,

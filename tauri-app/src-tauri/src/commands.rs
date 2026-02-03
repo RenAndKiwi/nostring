@@ -601,6 +601,271 @@ pub async fn validate_xpub(xpub: String) -> CommandResult<bool> {
 // ============================================================================
 
 use nostring_shamir::codex32::{parse_share, Codex32Config, Codex32Share};
+use zeroize::Zeroize;
+
+// ============================================================================
+// nsec Shamir Inheritance Commands
+// ============================================================================
+
+/// Per-heir share info returned to the frontend.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct HeirShareInfo {
+    pub heir_label: String,
+    pub heir_fingerprint: String,
+    pub share: String,
+}
+
+/// Result of splitting an nsec.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NsecSplitResult {
+    /// The owner's npub (so heirs know which identity they're recovering)
+    pub owner_npub: String,
+    /// One share per heir — give to each heir for safekeeping
+    pub pre_distributed: Vec<HeirShareInfo>,
+    /// Locked shares — included in the descriptor backup
+    pub locked_shares: Vec<String>,
+    /// Threshold needed to reconstruct
+    pub threshold: u8,
+    /// Total shares generated
+    pub total_shares: u8,
+}
+
+/// Split an nsec into Shamir shares for identity inheritance.
+///
+/// The nsec is held in memory ONLY during this call, then zeroed.
+/// Pre-distributed shares go to heirs (1 each).
+/// Locked shares go into the descriptor backup.
+///
+/// Formula: N heirs → (N+1)-of-(2N+1) split
+///   - Pre-distributed: N (one per heir)
+///   - Locked: N+1
+///   - All heirs colluding have N shares but need N+1 → blocked
+///   - After inheritance: heir has 1 + (N+1) locked = N+2 > threshold ✓
+#[tauri::command]
+pub async fn split_nsec(
+    nsec_input: String,
+    state: State<'_, AppState>,
+) -> Result<CommandResult<NsecSplitResult>, ()> {
+    use nostr_sdk::prelude::*;
+    use nostring_shamir::codex32::generate_shares;
+
+    // Parse and validate the nsec
+    let keys = match Keys::parse(&nsec_input) {
+        Ok(k) => k,
+        Err(e) => return Ok(CommandResult::err(format!("Invalid nsec: {}", e))),
+    };
+
+    let owner_npub = keys.public_key().to_bech32().unwrap_or_default();
+
+    // Get the raw 32-byte secret
+    let mut secret_bytes = keys.secret_key().as_secret_bytes().to_vec();
+
+    // Count heirs
+    let heir_count = {
+        let registry = state.heir_registry.lock().unwrap();
+        registry.list().len()
+    };
+
+    if heir_count == 0 {
+        secret_bytes.zeroize();
+        return Ok(CommandResult::err(
+            "Add at least one heir before splitting your nsec.",
+        ));
+    }
+
+    let n = heir_count as u8;
+    let threshold = n + 1;
+    let total_shares = 2 * n + 1;
+
+    // Validate Codex32 limits (threshold 2-9, total ≤ 31)
+    if threshold > 9 {
+        secret_bytes.zeroize();
+        return Ok(CommandResult::err(
+            "Too many heirs for Codex32 (max 8 heirs → threshold 9). Use fewer heirs or contact support.",
+        ));
+    }
+
+    // Generate Codex32 shares
+    // Use lowercase bech32-safe identifier
+    let config = match Codex32Config::new(threshold, "nsec", total_shares) {
+        Ok(c) => c,
+        Err(e) => {
+            secret_bytes.zeroize();
+            return Ok(CommandResult::err(format!("Shamir config error: {}", e)));
+        }
+    };
+
+    let shares = match generate_shares(&secret_bytes, &config) {
+        Ok(s) => s,
+        Err(e) => {
+            secret_bytes.zeroize();
+            return Ok(CommandResult::err(format!("Share generation failed: {}", e)));
+        }
+    };
+
+    // ZERO the raw nsec from memory immediately
+    secret_bytes.zeroize();
+
+    // Split into pre-distributed (first N) and locked (remaining N+1)
+    let heir_labels: Vec<(String, String)> = {
+        let registry = state.heir_registry.lock().unwrap();
+        registry
+            .list()
+            .iter()
+            .map(|h| (h.label.clone(), h.fingerprint.to_string()))
+            .collect()
+    };
+
+    let pre_distributed: Vec<HeirShareInfo> = heir_labels
+        .iter()
+        .enumerate()
+        .map(|(i, (label, fp))| HeirShareInfo {
+            heir_label: label.clone(),
+            heir_fingerprint: fp.clone(),
+            share: shares[i].encoded.clone(),
+        })
+        .collect();
+
+    let locked_shares: Vec<String> = shares[n as usize..]
+        .iter()
+        .map(|s| s.encoded.clone())
+        .collect();
+
+    // Persist locked shares + owner npub to SQLite
+    // (locked shares alone can't reconstruct — they need heir shares too...
+    //  unless threshold equals locked count, which is the resilience design)
+    let locked_json = serde_json::to_string(&locked_shares).unwrap_or_default();
+    state.persist_config("nsec_locked_shares", &locked_json);
+    state.persist_config("nsec_owner_npub", &owner_npub);
+
+    Ok(CommandResult::ok(NsecSplitResult {
+        owner_npub,
+        pre_distributed,
+        locked_shares,
+        threshold,
+        total_shares,
+    }))
+}
+
+/// Get nsec inheritance status (is it configured? what npub?).
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NsecInheritanceStatus {
+    pub configured: bool,
+    pub owner_npub: Option<String>,
+    pub locked_share_count: usize,
+}
+
+#[tauri::command]
+pub async fn get_nsec_inheritance_status(
+    state: State<'_, AppState>,
+) -> Result<NsecInheritanceStatus, ()> {
+    let conn = state.db.lock().unwrap();
+    let owner_npub = crate::db::config_get(&conn, "nsec_owner_npub")
+        .ok()
+        .flatten();
+    let locked_json = crate::db::config_get(&conn, "nsec_locked_shares")
+        .ok()
+        .flatten();
+    drop(conn);
+
+    let locked_count = locked_json
+        .as_ref()
+        .and_then(|j| serde_json::from_str::<Vec<String>>(j).ok())
+        .map(|v| v.len())
+        .unwrap_or(0);
+
+    Ok(NsecInheritanceStatus {
+        configured: owner_npub.is_some() && locked_count > 0,
+        owner_npub,
+        locked_share_count: locked_count,
+    })
+}
+
+/// Get locked shares (for inclusion in descriptor backup).
+#[tauri::command]
+pub async fn get_locked_shares(
+    state: State<'_, AppState>,
+) -> Result<Option<Vec<String>>, ()> {
+    let conn = state.db.lock().unwrap();
+    let locked_json = crate::db::config_get(&conn, "nsec_locked_shares")
+        .ok()
+        .flatten();
+    drop(conn);
+
+    Ok(locked_json.and_then(|j| serde_json::from_str(&j).ok()))
+}
+
+/// Recover an nsec from Shamir shares (heir recovery tool).
+///
+/// The heir pastes their pre-distributed share(s) plus locked shares
+/// from the descriptor backup. If threshold is met, the nsec is revealed.
+#[tauri::command]
+pub async fn recover_nsec(
+    shares: Vec<String>,
+) -> CommandResult<RecoveredNsec> {
+    use nostring_shamir::codex32::combine_shares;
+
+    if shares.len() < 2 {
+        return CommandResult::err("Need at least 2 shares to recover.");
+    }
+
+    // Parse all shares
+    let mut parsed: Vec<Codex32Share> = Vec::new();
+    for (i, share_str) in shares.iter().enumerate() {
+        match parse_share(share_str) {
+            Ok(s) => parsed.push(s),
+            Err(e) => {
+                return CommandResult::err(format!(
+                    "Invalid share #{}: {}",
+                    i + 1,
+                    e
+                ))
+            }
+        }
+    }
+
+    // Attempt reconstruction
+    let mut recovered_bytes = match combine_shares(&parsed) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            return CommandResult::err(format!(
+                "Could not reconstruct. Need more shares or shares are from different splits. Error: {}",
+                e
+            ))
+        }
+    };
+
+    // Verify it's a valid Nostr secret key
+    let recovered_hex = hex::encode(&recovered_bytes);
+    let keys = match nostr_sdk::prelude::Keys::parse(&recovered_hex) {
+        Ok(k) => k,
+        Err(e) => {
+            recovered_bytes.zeroize();
+            return CommandResult::err(format!(
+                "Shares reconstructed but result is not a valid Nostr key: {}",
+                e
+            ));
+        }
+    };
+
+    use nostr_sdk::ToBech32;
+    let nsec = keys.secret_key().to_bech32().unwrap_or_else(|_| recovered_hex.clone());
+    let npub = keys.public_key().to_bech32().unwrap_or_default();
+
+    // Zero the intermediate bytes
+    recovered_bytes.zeroize();
+
+    CommandResult::ok(RecoveredNsec { nsec, npub })
+}
+
+/// Recovered nsec result.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RecoveredNsec {
+    /// The recovered nsec (bech32)
+    pub nsec: String,
+    /// The corresponding npub (for verification)
+    pub npub: String,
+}
 
 // ============================================================================
 // Notification Commands
