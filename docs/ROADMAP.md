@@ -2,7 +2,7 @@
 
 ## Vision
 
-Encrypted email + Nostr identity + Bitcoin inheritance. One seed, sovereign comms, planned succession.
+Sovereign Bitcoin inheritance with optional Nostr identity inheritance. Watch-only wallet, timelocked policies, no trusted third parties.
 
 ---
 
@@ -64,7 +64,7 @@ Encrypted email + Nostr identity + Bitcoin inheritance. One seed, sovereign comm
 
 ## Phase 5: UX Polish ✅
 
-**Status:** Complete (117 tests total)
+**Status:** Complete (121 tests total)
 
 ### 5.1 Notifications ✅
 - [x] Email via SMTP (lettre)
@@ -89,11 +89,11 @@ Encrypted email + Nostr identity + Bitcoin inheritance. One seed, sovereign comm
 - [x] Event detection (appeared, spent, warning)
 - [x] Persistent state tracking
 - [x] Rate limiting
-- **Crate:** `nostring-watch` (13 tests + 2 integration)
+- **Crate:** `nostring-watch` (15 tests)
 
 ### 5.5 Hardware Wallet Integration ✅
 - [x] PSBT generation for check-in
-- [x] QR code display (qrcode.js)
+- [x] QR code display (QRious)
 - [x] QR scanning (jsQR + webcam)
 - [x] Electrum air-gap flow (base64 PSBTs)
 
@@ -111,26 +111,43 @@ Encrypted email + Nostr identity + Bitcoin inheritance. One seed, sovereign comm
 - [x] "How It Works" in-app education
 - [x] Toast notifications (replace alerts)
 - [x] QR code fix (browser-native library)
-- [x] Updated ARCHITECTURE.md for watch-only model
 
 ---
 
-## Phase 7: Notification Service Key 🔜
+## Phase 7: Persistence + Notifications ✅
 
-**Status:** Next
+**Status:** Complete (2026-02-03)
 
-- [ ] Generate Nostr keypair on first setup (service key)
-- [ ] Store encrypted in app state
-- [ ] Send NIP-44 encrypted DM reminders (30/7/1/0 day thresholds)
-- [ ] UI: display service npub with "follow this" instructions
-- [ ] Email notifications via SMTP (already built in nostring-notify)
-- [ ] Settings: configure notification preferences
+### 7.1 SQLite Persistence ✅
+- [x] SQLite database in Tauri app data dir
+- [x] `config` table: key-value store for wallet state, service key, settings
+- [x] `heirs` table: structured heir registry
+- [x] `checkin_log` table: timestamped check-in history
+- [x] Write-through helpers (every mutation persists immediately)
+- [x] Load on startup — state survives app restarts
+- [x] Watch-only wallets auto-unlock on restart
+
+### 7.2 Service Key Notifications ✅
+- [x] Generate Nostr keypair (service key) on first setup
+- [x] Service key persisted to SQLite
+- [x] NIP-04 encrypted DMs to owner's npub
+- [x] Notification thresholds: 30/7/1/0 days
+- [x] Tauri commands: configure_notifications, send_test_notification, check_and_notify
+- [x] Auto-check on status refresh (fires if thresholds hit)
+- [x] Frontend: notification settings UI (owner npub, email config, test DM)
+- [x] Email notifications via SMTP (configurable)
+
+### 7.3 End-to-End Testing ✅
+- [x] 10 offline integration tests covering full inheritance flow
+- [x] 2 network tests (mainnet + testnet Electrum)
+- [x] nsec inheritance formula verification
+- [x] All 131 workspace tests passing
 
 ---
 
 ## Phase 8: Nostr Identity Inheritance 🔜
 
-**Status:** Planned — see [NOSTR_INHERITANCE.md](NOSTR_INHERITANCE.md)
+**Status:** Next — see [NOSTR_INHERITANCE.md](NOSTR_INHERITANCE.md)
 
 ### 8.1 nsec Shamir Split
 - [ ] Optional nsec input during setup
@@ -153,9 +170,9 @@ Encrypted email + Nostr identity + Bitcoin inheritance. One seed, sovereign comm
 
 ---
 
-## Phase 9: Polish & Hardening
+## Phase 9: Release & Hardening
 
-- [ ] End-to-end testnet testing (Bitcoin + Nostr)
+- [ ] Build release binaries (macOS/Win/Linux)
 - [ ] Security audit preparation
 - [ ] Docker compose for self-hosting
 - [ ] Mobile consideration (Tauri mobile or separate app)
@@ -177,6 +194,7 @@ nostring/
 │   ├── nostring-watch     # UTXO monitoring (15 tests)
 │   └── nostring-email     # IMAP (placeholder)
 ├── tauri-app/             # Desktop application
+├── tests/e2e/             # Integration test suite (10 tests)
 └── docs/                  # Documentation
 ```
 
@@ -192,10 +210,11 @@ nostring/
 | nostring-electrum | 4 | ✅ (2 ignored) |
 | nostring-notify | 15 | ✅ |
 | nostring-watch | 15 | ✅ (2 ignored) |
-| **Total** | **121** | ✅ |
+| nostring-e2e | 12 | ✅ (2 ignored) |
+| **Total** | **133** | ✅ |
 
 *Ignored tests require network access. Run with `--ignored`.*
 
 ---
 
-*Last updated: 2026-02-02*
+*Last updated: 2026-02-03*

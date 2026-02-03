@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/RenAndKiwi/nostring/actions/workflows/ci.yml/badge.svg)](https://github.com/RenAndKiwi/nostring/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-115%20passing-brightgreen.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-131%20passing-brightgreen.svg)](#)
 
 *Your heirs inherit your Bitcoin when you stop checking in. No custodians. No monthly fees. Just math.*
 
@@ -38,7 +38,8 @@ You've taken custody of your Bitcoin. But what happens to it when you die?
 - **📋 Descriptor Backup** — Download your inheritance descriptor for recovery in any miniscript wallet
 - **🔑 Shamir Backup** — Split your seed with SLIP-39 or Codex32 (2-of-3, 3-of-5, etc.)
 - **📱 Air-Gap Signing** — QR-based PSBT flow for hardware wallets
-- **🔔 Notifications** — Email and Nostr DM reminders before timelock expiry
+- **🔔 Notifications** — Nostr DM + email reminders before timelock expiry (service key → owner npub)
+- **💾 Persistent State** — SQLite-backed storage; close and reopen without losing anything
 - **💻 Desktop App** — Cross-platform Tauri application (macOS, Windows, Linux)
 
 ---
@@ -144,9 +145,14 @@ nostring/
 │   ├── nostring-inherit   # Miniscript policies, check-in builder
 │   ├── nostring-shamir    # SLIP-39 and Codex32 secret sharing
 │   ├── nostring-electrum  # Bitcoin network via Electrum
-│   ├── nostring-notify    # Email and Nostr notifications
+│   ├── nostring-notify    # Nostr DM + email notifications
 │   └── nostring-watch     # UTXO monitoring service
-├── tauri-app/             # Desktop application
+├── tauri-app/             # Desktop application (Rust + vanilla JS)
+│   └── src-tauri/src/
+│       ├── db.rs          # SQLite persistence layer
+│       ├── state.rs       # AppState with write-through caching
+│       └── commands.rs    # All Tauri commands
+├── tests/e2e/             # Integration test suite
 └── docs/                  # Documentation
 ```
 
