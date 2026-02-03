@@ -1071,6 +1071,99 @@ pub async fn check_and_notify(
     }
 }
 
+// ============================================================================
+// Descriptor Backup Commands
+// ============================================================================
+
+/// Descriptor backup data returned to the frontend for file generation.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DescriptorBackupData {
+    pub descriptor: String,
+    pub network: String,
+    pub timelock_blocks: u16,
+    pub address: Option<String>,
+    pub heirs: Vec<DescriptorBackupHeir>,
+    pub nsec_owner_npub: Option<String>,
+    pub locked_shares: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DescriptorBackupHeir {
+    pub label: String,
+    pub xpub: String,
+    pub timelock_months: f64,
+}
+
+/// Get all data needed to generate the descriptor backup file.
+///
+/// Returns the inheritance descriptor, heir info, and any locked
+/// Shamir shares for nsec inheritance.
+#[tauri::command]
+pub async fn get_descriptor_backup(
+    state: State<'_, AppState>,
+) -> Result<CommandResult<DescriptorBackupData>, ()> {
+    let config = {
+        let config_lock = state.inheritance_config.lock().unwrap();
+        match &*config_lock {
+            Some(c) => c.clone(),
+            None => {
+                return Ok(CommandResult::err(
+                    "No inheritance policy configured. Add heirs first.",
+                ))
+            }
+        }
+    };
+
+    // Build heir list
+    let heirs: Vec<DescriptorBackupHeir> = {
+        let registry = state.heir_registry.lock().unwrap();
+        registry
+            .list()
+            .iter()
+            .map(|h| DescriptorBackupHeir {
+                label: h.label.clone(),
+                xpub: h.xpub.to_string(),
+                timelock_months: config.timelock_blocks as f64 * 10.0 / 60.0 / 24.0 / 30.0,
+            })
+            .collect()
+    };
+
+    // Derive inheritance address (index 0)
+    let address = {
+        use miniscript::descriptor::DescriptorPublicKey;
+        use miniscript::Descriptor;
+        let desc: Result<Descriptor<DescriptorPublicKey>, _> = config.descriptor.parse();
+        desc.ok()
+            .and_then(|d| d.at_derivation_index(0).ok())
+            .map(|d| {
+                let network = *state.network.lock().unwrap();
+                d.address(network).map(|a| a.to_string()).ok()
+            })
+            .flatten()
+    };
+
+    // Get nsec inheritance data
+    let conn = state.db.lock().unwrap();
+    let nsec_owner_npub = crate::db::config_get(&conn, "nsec_owner_npub")
+        .ok()
+        .flatten();
+    let locked_shares = crate::db::config_get(&conn, "nsec_locked_shares")
+        .ok()
+        .flatten()
+        .and_then(|j| serde_json::from_str::<Vec<String>>(&j).ok());
+    drop(conn);
+
+    Ok(CommandResult::ok(DescriptorBackupData {
+        descriptor: config.descriptor,
+        network: config.network,
+        timelock_blocks: config.timelock_blocks,
+        address,
+        heirs,
+        nsec_owner_npub,
+        locked_shares,
+    }))
+}
+
 /// Generate Codex32 shares for a seed
 #[tauri::command]
 pub async fn generate_codex32_shares(

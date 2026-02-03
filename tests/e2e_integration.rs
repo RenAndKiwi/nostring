@@ -20,6 +20,355 @@ use miniscript::descriptor::DescriptorPublicKey;
 use std::str::FromStr;
 
 // ============================================================================
+// 9. Descriptor Backup Round-Trip
+// ============================================================================
+
+/// Test that a descriptor backup file can be generated, serialized to text,
+/// parsed back, and the locked shares extracted and combined with a pre-distributed
+/// share to recover the nsec — end-to-end file round-trip.
+#[test]
+fn test_descriptor_backup_roundtrip() {
+    use nostring_shamir::codex32::{combine_shares, generate_shares, parse_share, Codex32Config};
+    use nostr_sdk::prelude::*;
+
+    // Setup: owner with 2 heirs
+    let owner_keys = Keys::generate();
+    let original_npub = owner_keys.public_key().to_bech32().unwrap();
+    let nsec_bytes = owner_keys.secret_key().as_secret_bytes().to_vec();
+
+    let n_heirs: u8 = 2;
+    let threshold = n_heirs + 1; // 3
+    let total = 2 * n_heirs + 1; // 5
+
+    let config = Codex32Config::new(threshold, "rcvy", total).expect("config");
+    let shares = generate_shares(&nsec_bytes, &config).expect("shares");
+    assert_eq!(shares.len(), 5);
+
+    // Pre-distributed: shares[0], shares[1] (one per heir)
+    // Locked: shares[2], shares[3], shares[4]
+    let pre_distributed: Vec<String> = shares[..2].iter().map(|s| s.encoded.clone()).collect();
+    let locked: Vec<String> = shares[2..].iter().map(|s| s.encoded.clone()).collect();
+
+    // === Simulate descriptor backup file generation ===
+    let descriptor_str = "wsh(or_d(pk([73c5da0a/84h/0h/0h]xpub6ABC.../0/*),and_v(v:pk([b2e5c4d1/84h/0h/0h]xpub6DEF.../0/*),older(26280))))";
+    let backup_content = format!(
+        r#"# NoString Descriptor Backup
+# Generated: 2026-02-03T09:00:00Z
+
+## Descriptor
+{descriptor}
+
+## Details
+Network: bitcoin
+Timelock: 26280 blocks (~182 days)
+
+## Heirs
+- Spouse: xpub6DEF... (6 months)
+- Sibling: xpub6GHI... (6 months)
+
+## Nostr Identity Inheritance
+Owner npub: {npub}
+
+### Locked Shares
+{locked_shares}
+
+### Heir Recovery Instructions
+1. Download NoString
+2. Choose "Recover a Loved One's Identity"
+3. Enter YOUR pre-distributed share + ALL locked shares above
+"#,
+        descriptor = descriptor_str,
+        npub = original_npub,
+        locked_shares = locked.iter().enumerate()
+            .map(|(i, s)| format!("Share {}: {}", i + 1, s))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    );
+
+    // === Simulate heir parsing the backup file ===
+    // Extract locked shares from the text
+    let mut extracted_locked: Vec<String> = Vec::new();
+    for line in backup_content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("Share ") && trimmed.contains(": ms1") {
+            // Parse "Share N: ms1..." format
+            if let Some(share_str) = trimmed.split(": ").nth(1) {
+                extracted_locked.push(share_str.to_string());
+            }
+        }
+    }
+    assert_eq!(
+        extracted_locked.len(),
+        locked.len(),
+        "Should extract all locked shares from backup text"
+    );
+    assert_eq!(
+        extracted_locked, locked,
+        "Extracted shares should match originals"
+    );
+
+    // Extract owner npub from backup
+    let mut extracted_npub: Option<String> = None;
+    for line in backup_content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("Owner npub: ") {
+            extracted_npub = Some(trimmed.trim_start_matches("Owner npub: ").to_string());
+        }
+    }
+    assert_eq!(
+        extracted_npub.as_deref(),
+        Some(original_npub.as_str()),
+        "Should extract owner npub"
+    );
+
+    // === Heir recovery: combine their share + locked shares ===
+    // Heir 0 recovers
+    let mut recovery_strings = vec![pre_distributed[0].clone()];
+    recovery_strings.extend(extracted_locked.iter().cloned());
+
+    let parsed_recovery: Vec<_> = recovery_strings
+        .iter()
+        .map(|s| parse_share(s).expect("parse share"))
+        .collect();
+
+    let recovered = combine_shares(&parsed_recovery).expect("combine");
+    assert_eq!(recovered, nsec_bytes, "Recovered bytes must match");
+
+    // Verify identity
+    let recovered_keys = Keys::parse(&hex::encode(&recovered)).expect("parse key");
+    assert_eq!(
+        recovered_keys.public_key().to_bech32().unwrap(),
+        original_npub,
+        "Recovered identity must match owner"
+    );
+
+    println!("✓ Descriptor backup round-trip: generate → serialize → parse → recover → verified");
+}
+
+/// Test that locked shares in JSON format (as stored in SQLite) roundtrip correctly.
+#[test]
+fn test_locked_shares_json_roundtrip() {
+    use nostring_shamir::codex32::{combine_shares, generate_shares, parse_share, Codex32Config};
+    use nostr_sdk::prelude::*;
+
+    let keys = Keys::generate();
+    let nsec_bytes = keys.secret_key().as_secret_bytes().to_vec();
+    let original_npub = keys.public_key().to_bech32().unwrap();
+
+    // 1 heir: 2-of-3
+    let config = Codex32Config::new(2, "jsnr", 3).expect("config");
+    let shares = generate_shares(&nsec_bytes, &config).expect("shares");
+
+    let pre_dist = shares[0].encoded.clone();
+    let locked: Vec<String> = shares[1..].iter().map(|s| s.encoded.clone()).collect();
+
+    // Serialize to JSON (as SQLite would store it)
+    let json = serde_json::to_string(&locked).expect("json encode");
+
+    // Deserialize back
+    let recovered_locked: Vec<String> = serde_json::from_str(&json).expect("json decode");
+    assert_eq!(recovered_locked, locked);
+
+    // Combine pre-distributed + deserialized locked → nsec
+    let mut all_shares = vec![pre_dist];
+    all_shares.extend(recovered_locked);
+
+    let parsed: Vec<_> = all_shares
+        .iter()
+        .map(|s| parse_share(s).expect("parse"))
+        .collect();
+    let recovered = combine_shares(&parsed).expect("combine");
+
+    let recovered_keys = Keys::parse(&hex::encode(&recovered)).expect("parse key");
+    assert_eq!(
+        recovered_keys.public_key().to_bech32().unwrap(),
+        original_npub
+    );
+
+    println!("✓ Locked shares JSON roundtrip works");
+}
+
+// ============================================================================
+// 10. Heir Recovery Flow Tests (simulating recover_nsec command)
+// ============================================================================
+
+/// Test the complete heir recovery flow as the recover_nsec command would do it:
+/// parse share strings → combine → validate as Nostr key → return nsec + npub.
+#[test]
+fn test_heir_recovery_command_flow() {
+    use nostring_shamir::codex32::{combine_shares, generate_shares, parse_share, Codex32Config};
+    use nostr_sdk::prelude::*;
+    use zeroize::Zeroize;
+
+    let owner_keys = Keys::generate();
+    let original_npub = owner_keys.public_key().to_bech32().unwrap();
+    let original_nsec = owner_keys.secret_key().to_bech32().unwrap();
+    let nsec_bytes = owner_keys.secret_key().as_secret_bytes().to_vec();
+
+    // 3 heirs: 4-of-7
+    let config = Codex32Config::new(4, "rcvr", 7).expect("config");
+    let shares = generate_shares(&nsec_bytes, &config).expect("shares");
+
+    // Simulate: heir 2 has their share + receives locked shares from descriptor backup
+    let heir_share = shares[2].encoded.clone(); // heir #3's pre-distributed share
+    let locked_shares: Vec<String> = shares[3..7].iter().map(|s| s.encoded.clone()).collect();
+
+    // Simulate the recover_nsec command logic
+    let mut input_shares: Vec<String> = vec![heir_share];
+    input_shares.extend(locked_shares);
+
+    // Step 1: Parse all share strings
+    let parsed: Vec<_> = input_shares
+        .iter()
+        .map(|s| parse_share(s).expect("parse share"))
+        .collect();
+    assert_eq!(parsed.len(), 5, "1 heir + 4 locked = 5 shares");
+
+    // Step 2: Combine
+    let mut recovered_bytes = combine_shares(&parsed).expect("combine");
+
+    // Step 3: Validate it's a real Nostr key
+    let recovered_hex = hex::encode(&recovered_bytes);
+    let recovered_keys = Keys::parse(&recovered_hex).expect("valid Nostr key");
+
+    // Step 4: Produce nsec and npub
+    let recovered_nsec = recovered_keys.secret_key().to_bech32().unwrap();
+    let recovered_npub = recovered_keys.public_key().to_bech32().unwrap();
+
+    assert_eq!(recovered_npub, original_npub, "npub must match");
+    assert_eq!(recovered_nsec, original_nsec, "nsec must match");
+
+    // Step 5: Zero intermediate bytes
+    recovered_bytes.zeroize();
+
+    println!("✓ Heir recovery command flow: parse → combine → validate → nsec+npub verified");
+}
+
+/// Test recovery fails gracefully with insufficient shares.
+#[test]
+fn test_heir_recovery_insufficient_shares() {
+    use nostring_shamir::codex32::{combine_shares, generate_shares, parse_share, Codex32Config};
+    use nostr_sdk::prelude::*;
+
+    let keys = Keys::generate();
+    let nsec_bytes = keys.secret_key().as_secret_bytes().to_vec();
+
+    // 2 heirs: 3-of-5
+    let config = Codex32Config::new(3, "fa9l", 5).expect("config");
+    let shares = generate_shares(&nsec_bytes, &config).expect("shares");
+
+    // Only 2 shares (below threshold of 3)
+    let two_shares: Vec<_> = shares[0..2]
+        .iter()
+        .map(|s| parse_share(&s.encoded).expect("parse"))
+        .collect();
+
+    let result = combine_shares(&two_shares);
+    assert!(
+        result.is_err(),
+        "Should fail with insufficient shares (2 < 3 threshold)"
+    );
+
+    println!("✓ Recovery correctly rejects insufficient shares");
+}
+
+/// Test recovery with only a single share fails.
+#[test]
+fn test_heir_recovery_single_share_rejected() {
+    use nostring_shamir::codex32::{combine_shares, generate_shares, parse_share, Codex32Config};
+    use nostr_sdk::prelude::*;
+
+    let keys = Keys::generate();
+    let nsec_bytes = keys.secret_key().as_secret_bytes().to_vec();
+
+    let config = Codex32Config::new(2, "sng0", 3).expect("config");
+    let shares = generate_shares(&nsec_bytes, &config).expect("shares");
+
+    let single = vec![parse_share(&shares[0].encoded).expect("parse")];
+    let result = combine_shares(&single);
+    assert!(result.is_err(), "Single share must not reconstruct");
+
+    println!("✓ Single share correctly rejected");
+}
+
+/// Test recovery works for all heir counts from 1 to 6 (covering the formula).
+#[test]
+fn test_heir_recovery_all_heir_counts() {
+    use nostring_shamir::codex32::{combine_shares, generate_shares, parse_share, Codex32Config};
+    use nostr_sdk::prelude::*;
+
+    for n_heirs in 1u8..=6 {
+        let keys = Keys::generate();
+        let original_npub = keys.public_key().to_bech32().unwrap();
+        let nsec_bytes = keys.secret_key().as_secret_bytes().to_vec();
+
+        let threshold = n_heirs + 1;
+        let total = 2 * n_heirs + 1;
+
+        // Use different identifier per count (4 lowercase bech32 chars)
+        // bech32 charset has no 'b','i','o','1' — use safe chars
+        let safe_chars = ['q','p','z','r','y','x'];
+        let id = format!("n{}{}{}", safe_chars[n_heirs as usize % 6], safe_chars[(n_heirs as usize + 1) % 6], safe_chars[(n_heirs as usize + 2) % 6]);
+        let config = Codex32Config::new(threshold, &id, total).expect("config");
+        let shares = generate_shares(&nsec_bytes, &config).expect("shares");
+
+        // Verify: all heirs colluding can't recover
+        if n_heirs > 1 {
+            let collusion: Vec<_> = shares[..n_heirs as usize]
+                .iter()
+                .map(|s| parse_share(&s.encoded).expect("parse"))
+                .collect();
+            assert!(
+                combine_shares(&collusion).is_err(),
+                "N={}: All {} heirs colluding must fail (need {})",
+                n_heirs,
+                n_heirs,
+                threshold
+            );
+        }
+
+        // Verify: any single heir + locked shares recovers
+        for heir_idx in 0..n_heirs as usize {
+            let mut recovery = vec![parse_share(&shares[heir_idx].encoded).expect("parse")];
+            for locked in &shares[n_heirs as usize..] {
+                recovery.push(parse_share(&locked.encoded).expect("parse"));
+            }
+
+            let recovered = combine_shares(&recovery).expect("combine");
+            let recovered_keys = Keys::parse(&hex::encode(&recovered)).expect("parse key");
+            assert_eq!(
+                recovered_keys.public_key().to_bech32().unwrap(),
+                original_npub,
+                "N={}: Heir {} recovery must produce correct npub",
+                n_heirs,
+                heir_idx
+            );
+        }
+
+        // Verify: locked shares alone recover (resilience)
+        let locked_only: Vec<_> = shares[n_heirs as usize..]
+            .iter()
+            .map(|s| parse_share(&s.encoded).expect("parse"))
+            .collect();
+        let recovered = combine_shares(&locked_only).expect("locked-only combine");
+        let recovered_keys = Keys::parse(&hex::encode(&recovered)).expect("parse key");
+        assert_eq!(
+            recovered_keys.public_key().to_bech32().unwrap(),
+            original_npub,
+            "N={}: Locked shares alone must recover (resilience)",
+            n_heirs
+        );
+
+        println!(
+            "  ✓ N={}: {}-of-{} — collusion blocked, all heirs recover, locked-only resilient",
+            n_heirs, threshold, total
+        );
+    }
+
+    println!("✓ All heir counts 1-6 verified end-to-end");
+}
+
+// ============================================================================
 // 1. Seed + Key Derivation
 // ============================================================================
 

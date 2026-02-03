@@ -72,6 +72,8 @@ fn main() {
             commands::get_notification_settings,
             commands::send_test_notification,
             commands::check_and_notify,
+            // Descriptor backup
+            commands::get_descriptor_backup,
             // Settings
             commands::get_electrum_url,
             commands::set_electrum_url,
