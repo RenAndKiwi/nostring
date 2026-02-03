@@ -29,6 +29,7 @@ const invoke = DEMO_MODE
             ],
             'initiate_checkin': { success: true, psbt: 'cHNidP8BAH...' },
             'import_seed': { success: true },
+            'import_watch_only': { success: true },
             'unlock_seed': { success: true },
             'lock_wallet': { success: true },
             'get_electrum_url': 'ssl://blockstream.info:700',
@@ -115,7 +116,7 @@ function switchTab(tab) {
 }
 
 // ============================================================================
-// Setup Screen (No seed yet)
+// Setup Screen
 // ============================================================================
 function showSetupScreen() {
     const content = document.getElementById('content');
@@ -125,14 +126,44 @@ function showSetupScreen() {
             <p>Sovereign Bitcoin inheritance. No trusted third parties.</p>
             
             <div class="setup-options">
-                <button type="button" id="btn-create-seed" class="btn-primary">
-                    ✨ Create New Seed
-                </button>
-                <button type="button" id="btn-import-seed" class="btn-secondary">
-                    📥 Import Existing Seed
-                </button>
+                <div class="setup-card recommended" id="opt-watch-only">
+                    <div class="setup-card-badge">Recommended</div>
+                    <h3>👁️ Watch-Only Wallet</h3>
+                    <p>Import your xpub. Your keys stay on your hardware wallet. NoString just coordinates — you sign check-ins externally.</p>
+                </div>
+                
+                <div class="setup-card" id="opt-import-seed">
+                    <h3>📥 Import Seed (Advanced)</h3>
+                    <p>Import a recovery phrase. NoString holds your keys. Less secure — only if you know what you're doing.</p>
+                </div>
+                
+                <div class="setup-card" id="opt-create-seed">
+                    <h3>✨ Generate New Seed</h3>
+                    <p>Create a new wallet for testing or if you don't have one yet.</p>
+                </div>
             </div>
             
+            <!-- Watch-Only Form -->
+            <div id="watch-only-form" class="hidden">
+                <h3>Import Watch-Only Wallet</h3>
+                <p class="text-muted">Export your xpub from your wallet app (Electrum: Wallet → Information, or your hardware wallet companion app).</p>
+                <div class="form-row">
+                    <label>Your Extended Public Key (xpub)</label>
+                    <textarea id="watch-xpub" placeholder="xpub6ABC..."></textarea>
+                </div>
+                <div class="password-setup">
+                    <label>App Password (encrypts local data):</label>
+                    <input type="password" id="watch-password" placeholder="Minimum 8 characters">
+                    <label>Confirm Password:</label>
+                    <input type="password" id="watch-password-confirm" placeholder="Confirm password">
+                    <div class="form-actions">
+                        <button type="button" id="btn-confirm-watch" class="btn-primary">Continue →</button>
+                        <button type="button" id="btn-back-watch" class="btn-secondary">Back</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Seed Display (after generation) -->
             <div id="seed-display" class="hidden">
                 <h3>Your Recovery Phrase</h3>
                 <p class="warning">⚠️ Write this down and store it safely. Never share it with anyone.</p>
@@ -146,6 +177,7 @@ function showSetupScreen() {
                 </div>
             </div>
             
+            <!-- Import Seed Form -->
             <div id="import-form" class="hidden">
                 <h3>Import Recovery Phrase</h3>
                 <textarea id="import-mnemonic" placeholder="Enter your 12 or 24 word recovery phrase, separated by spaces"></textarea>
@@ -154,15 +186,75 @@ function showSetupScreen() {
                     <input type="password" id="import-password" placeholder="Minimum 8 characters">
                     <label>Confirm Password:</label>
                     <input type="password" id="import-password-confirm" placeholder="Confirm password">
-                    <button type="button" id="btn-confirm-import" class="btn-primary">Import & Encrypt</button>
-                    <button type="button" id="btn-back-setup" class="btn-secondary">Back</button>
+                    <div class="form-actions">
+                        <button type="button" id="btn-confirm-import" class="btn-primary">Import & Encrypt</button>
+                        <button type="button" id="btn-back-import" class="btn-secondary">Back</button>
+                    </div>
                 </div>
             </div>
         </div>
     `;
     
-    document.getElementById('btn-create-seed').addEventListener('click', createNewSeed);
-    document.getElementById('btn-import-seed').addEventListener('click', showImportForm);
+    // Setup card clicks
+    document.getElementById('opt-watch-only').addEventListener('click', showWatchOnlyForm);
+    document.getElementById('opt-import-seed').addEventListener('click', showImportForm);
+    document.getElementById('opt-create-seed').addEventListener('click', createNewSeed);
+}
+
+function showWatchOnlyForm() {
+    document.getElementById('watch-only-form').classList.remove('hidden');
+    document.querySelector('.setup-options').classList.add('hidden');
+    
+    document.getElementById('btn-confirm-watch').addEventListener('click', confirmWatchOnly);
+    document.getElementById('btn-back-watch').addEventListener('click', () => {
+        document.getElementById('watch-only-form').classList.add('hidden');
+        document.querySelector('.setup-options').classList.remove('hidden');
+    });
+}
+
+async function confirmWatchOnly() {
+    const xpub = document.getElementById('watch-xpub').value.trim();
+    const password = document.getElementById('watch-password').value;
+    const confirm = document.getElementById('watch-password-confirm').value;
+    
+    if (!xpub) {
+        showError('Please enter your xpub');
+        return;
+    }
+    
+    if (!/^(xpub|ypub|zpub|tpub|\[)/i.test(xpub)) {
+        showError('Please enter a valid xpub (starts with xpub, ypub, zpub, or tpub)');
+        return;
+    }
+    
+    if (!password) {
+        showError('Please enter a password');
+        return;
+    }
+    
+    if (password !== confirm) {
+        showError('Passwords do not match');
+        return;
+    }
+    
+    if (password.length < 8) {
+        showError('Password must be at least 8 characters');
+        return;
+    }
+    
+    try {
+        const result = await invoke('import_watch_only', { xpub, password });
+        
+        if (result.success) {
+            isUnlocked = true;
+            showSetupWizard();
+        } else {
+            showError('Error: ' + (result.error || 'Failed to import'));
+        }
+    } catch (err) {
+        console.error('Failed to import watch-only:', err);
+        showError('Failed to import watch-only wallet');
+    }
 }
 
 async function createNewSeed() {
@@ -227,7 +319,7 @@ function showImportForm() {
     document.querySelector('.setup-options').classList.add('hidden');
     
     document.getElementById('btn-confirm-import').addEventListener('click', importExistingSeed);
-    document.getElementById('btn-back-setup').addEventListener('click', () => {
+    document.getElementById('btn-back-import').addEventListener('click', () => {
         document.getElementById('import-form').classList.add('hidden');
         document.querySelector('.setup-options').classList.remove('hidden');
     });

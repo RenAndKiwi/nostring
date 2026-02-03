@@ -13,10 +13,11 @@ fn main() {
     tauri::Builder::default()
         .manage(AppState::new())
         .invoke_handler(tauri::generate_handler![
-            // Seed management
+            // Seed / wallet management
             commands::create_seed,
             commands::validate_seed,
             commands::import_seed,
+            commands::import_watch_only,
             commands::has_seed,
             commands::unlock_seed,
             commands::lock_wallet,

@@ -49,6 +49,10 @@ pub struct InheritanceConfig {
 pub struct AppState {
     /// Encrypted seed bytes (serialized EncryptedSeed)
     pub encrypted_seed: Mutex<Option<Vec<u8>>>,
+    /// Owner xpub for watch-only mode
+    pub owner_xpub: Mutex<Option<String>>,
+    /// Whether running in watch-only mode (no private keys)
+    pub watch_only: Mutex<bool>,
     /// Whether user is "unlocked" (seed decrypted in session)
     pub unlocked: Mutex<bool>,
     /// Cached policy status
@@ -70,6 +74,8 @@ impl Default for AppState {
     fn default() -> Self {
         Self {
             encrypted_seed: Mutex::new(None),
+            owner_xpub: Mutex::new(None),
+            watch_only: Mutex::new(false),
             unlocked: Mutex::new(false),
             policy_status: Mutex::new(None),
             electrum_url: Mutex::new("ssl://electrum.blockstream.info:60002".to_string()),

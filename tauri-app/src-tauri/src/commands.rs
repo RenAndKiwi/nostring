@@ -101,11 +101,46 @@ pub async fn import_seed(
     }
 }
 
-/// Check if a seed is loaded
+/// Import watch-only wallet (xpub only, no seed)
+#[tauri::command]
+pub async fn import_watch_only(
+    xpub: String,
+    _password: String,
+    state: State<'_, AppState>,
+) -> Result<CommandResult<bool>, ()> {
+    // Validate xpub format
+    if !xpub.starts_with("xpub")
+        && !xpub.starts_with("ypub")
+        && !xpub.starts_with("zpub")
+        && !xpub.starts_with("tpub")
+        && !xpub.starts_with("[")
+    {
+        return Ok(CommandResult::err(
+            "Invalid xpub format. Expected xpub, ypub, zpub, tpub, or descriptor.",
+        ));
+    }
+
+    // Store the xpub as the owner key (no private key needed)
+    let mut owner_xpub = state.owner_xpub.lock().unwrap();
+    *owner_xpub = Some(xpub);
+
+    // Mark as watch-only mode
+    let mut watch_only = state.watch_only.lock().unwrap();
+    *watch_only = true;
+
+    // Mark as unlocked
+    let mut unlocked = state.unlocked.lock().unwrap();
+    *unlocked = true;
+
+    Ok(CommandResult::ok(true))
+}
+
+/// Check if a seed or wallet is loaded
 #[tauri::command]
 pub async fn has_seed(state: State<'_, AppState>) -> Result<bool, ()> {
     let seed_lock = state.encrypted_seed.lock().unwrap();
-    Ok(seed_lock.is_some())
+    let xpub_lock = state.owner_xpub.lock().unwrap();
+    Ok(seed_lock.is_some() || xpub_lock.is_some())
 }
 
 /// Unlock (decrypt) the seed with password
