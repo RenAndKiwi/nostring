@@ -89,6 +89,15 @@ const invoke = DEMO_MODE
             'get_notification_settings': { owner_npub: null, email_address: null, email_smtp_host: null, service_npub: 'npub1demo...' },
             'send_test_notification': { success: true, data: 'Test DM sent!' },
             'check_and_notify': { success: true, data: 'No notification needed.' },
+            'get_spend_events': [
+                { id: 1, timestamp: Math.floor(Date.now()/1000) - 86400*2, txid: 'abc123def456abc123def456abc123def456abc123def456abc123def456abcd', spend_type: 'owner_checkin', confidence: 0.95, method: 'witness_analysis', policy_id: null, outpoint: null },
+                { id: 2, timestamp: Math.floor(Date.now()/1000) - 86400*15, txid: 'f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6', spend_type: 'heir_claim', confidence: 0.90, method: 'witness_analysis', policy_id: null, outpoint: null },
+                { id: 3, timestamp: Math.floor(Date.now()/1000) - 86400*30, txid: '789012ghi789012ghi789012ghi789012ghi789012ghi789012ghi789012ghij', spend_type: 'owner_checkin', confidence: 0.99, method: 'timelock_timing', policy_id: null, outpoint: null },
+                { id: 4, timestamp: Math.floor(Date.now()/1000) - 86400*60, txid: 'deadbeef1234deadbeef1234deadbeef1234deadbeef1234deadbeef12345678', spend_type: 'unknown', confidence: 0.30, method: 'indeterminate', policy_id: null, outpoint: null },
+                { id: 5, timestamp: Math.floor(Date.now()/1000) - 86400*90, txid: 'cafebabe5678cafebabe5678cafebabe5678cafebabe5678cafebabe56781234', spend_type: 'owner_checkin', confidence: 0.70, method: 'witness_analysis', policy_id: null, outpoint: null },
+            ],
+            'check_heir_claims': true,
+            'detect_spend_type': { id: 0, timestamp: Math.floor(Date.now()/1000), txid: 'test', spend_type: 'owner_checkin', confidence: 0.95, method: 'witness_analysis', policy_id: null, outpoint: null },
         };
         return mocks[cmd] ?? { success: true }
     }
@@ -103,6 +112,8 @@ let policyStatus = null;
 let heirs = [];
 let wizardStep = 1;
 let wizardHeirs = [];
+let spendEvents = [];
+let hasHeirClaims = false;
 
 // ============================================================================
 // Initialization
@@ -708,6 +719,8 @@ function showMainApp() {
     const content = document.getElementById('content');
     content.innerHTML = `
         <section id="status-tab" class="tab-content active">
+            <div id="heir-claim-banner"></div>
+            
             <div class="status-card">
                 <div class="card-header">
                     <h2>📊 Inheritance Status</h2>
@@ -721,6 +734,8 @@ function showMainApp() {
                 <p class="text-muted">Prove you're alive and reset your inheritance timelock.</p>
                 <button type="button" id="btn-checkin" class="btn-primary mt-2">Initiate Check-in</button>
             </div>
+            
+            <div id="activity-log"></div>
             
             <div class="how-it-works">
                 <button type="button" id="btn-toggle-how" class="btn-link">ℹ️ How does this work?</button>
@@ -1005,6 +1020,9 @@ async function refreshStatus() {
             invoke('check_and_notify').catch(err => {
                 console.log('Notification check:', err);
             });
+
+            // Load spend events (activity log + heir claim banner)
+            loadSpendEvents();
         } else {
             display.innerHTML = `<p class="error">Error: ${result.error}</p>`;
         }
@@ -1999,6 +2017,250 @@ async function saveElectrumUrl() {
     const url = document.getElementById('electrum-url').value;
     await invoke('set_electrum_url', { url });
     showSuccess('Electrum server saved');
+}
+
+// ============================================================================
+// Spend Events — Activity Log & Heir Claim Banner
+// ============================================================================
+
+async function loadSpendEvents() {
+    try {
+        const [events, claims] = await Promise.all([
+            invoke('get_spend_events'),
+            invoke('check_heir_claims'),
+        ]);
+        spendEvents = Array.isArray(events) ? events : [];
+        hasHeirClaims = !!claims;
+
+        // Render banner
+        const bannerEl = document.getElementById('heir-claim-banner');
+        if (bannerEl) {
+            bannerEl.innerHTML = renderHeirClaimBanner(spendEvents);
+            setupBannerHandlers();
+        }
+
+        // Render activity log
+        const logEl = document.getElementById('activity-log');
+        if (logEl) {
+            logEl.innerHTML = renderActivityLog(spendEvents);
+            setupActivityLogHandlers();
+        }
+
+        // Update heir claims row in status display
+        updateHeirClaimsStatusRow();
+    } catch (err) {
+        console.error('Failed to load spend events:', err);
+    }
+}
+
+function renderHeirClaimBanner(events) {
+    const heirClaims = events.filter(e => e.spend_type === 'heir_claim' && e.confidence >= 0.50);
+    if (heirClaims.length === 0) return '';
+
+    // Check if the latest heir claim has been dismissed
+    const latestClaim = heirClaims.reduce((a, b) => (a.id > b.id ? a : b));
+    const dismissedId = localStorage.getItem('nostring_heir_alert_dismissed');
+    if (dismissedId && parseInt(dismissedId) >= latestClaim.id) return '';
+
+    const confidencePct = Math.round(latestClaim.confidence * 100);
+    const isLowConfidence = latestClaim.confidence < 0.85;
+
+    const title = isLowConfidence
+        ? `⚠️ POSSIBLE HEIR CLAIM (${confidencePct}% confidence — review manually)`
+        : `⚠️ HEIR CLAIM DETECTED (${confidencePct}% confidence)`;
+
+    return `
+        <div class="heir-claim-banner" data-event-id="${latestClaim.id}">
+            <div class="heir-claim-banner-header">
+                <span class="heir-claim-banner-title">${title}</span>
+                <button type="button" class="heir-claim-banner-dismiss" id="btn-banner-x" title="Dismiss">✕</button>
+            </div>
+            <p>An heir has claimed funds from your inheritance address. This may indicate an unauthorized spend.</p>
+            <p>If this is unexpected, your funds may have been claimed. Contact your heirs or review the transaction on a block explorer.</p>
+            <div class="heir-claim-banner-actions">
+                <button type="button" class="btn-view-details" id="btn-banner-view">View Details ↓</button>
+                <button type="button" class="btn-dismiss-alert" id="btn-banner-dismiss">Dismiss</button>
+            </div>
+        </div>
+    `;
+}
+
+function setupBannerHandlers() {
+    const banner = document.querySelector('.heir-claim-banner');
+    if (!banner) return;
+    const eventId = banner.dataset.eventId;
+
+    const dismissFn = () => {
+        localStorage.setItem('nostring_heir_alert_dismissed', eventId);
+        banner.remove();
+    };
+
+    const viewFn = () => {
+        const logEl = document.getElementById('activity-log');
+        if (logEl) {
+            const logContainer = logEl.querySelector('.activity-log');
+            if (logContainer && !logContainer.classList.contains('expanded')) {
+                logContainer.classList.add('expanded');
+            }
+            logEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    };
+
+    const xBtn = document.getElementById('btn-banner-x');
+    const dismissBtn = document.getElementById('btn-banner-dismiss');
+    const viewBtn = document.getElementById('btn-banner-view');
+
+    if (xBtn) xBtn.addEventListener('click', dismissFn);
+    if (dismissBtn) dismissBtn.addEventListener('click', dismissFn);
+    if (viewBtn) viewBtn.addEventListener('click', viewFn);
+}
+
+function renderActivityLog(events) {
+    const limited = events.slice(0, 20);
+    const heirClaimsExist = events.some(e => e.spend_type === 'heir_claim');
+    const expandedClass = heirClaimsExist ? ' expanded' : '';
+
+    const body = limited.length === 0
+        ? '<div class="activity-log-empty">No spend events recorded yet. Events appear when UTXOs are spent.</div>'
+        : limited.map(e => renderSpendEventRow(e)).join('');
+
+    return `
+        <div class="activity-log${expandedClass}">
+            <div class="activity-log-header" id="activity-log-toggle">
+                <h3>📋 Activity Log</h3>
+                <div class="activity-log-header-actions">
+                    <span class="activity-log-toggle">▼</span>
+                </div>
+            </div>
+            <div class="activity-log-body">
+                ${body}
+            </div>
+        </div>
+    `;
+}
+
+function setupActivityLogHandlers() {
+    const toggleBtn = document.getElementById('activity-log-toggle');
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', () => {
+            const logContainer = toggleBtn.closest('.activity-log');
+            if (logContainer) {
+                logContainer.classList.toggle('expanded');
+            }
+        });
+    }
+}
+
+function renderSpendEventRow(event) {
+    const icon = event.spend_type === 'owner_checkin' ? '✅'
+        : event.spend_type === 'heir_claim' ? '⚠️'
+        : '❓';
+
+    const typeLabel = event.spend_type === 'owner_checkin' ? 'Owner Check-in'
+        : event.spend_type === 'heir_claim' ? 'Heir Claim'
+        : 'Unknown';
+
+    const typeClass = event.spend_type === 'heir_claim' ? ' heir-claim' : '';
+
+    const date = new Date(event.timestamp * 1000);
+    const dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    const methodLabel = event.method === 'witness_analysis' ? 'Witness analysis'
+        : event.method === 'timelock_timing' ? 'Timelock timing'
+        : event.method === 'indeterminate' ? 'Indeterminate'
+        : event.method || 'Unknown';
+
+    // Detect network from any available context — default to mainnet
+    const network = 'mainnet';
+
+    return `
+        <div class="spend-event-row">
+            <span class="spend-type-icon">${icon}</span>
+            <div class="spend-event-details">
+                <div class="spend-event-top">
+                    <span class="spend-event-type${typeClass}">${typeLabel}</span>
+                    <span class="spend-event-date">${dateStr}</span>
+                </div>
+                <div class="spend-event-meta">
+                    <span class="spend-event-txid">${formatTxidLink(event.txid, network)}</span>
+                    ${renderConfidenceIndicator(event.confidence)}
+                    <span class="spend-event-method">${escapeHtml(methodLabel)}</span>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function renderConfidenceIndicator(confidence) {
+    const pct = Math.round(confidence * 100);
+    let filledCount, color, label;
+
+    if (confidence >= 0.90) {
+        filledCount = 5; color = '#10b981'; label = 'Very High';
+    } else if (confidence >= 0.70) {
+        filledCount = 4; color = '#84cc16'; label = 'High';
+    } else if (confidence >= 0.50) {
+        filledCount = 3; color = '#eab308'; label = 'Medium';
+    } else if (confidence >= 0.30) {
+        filledCount = 2; color = '#f97316'; label = 'Low';
+    } else {
+        filledCount = 1; color = '#ef4444'; label = 'Very Low';
+    }
+
+    let dots = '';
+    for (let i = 0; i < 5; i++) {
+        if (i < filledCount) {
+            dots += `<span class="confidence-dot filled" style="background:${color}"></span>`;
+        } else {
+            dots += `<span class="confidence-dot empty"></span>`;
+        }
+    }
+
+    return `<span class="confidence-indicator"><span class="confidence-dots">${dots}</span><span class="confidence-label">${pct}%</span></span>`;
+}
+
+function formatTxidLink(txid, network) {
+    if (!txid) return '<span class="text-muted">—</span>';
+
+    const truncated = txid.length > 14
+        ? txid.substring(0, 8) + '…' + txid.substring(txid.length - 6)
+        : txid;
+
+    const baseUrl = network === 'testnet'
+        ? 'https://mempool.space/testnet/tx/'
+        : network === 'signet'
+        ? 'https://mempool.space/signet/tx/'
+        : 'https://mempool.space/tx/';
+
+    return `<a href="${baseUrl}${encodeURIComponent(txid)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(txid)}">${truncated}</a>`;
+}
+
+function updateHeirClaimsStatusRow() {
+    const display = document.getElementById('status-display');
+    if (!display) return;
+
+    // Remove existing heir claims row if present
+    const existing = document.getElementById('status-heir-claims');
+    if (existing) existing.remove();
+
+    const heirClaimCount = spendEvents.filter(e => e.spend_type === 'heir_claim').length;
+    const row = document.createElement('div');
+    row.className = 'status-item';
+    row.id = 'status-heir-claims';
+
+    if (heirClaimCount > 0) {
+        row.innerHTML = `
+            <span class="label">Heir Claims</span>
+            <span class="value" style="color: #ef4444;">⚠️ ${heirClaimCount} detected</span>
+        `;
+    } else {
+        row.innerHTML = `
+            <span class="label">Heir Claims</span>
+            <span class="value" style="color: var(--success);">✅ None</span>
+        `;
+    }
+
+    display.appendChild(row);
 }
 
 // ============================================================================

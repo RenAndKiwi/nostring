@@ -1115,3 +1115,301 @@ textarea {
     gap: 0.75rem;
     margin-top: 1rem;
 }
+
+/* ============================================================================
+   Heir Claim Alert Banner
+   ============================================================================ */
+.heir-claim-banner {
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-left: 4px solid #ef4444;
+    border-radius: 8px;
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 1.25rem;
+    position: relative;
+    animation: fadeIn 0.3s ease;
+}
+
+.heir-claim-banner-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 0.5rem;
+}
+
+.heir-claim-banner-title {
+    font-weight: 700;
+    font-size: 1rem;
+    color: #ef4444;
+}
+
+.heir-claim-banner-dismiss {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.25rem;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+    transition: color 0.2s;
+}
+
+.heir-claim-banner-dismiss:hover {
+    color: var(--text-primary);
+}
+
+.heir-claim-banner p {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    line-height: 1.5;
+    margin: 0.25rem 0;
+}
+
+.heir-claim-banner-actions {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+}
+
+.heir-claim-banner-actions button {
+    padding: 0.4rem 1rem;
+    font-size: 0.85rem;
+    border-radius: 6px;
+}
+
+.btn-view-details {
+    background: rgba(239, 68, 68, 0.2);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    color: #fca5a5;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-view-details:hover {
+    background: rgba(239, 68, 68, 0.3);
+}
+
+.btn-dismiss-alert {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-dismiss-alert:hover {
+    background: var(--bg-hover);
+}
+
+/* ============================================================================
+   Activity Log
+   ============================================================================ */
+.activity-log {
+    background: var(--bg-card);
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-sm);
+    margin-bottom: 1.25rem;
+    overflow: hidden;
+}
+
+.activity-log-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.5rem;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.2s;
+}
+
+.activity-log-header:hover {
+    background: var(--bg-hover);
+}
+
+.activity-log-header h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.activity-log-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.activity-log-toggle {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    transition: transform 0.2s;
+}
+
+.activity-log.expanded .activity-log-toggle {
+    transform: rotate(180deg);
+}
+
+.activity-log-body {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease;
+}
+
+.activity-log.expanded .activity-log-body {
+    max-height: 2000px;
+}
+
+.activity-log-empty {
+    padding: 2rem 1.5rem;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
+/* ============================================================================
+   Spend Event Row
+   ============================================================================ */
+.spend-event-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    padding: 1rem 1.5rem;
+    border-top: 1px solid var(--border);
+    transition: background 0.15s;
+}
+
+.spend-event-row:hover {
+    background: var(--bg-hover);
+}
+
+.spend-type-icon {
+    font-size: 1.25rem;
+    flex-shrink: 0;
+    width: 2rem;
+    text-align: center;
+    padding-top: 0.1rem;
+}
+
+.spend-event-details {
+    flex: 1;
+    min-width: 0;
+}
+
+.spend-event-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.35rem;
+}
+
+.spend-event-type {
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--text-primary);
+}
+
+.spend-event-type.heir-claim {
+    color: #ef4444;
+}
+
+.spend-event-date {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    flex-shrink: 0;
+}
+
+.spend-event-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.spend-event-txid a {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    color: var(--brand-gold);
+    text-decoration: none;
+    font-size: 0.8rem;
+    transition: color 0.2s;
+}
+
+.spend-event-txid a:hover {
+    color: var(--brand-gold-dark);
+    text-decoration: underline;
+}
+
+.spend-event-method {
+    color: var(--text-muted);
+    font-style: italic;
+    font-size: 0.8rem;
+}
+
+/* ============================================================================
+   Confidence Indicator (Dot Bar)
+   ============================================================================ */
+.confidence-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.confidence-dots {
+    display: inline-flex;
+    gap: 3px;
+    align-items: center;
+}
+
+.confidence-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    transition: background 0.2s;
+}
+
+.confidence-dot.filled {
+    /* Color set via inline style based on confidence level */
+}
+
+.confidence-dot.empty {
+    background: var(--border);
+}
+
+.confidence-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-left: 0.15rem;
+}
+
+/* ============================================================================
+   Activity Log Responsive
+   ============================================================================ */
+@media (max-width: 768px) {
+    .spend-event-row {
+        flex-direction: row;
+        gap: 0.75rem;
+        padding: 0.875rem 1rem;
+    }
+
+    .spend-event-top {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.2rem;
+    }
+
+    .spend-event-meta {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.35rem;
+    }
+
+    .heir-claim-banner {
+        padding: 1rem;
+    }
+
+    .heir-claim-banner-actions {
+        flex-direction: column;
+    }
+}
