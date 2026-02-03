@@ -1,20 +1,53 @@
+<div align="center">
+
 # NoString
 
-**Sovereign Bitcoin inheritance. No trusted third parties.**
+**Bitcoin inheritance without trusted third parties.**
 
-NoString is a Bitcoin inheritance system that uses timelocked transactions to pass Bitcoin to your heirs without lawyers, courts, or custodians. Check in periodically to prove you're still in control. If you stop checking in, your heirs can claim.
+[![CI](https://github.com/RenAndKiwi/nostring/actions/workflows/ci.yml/badge.svg)](https://github.com/RenAndKiwi/nostring/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-115%20passing-brightgreen.svg)](#)
+
+*Your heirs inherit your Bitcoin when you stop checking in. No custodians. No monthly fees. Just math.*
+
+[Features](#features) • [Quick Start](#quick-start) • [How It Works](#how-it-works) • [Documentation](#documentation)
+
+</div>
+
+---
+
+## The Problem
+
+You've taken custody of your Bitcoin. But what happens to it when you die?
+
+| Traditional Option | The Problem |
+|-------------------|-------------|
+| **Custodians** | They can rug you, get hacked, or go bankrupt |
+| **Paper instructions** | Heirs lose access, get phished, or can't execute |
+| **Lawyers & wills** | Probate courts, delays, fees—they don't understand Bitcoin |
+
+**NoString solves this with timelocks.** Your heirs can only claim after you stop checking in. No company, no custodian, no permission needed.
 
 ---
 
 ## Features
 
-- **Single Seed** — One BIP-39 mnemonic for Bitcoin and Nostr identity
-- **Timelock Inheritance** — Miniscript policies with configurable check-in periods
-- **Multi-Heir Support** — Cascade timelocks (spouse → children → executor)
-- **Shamir Backup** — Split your seed with SLIP-39 or Codex32
-- **Air-Gap Signing** — QR-based PSBT flow for hardware wallets
-- **Notifications** — Email and Nostr DM reminders before timelock expiry
-- **Desktop App** — Cross-platform Tauri application
+- **🔐 Single Seed** — One BIP-39 mnemonic for Bitcoin and Nostr identity
+- **⏱️ Timelock Inheritance** — Miniscript policies with configurable check-in periods
+- **👥 Multi-Heir Cascade** — Spouse at 6 months → Children at 12 months → Executor at 18 months
+- **🔑 Shamir Backup** — Split your seed with SLIP-39 or Codex32 (2-of-3, 3-of-5, etc.)
+- **📱 Air-Gap Signing** — QR-based PSBT flow for Electrum or hardware wallets
+- **🔔 Notifications** — Email and Nostr DM reminders before timelock expiry
+- **💻 Desktop App** — Cross-platform Tauri application (macOS, Windows, Linux)
+
+---
+
+## Screenshots
+
+<div align="center">
+<img src="docs/assets/screenshot-dashboard.png" alt="Dashboard" width="600">
+<p><em>Dashboard showing policy status, check-in timeline, and heir cascade</em></p>
+</div>
 
 ---
 
@@ -22,39 +55,59 @@ NoString is a Bitcoin inheritance system that uses timelocked transactions to pa
 
 ### Prerequisites
 
-- Rust 1.75+
+- Rust 1.75+ (`rustup update stable`)
 - Node.js 20+ (for Tauri frontend)
 
-### Build
+### Build from Source
 
 ```bash
-# Clone (replace with actual repo URL when published)
 git clone https://github.com/RenAndKiwi/nostring
 cd nostring
-
-# Build all crates
-cargo build --release
 
 # Run tests
 cargo test
 
-# Build Tauri app (requires additional setup)
-cd tauri-app
-npm install
-npm run tauri build
+# Build release
+cargo build --release
+
+# Build desktop app
+cd tauri-app/src-tauri
+cargo tauri build
 ```
 
-### Development
+### Download Binary
 
-```bash
-# Run tests with network access
-cargo test -- --ignored
+Coming soon — see [Releases](https://github.com/RenAndKiwi/nostring/releases).
 
-# Run specific crate tests
-cargo test --package nostring-core
-cargo test --package nostring-inherit
-cargo test --package nostring-watch
+---
+
+## How It Works
+
 ```
+┌─────────────────────────────────────────────────────────────────┐
+│                                                                 │
+│   Owner can spend immediately                                   │
+│                         OR                                      │
+│   Heir can spend after 26,280 blocks (~6 months of inactivity) │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 1. Setup
+- Generate or import a BIP-39 seed
+- Add heirs by importing their xpub
+- Configure timelock periods
+- Fund the inheritance address
+
+### 2. Check-In
+- Periodically sign a transaction to prove you're alive
+- This resets the timelock countdown
+- Miss enough check-ins and the clock starts ticking
+
+### 3. Inheritance
+- When the timelock expires, heirs can claim with their key
+- No intermediaries, no permission, no court orders
+- Just Bitcoin script doing its job
 
 ---
 
@@ -63,96 +116,70 @@ cargo test --package nostring-watch
 ```
 nostring/
 ├── crates/
-│   ├── nostring-core      # Seed generation, encryption, key derivation
-│   ├── nostring-inherit   # Miniscript policies, check-in transactions
+│   ├── nostring-core      # Seed, encryption, key derivation
+│   ├── nostring-inherit   # Miniscript policies, check-in builder
 │   ├── nostring-shamir    # SLIP-39 and Codex32 secret sharing
-│   ├── nostring-electrum  # Bitcoin network via Electrum protocol
-│   ├── nostring-notify    # Email and Nostr DM notifications
-│   ├── nostring-watch     # UTXO monitoring service
-│   └── nostring-email     # IMAP email (placeholder)
+│   ├── nostring-electrum  # Bitcoin network via Electrum
+│   ├── nostring-notify    # Email and Nostr notifications
+│   └── nostring-watch     # UTXO monitoring service
 ├── tauri-app/             # Desktop application
 └── docs/                  # Documentation
 ```
 
-### Key Dependencies
+### Dependencies
 
-- [bitcoin](https://crates.io/crates/bitcoin) — Bitcoin primitives
-- [miniscript](https://crates.io/crates/miniscript) — Policy compilation
-- [electrum-client](https://crates.io/crates/electrum-client) — Electrum protocol
-- [nostr-sdk](https://crates.io/crates/nostr-sdk) — Nostr protocol
-- [tauri](https://tauri.app) — Desktop application framework
-
----
-
-## How It Works
-
-### 1. Setup
-
-1. Generate or import a BIP-39 seed
-2. Add heir(s) by importing their xpub
-3. Configure timelock (e.g., 6 months)
-4. Fund the inheritance address
-
-### 2. Check-In
-
-Periodically "check in" by signing a transaction that resets the timelock:
-
-```
-Owner can spend immediately
-    OR
-Heir can spend after 26,280 blocks (~6 months)
-```
-
-### 3. Inheritance
-
-If you stop checking in:
-1. Timelock expires
-2. Heir uses their key to claim
-3. No intermediaries required
+| Crate | Purpose |
+|-------|---------|
+| [bitcoin](https://crates.io/crates/bitcoin) | Bitcoin primitives |
+| [miniscript](https://crates.io/crates/miniscript) | Policy → Script compilation |
+| [electrum-client](https://crates.io/crates/electrum-client) | Electrum protocol |
+| [nostr-sdk](https://crates.io/crates/nostr-sdk) | Nostr notifications |
+| [tauri](https://tauri.app) | Desktop app framework |
 
 ---
 
 ## Documentation
 
-| Document | Purpose |
-|----------|---------|
-| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Technical design |
-| [SECURITY.md](docs/SECURITY.md) | Security model |
-| [HEIR_GUIDE.md](docs/HEIR_GUIDE.md) | Setup guide for heirs |
-| [CLAIM_GUIDE.md](docs/CLAIM_GUIDE.md) | How heirs claim |
-| [SELF_HOSTING.md](docs/SELF_HOSTING.md) | Deployment guide |
+| Document | Description |
+|----------|-------------|
+| [HEIR_GUIDE.md](docs/HEIR_GUIDE.md) | How heirs set up their wallet |
+| [CLAIM_GUIDE.md](docs/CLAIM_GUIDE.md) | How heirs claim when the time comes |
+| [SELF_HOSTING.md](docs/SELF_HOSTING.md) | Run your own infrastructure |
 | [OPERATIONS.md](docs/OPERATIONS.md) | Operational runbook |
-| [ROADMAP.md](docs/ROADMAP.md) | Project status |
+| [SECURITY_AUDIT.md](docs/SECURITY_AUDIT.md) | Pre-audit security review |
 
 ---
 
-## Security
+## Security Model
 
-- Seeds are encrypted at rest (AES-256-GCM + Argon2)
-- No private keys transmitted over network
-- Air-gapped signing via QR codes
-- TLS required for Electrum connections
-- No trusted third parties
+| Aspect | Approach |
+|--------|----------|
+| **At rest** | AES-256-GCM + Argon2id key derivation |
+| **In transit** | No private keys ever transmitted |
+| **Signing** | Air-gapped via QR codes |
+| **Network** | TLS required for Electrum |
+| **Trust** | Zero—verify the math yourself |
 
-See [SECURITY.md](docs/SECURITY.md) for the full security model.
+See [SECURITY_AUDIT.md](docs/SECURITY_AUDIT.md) for the full threat model.
 
 ---
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
-
-### Running Tests
+We welcome contributions. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ```bash
-# Unit tests (no network)
+# Run all tests
 cargo test
 
-# Integration tests (requires network)
+# Run with network tests
 cargo test -- --ignored
 
-# All tests
-cargo test && cargo test -- --ignored
+# Check formatting
+cargo fmt --check
+
+# Lint
+cargo clippy --workspace
 ```
 
 ---
@@ -165,11 +192,16 @@ BSD-3-Clause. See [LICENSE](LICENSE).
 
 ## Acknowledgments
 
-- [Liana](https://wizardsardine.com/liana/) — Miniscript inheritance inspiration
-- [SLIP-39](https://github.com/satoshilabs/slips/blob/master/slip-0039.md) — Shamir secret sharing
-- [Codex32](https://github.com/BlockstreamResearch/codex32) — BIP-93 implementation
-- [Bitcoin Butlers](https://bitcoinbutlers.com) — Sovereign Bitcoin education
+- [Liana](https://wizardsardine.com/liana/) — Miniscript inheritance pioneer
+- [SLIP-39](https://github.com/satoshilabs/slips/blob/master/slip-0039.md) — Shamir secret sharing spec
+- [Codex32](https://github.com/BlockstreamResearch/codex32) — Human-computable checksums
 
 ---
 
-*NoString: Your keys, your Bitcoin, your inheritance.*
+<div align="center">
+
+**Built by [Bitcoin Butlers](https://bitcoinbutlers.com)**
+
+*Helping you hold your own keys—literally and metaphorically.*
+
+</div>
