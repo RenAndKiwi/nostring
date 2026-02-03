@@ -29,9 +29,9 @@ fn rs1024_polymod(values: &[u16]) -> u32 {
     for &v in values {
         let b = chk >> 20;
         chk = ((chk & 0xfffff) << 10) ^ (v as u32);
-        for i in 0..10 {
+        for (i, &gen) in GEN.iter().enumerate() {
             if (b >> i) & 1 != 0 {
-                chk ^= GEN[i];
+                chk ^= gen;
             }
         }
     }

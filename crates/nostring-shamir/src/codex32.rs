@@ -116,9 +116,9 @@ fn ms32_polymod(values: &[u8]) -> u128 {
     for &v in values {
         let b = residue >> 60;
         residue = ((residue & 0x0fffffffffffffff) << 5) ^ (v as u128);
-        for i in 0..5 {
+        for (i, &gen) in GEN.iter().enumerate() {
             if (b >> i) & 1 != 0 {
-                residue ^= GEN[i];
+                residue ^= gen;
             }
         }
     }

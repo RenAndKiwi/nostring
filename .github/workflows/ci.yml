@@ -9,10 +9,12 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  MSRV: "1.75.0"
 
 jobs:
-  test:
-    name: Test
+  # Quick checks (formatting, clippy)
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,23 +25,26 @@ jobs:
           components: clippy, rustfmt
       
       - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
+        uses: Swatinem/rust-cache@v2
       
       - name: Check formatting
         run: cargo fmt --all -- --check
       
-      - name: Clippy
-        run: cargo clippy --workspace --exclude nostring-app
-        # Note: Not failing on warnings until all are resolved
+      - name: Clippy (warnings as errors)
+        run: cargo clippy --workspace --exclude nostring-app -- -D warnings
+
+  # Main test suite
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
       
       - name: Build
         run: cargo build --workspace --exclude nostring-app
@@ -47,7 +52,29 @@ jobs:
       - name: Test
         run: cargo test --workspace --exclude nostring-app
 
-  test-integration:
+  # MSRV check
+  msrv:
+    name: MSRV (${{ matrix.rust }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust: ["1.75.0"]
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust ${{ matrix.rust }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+      
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+      
+      - name: Check MSRV
+        run: cargo check --workspace --exclude nostring-app
+
+  # Integration tests (network required)
+  integration:
     name: Integration Tests
     runs-on: ubuntu-latest
     steps:
@@ -57,21 +84,13 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       
       - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
+        uses: Swatinem/rust-cache@v2
       
       - name: Integration tests (network)
         run: cargo test --workspace --exclude nostring-app -- --ignored
         continue-on-error: true  # Network tests may be flaky
 
+  # Security audit
   security:
     name: Security Audit
     runs-on: ubuntu-latest
@@ -79,8 +98,39 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
+        uses: taiki-e/install-action@cargo-audit
       
       - name: Security audit
         run: cargo audit
-        continue-on-error: true  # Advisory only for now
+
+  # Dependency license check
+  deny:
+    name: Cargo Deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@cargo-deny
+      
+      - name: Check licenses and advisories
+        run: cargo deny check
+        continue-on-error: true  # Until deny.toml is configured
+
+  # All jobs must pass
+  ci-success:
+    name: CI Success
+    needs: [lint, test, msrv, security]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check all jobs
+        run: |
+          if [[ "${{ needs.lint.result }}" != "success" ]] || \
+             [[ "${{ needs.test.result }}" != "success" ]] || \
+             [[ "${{ needs.msrv.result }}" != "success" ]] || \
+             [[ "${{ needs.security.result }}" != "success" ]]; then
+            echo "One or more required jobs failed"
+            exit 1
+          fi
+          echo "All required jobs passed!"
