@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/RenAndKiwi/nostring/actions/workflows/ci.yml/badge.svg)](https://github.com/RenAndKiwi/nostring/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-131%20passing-brightgreen.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-138%20passing-brightgreen.svg)](#)
 
 *Your heirs inherit your Bitcoin when you stop checking in. No custodians. No monthly fees. Just math.*
 
@@ -40,6 +40,7 @@ You've taken custody of your Bitcoin. But what happens to it when you die?
 - **📱 Air-Gap Signing** — QR-based PSBT flow for hardware wallets
 - **🔔 Notifications** — Nostr DM + email reminders before timelock expiry (service key → owner npub)
 - **💾 Persistent State** — SQLite-backed storage; close and reopen without losing anything
+- **🪪 Nostr Identity Inheritance** — Shamir-split your nsec so heirs can recover your Nostr identity after Bitcoin inheritance triggers
 - **💻 Desktop App** — Cross-platform Tauri application (macOS, Windows, Linux)
 
 ---
@@ -93,7 +94,7 @@ cargo tauri build
 
 ### Download Binary
 
-Coming soon — see [Releases](https://github.com/RenAndKiwi/nostring/releases).
+Pre-built binaries for macOS (arm64 + x64) and Linux are available on the [Releases](https://github.com/RenAndKiwi/nostring/releases) page.
 
 ---
 
@@ -176,6 +177,7 @@ nostring/
 | [CLAIM_GUIDE.md](docs/CLAIM_GUIDE.md) | How heirs claim when the time comes |
 | [SELF_HOSTING.md](docs/SELF_HOSTING.md) | Run your own infrastructure |
 | [OPERATIONS.md](docs/OPERATIONS.md) | Operational runbook |
+| [NOSTR_INHERITANCE.md](docs/NOSTR_INHERITANCE.md) | Shamir-gated nsec inheritance spec |
 | [SECURITY_AUDIT.md](docs/SECURITY_AUDIT.md) | Pre-audit security review |
 
 ---
