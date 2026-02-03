@@ -63,6 +63,8 @@ pub enum ShamirError {
     VerificationFailed,
     #[error("Invalid share format: {0}")]
     InvalidShare(String),
+    #[error("Division by zero in GF(256): {0}")]
+    DivisionByZero(&'static str),
 }
 
 /// Configuration for Shamir split

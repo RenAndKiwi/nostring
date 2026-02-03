@@ -74,23 +74,35 @@ pub fn gf_mul(a: u8, b: u8) -> u8 {
 }
 
 /// Divide two elements in GF(256)
+///
+/// Returns `Err(ShamirError::DivisionByZero)` if `b` is zero.
 #[inline]
-pub fn gf_div(a: u8, b: u8) -> u8 {
-    assert!(b != 0, "Division by zero in GF(256)");
+pub fn gf_div(a: u8, b: u8) -> Result<u8, crate::ShamirError> {
+    if b == 0 {
+        return Err(crate::ShamirError::DivisionByZero(
+            "cannot divide by zero in GF(256)",
+        ));
+    }
     if a == 0 {
-        return 0;
+        return Ok(0);
     }
     let log_a = LOG[a as usize] as usize;
     let log_b = LOG[b as usize] as usize;
     // Add 255 to handle negative result
-    EXP[log_a + 255 - log_b]
+    Ok(EXP[log_a + 255 - log_b])
 }
 
 /// Compute the inverse of an element in GF(256)
+///
+/// Returns `Err(ShamirError::DivisionByZero)` if `a` is zero.
 #[inline]
-pub fn gf_inv(a: u8) -> u8 {
-    assert!(a != 0, "Inverse of zero in GF(256)");
-    EXP[255 - LOG[a as usize] as usize]
+pub fn gf_inv(a: u8) -> Result<u8, crate::ShamirError> {
+    if a == 0 {
+        return Err(crate::ShamirError::DivisionByZero(
+            "cannot invert zero in GF(256)",
+        ));
+    }
+    Ok(EXP[255 - LOG[a as usize] as usize])
 }
 
 /// Evaluate a polynomial at a given x value
@@ -110,7 +122,10 @@ pub fn poly_eval(coefficients: &[u8], x: u8) -> u8 {
 
 /// Lagrange interpolation to recover the secret at x=0
 /// shares: Vec<(x, y)> where x is the share index and y is the share value
-pub fn lagrange_interpolate(shares: &[(u8, u8)]) -> u8 {
+///
+/// Returns `Err(ShamirError::DivisionByZero)` if any two shares have the same
+/// x-coordinate (duplicate shares) or if a share has x=0.
+pub fn lagrange_interpolate(shares: &[(u8, u8)]) -> Result<u8, crate::ShamirError> {
     let mut secret = 0u8;
 
     for (i, &(xi, yi)) in shares.iter().enumerate() {
@@ -127,12 +142,12 @@ pub fn lagrange_interpolate(shares: &[(u8, u8)]) -> u8 {
         }
 
         // Lagrange basis polynomial Li(0) = numerator / denominator
-        let li = gf_div(numerator, denominator);
+        let li = gf_div(numerator, denominator)?;
         // Add yi * Li(0) to the sum
         secret = gf_add(secret, gf_mul(yi, li));
     }
 
-    secret
+    Ok(secret)
 }
 
 #[cfg(test)]
@@ -158,20 +173,61 @@ mod tests {
 
     #[test]
     fn test_gf_div() {
-        assert_eq!(gf_div(0x53, 0x53), 1);
-        assert_eq!(gf_div(0, 0x53), 0);
+        assert_eq!(gf_div(0x53, 0x53).unwrap(), 1);
+        assert_eq!(gf_div(0, 0x53).unwrap(), 0);
         // a / b * b = a
         let a = 0x53u8;
         let b = 0xCAu8;
-        assert_eq!(gf_mul(gf_div(a, b), b), a);
+        assert_eq!(gf_mul(gf_div(a, b).unwrap(), b), a);
+    }
+
+    #[test]
+    fn test_gf_div_by_zero_returns_error() {
+        let result = gf_div(0x53, 0);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, crate::ShamirError::DivisionByZero(_)),
+            "Expected DivisionByZero, got: {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_gf_div_zero_by_zero_returns_error() {
+        let result = gf_div(0, 0);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            crate::ShamirError::DivisionByZero(_)
+        ));
     }
 
     #[test]
     fn test_gf_inv() {
         // a * inv(a) = 1
         for a in 1..=255u8 {
-            assert_eq!(gf_mul(a, gf_inv(a)), 1, "Failed for a={}", a);
+            assert_eq!(gf_mul(a, gf_inv(a).unwrap()), 1, "Failed for a={}", a);
         }
+    }
+
+    #[test]
+    fn test_gf_inv_zero_returns_error() {
+        let result = gf_inv(0);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            crate::ShamirError::DivisionByZero(_)
+        ));
+    }
+
+    #[test]
+    fn test_lagrange_duplicate_shares_returns_error() {
+        // Two shares with the same x-coordinate should cause a division by zero
+        // because (xi - xj) = 0 when xi == xj
+        let shares = vec![(1, 42), (1, 99), (2, 55)];
+        let result = lagrange_interpolate(&shares);
+        assert!(result.is_err());
     }
 
     #[test]
@@ -201,13 +257,13 @@ mod tests {
             .collect();
 
         // Use any 2 shares to recover
-        let recovered = lagrange_interpolate(&shares[0..2]);
+        let recovered = lagrange_interpolate(&shares[0..2]).unwrap();
         assert_eq!(recovered, secret);
 
-        let recovered = lagrange_interpolate(&shares[1..3]);
+        let recovered = lagrange_interpolate(&shares[1..3]).unwrap();
         assert_eq!(recovered, secret);
 
-        let recovered = lagrange_interpolate(&[shares[0], shares[2]]);
+        let recovered = lagrange_interpolate(&[shares[0], shares[2]]).unwrap();
         assert_eq!(recovered, secret);
     }
 }
