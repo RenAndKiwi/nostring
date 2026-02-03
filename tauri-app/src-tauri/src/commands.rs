@@ -249,7 +249,7 @@ pub async fn initiate_checkin(state: State<'_, AppState>) -> Result<CommandResul
             Some(c) => c.clone(),
             None => {
                 return Ok(CommandResult::err(
-                    "No inheritance policy configured. Please set up your policy first.",
+                    "No heirs configured yet. Add at least one heir in the Heirs tab to create your inheritance policy.",
                 ))
             }
         }

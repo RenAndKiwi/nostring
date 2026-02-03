@@ -1003,3 +1003,58 @@ textarea {
     padding: 1rem 2rem;
     font-size: 1.1rem;
 }
+
+/* How It Works */
+.how-it-works {
+    margin-top: 1.5rem;
+}
+
+.btn-link {
+    background: none;
+    border: none;
+    color: var(--primary);
+    cursor: pointer;
+    font-size: 0.95rem;
+    padding: 0.5rem 0;
+    text-decoration: none;
+}
+
+.btn-link:hover {
+    text-decoration: underline;
+}
+
+.how-content {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem;
+    margin-top: 0.75rem;
+}
+
+.how-step {
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.how-step:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.how-step strong {
+    display: block;
+    margin-bottom: 0.25rem;
+}
+
+.how-step p {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    line-height: 1.4;
+}
+
+.hint {
+    margin-top: 0.4rem;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}

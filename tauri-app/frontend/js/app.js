@@ -350,9 +350,9 @@ function renderWizardStep() {
                     </div>
                     
                     <div class="form-row">
-                        <label>Their Bitcoin Address or xpub</label>
-                        <textarea id="wizard-heir-address" placeholder="bc1q... or xpub..."></textarea>
-                        <p class="hint">Ask your heir to generate an address in their wallet (Electrum, BlueWallet, hardware wallet, etc.)</p>
+                        <label>Their Extended Public Key (xpub)</label>
+                        <textarea id="wizard-heir-address" placeholder="xpub6ABC..."></textarea>
+                        <p class="hint">Your heir exports this from their wallet (Electrum: Wallet → Information, or hardware wallet companion app). An xpub lets NoString create the inheritance script.</p>
                     </div>
                     
                     <div class="form-row">
@@ -470,13 +470,13 @@ async function wizardAddHeir() {
     }
     
     if (!address) {
-        showError('Please enter their Bitcoin address or xpub');
+        showError('Please enter their xpub');
         return;
     }
     
-    // Basic validation - starts with bc1, 1, 3, xpub, or ypub/zpub
-    if (!/^(bc1|1|3|xpub|ypub|zpub|tpub)/i.test(address)) {
-        showError('Please enter a valid Bitcoin address or xpub');
+    // Validate xpub format (xpub, ypub, zpub for mainnet; tpub for testnet; or descriptor with [fingerprint])
+    if (!/^(xpub|ypub|zpub|tpub|\[)/i.test(address)) {
+        showError('Please enter a valid xpub (starts with xpub, ypub, zpub, or tpub). Your heir can export this from their wallet app.');
         return;
     }
     
@@ -520,6 +520,28 @@ function showMainApp() {
                 <p class="text-muted">Prove you're alive and reset your inheritance timelock.</p>
                 <button type="button" id="btn-checkin" class="btn-primary mt-2">Initiate Check-in</button>
             </div>
+            
+            <div class="how-it-works">
+                <button type="button" id="btn-toggle-how" class="btn-link">ℹ️ How does this work?</button>
+                <div id="how-content" class="how-content hidden">
+                    <div class="how-step">
+                        <strong>1. You set up heirs</strong>
+                        <p>Each heir has their own wallet. You add their xpub to create an inheritance script with a timelock.</p>
+                    </div>
+                    <div class="how-step">
+                        <strong>2. You check in periodically</strong>
+                        <p>Signing a check-in transaction proves you're alive and resets the timelock countdown.</p>
+                    </div>
+                    <div class="how-step">
+                        <strong>3. If you stop checking in</strong>
+                        <p>After the timelock expires (e.g. 6 months), your heirs can claim using their own wallet. No seed sharing needed — it's all in the Bitcoin script.</p>
+                    </div>
+                    <div class="how-step">
+                        <strong>4. Shamir backup is for YOU</strong>
+                        <p>Codex32/SLIP-39 splits are for backing up your own seed. Your heirs don't need your seed — they use their own keys.</p>
+                    </div>
+                </div>
+            </div>
         </section>
         
         <section id="heirs-tab" class="tab-content">
@@ -541,8 +563,9 @@ function showMainApp() {
                     <input type="text" id="heir-label" placeholder="Heir name or label">
                 </div>
                 <div class="form-row">
-                    <label>Extended Public Key (xpub or full descriptor)</label>
-                    <textarea id="heir-xpub" placeholder="xpub... or [fingerprint/path]xpub..."></textarea>
+                    <label>Their Extended Public Key (xpub)</label>
+                    <textarea id="heir-xpub" placeholder="xpub6ABC..."></textarea>
+                    <p class="hint">Your heir exports this from their wallet (Electrum: Wallet → Information)</p>
                 </div>
                 <div style="display: flex; gap: 0.75rem; margin-top: 1rem;">
                     <button type="button" id="btn-save-heir" class="btn-primary">Save Heir</button>
@@ -649,6 +672,11 @@ function showMainApp() {
     document.getElementById('btn-checkin').addEventListener('click', initiateCheckin);
     document.getElementById('btn-lock').addEventListener('click', lockWallet);
     document.getElementById('btn-save-electrum').addEventListener('click', saveElectrumUrl);
+    
+    // How it works toggle
+    document.getElementById('btn-toggle-how').addEventListener('click', () => {
+        document.getElementById('how-content').classList.toggle('hidden');
+    });
     
     // Heir management
     document.getElementById('btn-add-heir').addEventListener('click', showAddHeirForm);
