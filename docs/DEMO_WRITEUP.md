@@ -123,20 +123,33 @@ Each heir receives email notifications at key moments:
 The owner sends Bitcoin to the P2WSH cascade address — 3 separate UTXOs so each heir has their own funds to claim:
 
 ```
-Funding TX: [TXID_PLACEHOLDER]
+Funding TX: [f0a43f7ce897253cefa3a0f9855701b707277a42cc1a18b5cfcebc2e452d7242]
 ├── Output 0: 3,000 sats → P2WSH (Wife's inheritance)
 ├── Output 1: 3,000 sats → P2WSH (Daughter's inheritance)
 ├── Output 2: 3,000 sats → P2WSH (Lawyer's inheritance)
 └── Output 3: change → owner
 ```
 
-[🔗 View on mempool.space](https://mempool.space/testnet/tx/TXID_PLACEHOLDER)
+[🔗 View on mempool.space](https://mempool.space/testnet/tx/f0a43f7ce897253cefa3a0f9855701b707277a42cc1a18b5cfcebc2e452d7242)
 
 ---
 
 ## The Cascade in Action
 
 This is where it gets interesting. The owner is gone. The clock starts ticking.
+
+### How CSV Timelocks Actually Work
+
+A crucial detail: CSV (CheckSequenceVerify, BIP-68) is enforced at the **mining level**, not the mempool level. This means:
+
+- An heir **can** construct a valid, signed transaction and broadcast it to the network **before** their timelock matures
+- Nodes **may accept** it to their mempool (some nodes reject it early, some don't — mempool policy varies)
+- But miners **cannot include** it in a block until the CSV condition is satisfied
+- The transaction sits in limbo — valid signature, valid script, but **unmineble** until enough blocks have passed
+
+This is a feature, not a bug. It means heirs can prepare their claim transactions in advance. The Bitcoin consensus layer guarantees the ordering — no matter when transactions are broadcast, they can only confirm in the right sequence.
+
+Our demo tested this explicitly: we broadcast daughter and lawyer claims early and verified they stayed unconfirmed until their respective timelocks matured.
 
 ### Block H+1: Wife's Turn
 
@@ -145,47 +158,47 @@ This is where it gets interesting. The owner is gone. The clock starts ticking.
 She constructs a transaction spending from Output 0, signs with her key, and broadcasts. The network validates:
 - ✅ Her signature matches the `pkh(wife)` in the script
 - ✅ The CSV timelock (1 block) has matured
-- ✅ Transaction accepted and confirmed
+- ✅ Transaction included in a block and confirmed
 
 ```
-Wife Claim TX: [WIFE_TXID_PLACEHOLDER]
+Wife Claim TX: fd625a7efd5dff51edf46caedca2814a654edf7b78815a73b2bc89b225b7146a
 ```
 
 **But what about the others?**
 
-At the same block height, daughter and lawyer TRY to claim their outputs:
+At the same block height, daughter and lawyer broadcast their claim transactions:
 
 ```
-⛔ Daughter claim at H+1: REJECTED (CSV 2 not matured)
-⛔ Lawyer claim at H+1:   REJECTED (CSV 3 not matured)
+⛔ Daughter claim broadcast at H+1: accepted to mempool, but CANNOT BE MINED (CSV 2 not matured)
+⛔ Lawyer claim broadcast at H+1:   accepted to mempool, but CANNOT BE MINED (CSV 3 not matured)
 ```
 
-**Bitcoin consensus enforces the cascade.** The daughter's transaction is cryptographically valid (correct signature, correct key) but the timelock hasn't matured. The network won't include it in a block. Period.
+The transactions are cryptographically valid — correct signatures, correct keys — but BIP-68 consensus rules prevent miners from including them in a block. They sit in the mempool, waiting.
 
 ### Block H+2: Daughter's Turn
 
-One more block passes. The daughter's CSV-2 timelock matures.
+One more block passes. The daughter's CSV-2 timelock matures. Her transaction — whether it was already sitting in the mempool or freshly broadcast — can now be mined.
 
 **Daughter claims her inheritance ✅**
 
 ```
-Daughter Claim TX: [DAUGHTER_TXID_PLACEHOLDER]
+Daughter Claim TX: d9816e2f64006933335cc3147550852a8fa016d8542339cc8e856765b7527c70
 ```
 
-**Lawyer still locked out:**
+**Lawyer still locked:**
 
 ```
-⛔ Lawyer claim at H+2: REJECTED (CSV 3 not matured)
+⛔ Lawyer claim at H+2: still in mempool, CANNOT BE MINED (CSV 3 not matured, only 2 blocks deep)
 ```
 
 ### Block H+3: Lawyer's Turn
 
-The final timelock matures. The lawyer claims the last UTXO.
+The final timelock matures. The lawyer's transaction can now be mined.
 
 **Lawyer claims his inheritance ✅**
 
 ```
-Lawyer Claim TX: [LAWYER_TXID_PLACEHOLDER]
+Lawyer Claim TX: a345b2e3f071f6beb5593229c168ea2a55d37d3bb8762f0da7f6da6b94ed16df
 ```
 
 ### All Three Reconstruct the nsec
@@ -263,10 +276,10 @@ cargo test -p nostring-e2e --test testnet_cascade_demo -- --ignored --nocapture
 
 | Transaction | Link |
 |-------------|------|
-| Funding (3 UTXOs) | [TXID_PLACEHOLDER](https://mempool.space/testnet/tx/TXID_PLACEHOLDER) |
-| Wife claim | [WIFE_TXID_PLACEHOLDER](https://mempool.space/testnet/tx/WIFE_TXID_PLACEHOLDER) |
-| Daughter claim | [DAUGHTER_TXID_PLACEHOLDER](https://mempool.space/testnet/tx/DAUGHTER_TXID_PLACEHOLDER) |
-| Lawyer claim | [LAWYER_TXID_PLACEHOLDER](https://mempool.space/testnet/tx/LAWYER_TXID_PLACEHOLDER) |
+| Funding (3 UTXOs) | [f0a43f7ce897253cefa3a0f9855701b707277a42cc1a18b5cfcebc2e452d7242](https://mempool.space/testnet/tx/f0a43f7ce897253cefa3a0f9855701b707277a42cc1a18b5cfcebc2e452d7242) |
+| Wife claim | [WIFE_f0a43f7ce897253cefa3a0f9855701b707277a42cc1a18b5cfcebc2e452d7242](https://mempool.space/testnet/tx/WIFE_f0a43f7ce897253cefa3a0f9855701b707277a42cc1a18b5cfcebc2e452d7242) |
+| Daughter claim | [DAUGHTER_f0a43f7ce897253cefa3a0f9855701b707277a42cc1a18b5cfcebc2e452d7242](https://mempool.space/testnet/tx/DAUGHTER_f0a43f7ce897253cefa3a0f9855701b707277a42cc1a18b5cfcebc2e452d7242) |
+| Lawyer claim | [LAWYER_f0a43f7ce897253cefa3a0f9855701b707277a42cc1a18b5cfcebc2e452d7242](https://mempool.space/testnet/tx/LAWYER_f0a43f7ce897253cefa3a0f9855701b707277a42cc1a18b5cfcebc2e452d7242) |
 
 ---
 
