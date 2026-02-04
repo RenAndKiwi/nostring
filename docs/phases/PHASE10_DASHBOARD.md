@@ -247,7 +247,7 @@ User opens app / clicks Refresh
 **Mitigations:**
 - The Tauri IPC bridge is the trust boundary. The frontend can only call registered commands — it can't modify backend state or suppress spend events in SQLite.
 - However, if the frontend JS is tampered with (e.g., supply chain attack on CDN-loaded QR libraries), it could hide the banner.
-- **Recommendation:** Move QR libraries to local bundles (already a TODO). The current CDN loads (`cdn.jsdelivr.net`) are a supply chain risk.
+- **Recommendation:** ✅ QR libraries moved to local bundles (`frontend/vendor/`). No CDN dependencies remain.
 - **Recommendation:** The backend `check_and_notify` command already handles notifications independently of the UI. Even if the UI is suppressed, Nostr DM / email alerts still fire. This is defense-in-depth.
 
 ### 5.2 Should Confidence Thresholds Gate the Alert?

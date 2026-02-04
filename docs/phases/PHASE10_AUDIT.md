@@ -151,7 +151,7 @@ An auditor will (and should) focus time proportional to risk. Here are the paths
 - `build_unsigned_tx()` → fee calculation, change output, sequence numbers
 - `build_psbt()` → unsigned PSBT for hardware wallet signing
 - **What could go wrong:** Fee underestimation (tx rejected), fee overestimation (overpayment), change sent to wrong address, `witness_utxo` not populated (hardware wallet can't validate), RBF sequence misconfiguration
-- **Specific concern:** `witness_utxo` and `witness_script` are TODO — without these, hardware wallets cannot verify the input amount, enabling fee-manipulation attacks.
+- **Specific concern:** `witness_utxo` and `witness_script` — ✅ now populated (see Gap 2 resolution below). BIP-32 derivation paths also added.
 
 **4.5 SLIP-39 Bit Packing** (`slip39.rs`)
 - `encode_share_to_words()` → bit-level serialization
