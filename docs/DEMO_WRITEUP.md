@@ -145,7 +145,7 @@ A crucial detail: CSV (CheckSequenceVerify, BIP-68) is enforced at the **mining 
 - An heir **can** construct a valid, signed transaction and broadcast it to the network **before** their timelock matures
 - Nodes **may accept** it to their mempool (some nodes reject it early, some don't — mempool policy varies)
 - But miners **cannot include** it in a block until the CSV condition is satisfied
-- The transaction sits in limbo — valid signature, valid script, but **unmineble** until enough blocks have passed
+- The transaction sits in limbo — valid signature, valid script, but **unmineable** until enough blocks have passed
 
 This is a feature, not a bug. It means heirs can prepare their claim transactions in advance. The Bitcoin consensus layer guarantees the ordering — no matter when transactions are broadcast, they can only confirm in the right sequence.
 
@@ -276,10 +276,10 @@ cargo test -p nostring-e2e --test testnet_cascade_demo -- --ignored --nocapture
 
 | Transaction | Link |
 |-------------|------|
-| Funding (3 UTXOs) | [f0a43f7ce897253cefa3a0f9855701b707277a42cc1a18b5cfcebc2e452d7242](https://mempool.space/testnet/tx/f0a43f7ce897253cefa3a0f9855701b707277a42cc1a18b5cfcebc2e452d7242) |
-| Wife claim | [WIFE_f0a43f7ce897253cefa3a0f9855701b707277a42cc1a18b5cfcebc2e452d7242](https://mempool.space/testnet/tx/WIFE_f0a43f7ce897253cefa3a0f9855701b707277a42cc1a18b5cfcebc2e452d7242) |
-| Daughter claim | [DAUGHTER_f0a43f7ce897253cefa3a0f9855701b707277a42cc1a18b5cfcebc2e452d7242](https://mempool.space/testnet/tx/DAUGHTER_f0a43f7ce897253cefa3a0f9855701b707277a42cc1a18b5cfcebc2e452d7242) |
-| Lawyer claim | [LAWYER_f0a43f7ce897253cefa3a0f9855701b707277a42cc1a18b5cfcebc2e452d7242](https://mempool.space/testnet/tx/LAWYER_f0a43f7ce897253cefa3a0f9855701b707277a42cc1a18b5cfcebc2e452d7242) |
+| Funding (3 UTXOs) | [f0a43f7c...](https://mempool.space/testnet/tx/f0a43f7ce897253cefa3a0f9855701b707277a42cc1a18b5cfcebc2e452d7242) |
+| Wife claim | [fd625a7e...](https://mempool.space/testnet/tx/fd625a7efd5dff51edf46caedca2814a654edf7b78815a73b2bc89b225b7146a) |
+| Daughter claim | [d9816e2f...](https://mempool.space/testnet/tx/d9816e2f64006933335cc3147550852a8fa016d8542339cc8e856765b7527c70) |
+| Lawyer claim | [a345b2e3...](https://mempool.space/testnet/tx/a345b2e3f071f6beb5593229c168ea2a55d37d3bb8762f0da7f6da6b94ed16df) |
 
 ---
 
