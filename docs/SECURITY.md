@@ -183,4 +183,23 @@ New UTXO (clock reset to 0)
 
 ---
 
-*Last updated: 2026-02-01*
+## Release Verification
+
+All releases include SHA256SUMS.txt signed with our GPG key.
+
+**Fingerprint:** `DBFD 98EB A90B BB2F FB60  9AD2 DB89 0E87 094F 72B6`
+
+```bash
+# Import the public key (included in repo as RELEASE_KEY.asc)
+gpg --import RELEASE_KEY.asc
+
+# Verify checksums signature
+gpg --verify SHA256SUMS.txt.asc SHA256SUMS.txt
+
+# Verify binary integrity
+sha256sum --check SHA256SUMS.txt
+```
+
+---
+
+*Last updated: 2026-02-04*
