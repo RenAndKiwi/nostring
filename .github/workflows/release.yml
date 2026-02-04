@@ -8,6 +8,8 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # Pin Rust toolchain for reproducible builds
+  RUST_TOOLCHAIN: "1.83.0"
 
 jobs:
   build:
@@ -33,10 +35,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust (pinned for reproducibility)
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ matrix.target }}
+
+      - name: Verify Cargo.lock is committed
+        run: |
+          if [ ! -f Cargo.lock ]; then
+            echo "ERROR: Cargo.lock must be committed for reproducible builds"
+            exit 1
+          fi
 
       - name: Install dependencies (Linux)
         if: matrix.os == 'ubuntu-latest'
@@ -44,15 +54,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
+      - name: Audit dependencies
+        run: |
+          cargo install cargo-audit --quiet 2>/dev/null || true
+          cargo audit || echo "::warning::cargo audit found issues — review before release"
+
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.target }}
+          key: ${{ matrix.target }}-${{ env.RUST_TOOLCHAIN }}
 
-      - name: Build Tauri app
+      - name: Build Tauri app (locked deps)
         run: |
           cd tauri-app/src-tauri
-          cargo build --release --target ${{ matrix.target }}
+          cargo build --release --locked --target ${{ matrix.target }}
 
       - name: Package (macOS)
         if: matrix.os == 'macos-latest'
@@ -101,6 +116,39 @@ jobs:
           find . -type f \( -name "*.tar.gz" -o -name "*.zip" \) -exec sha256sum {} \; > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
+      - name: Sign checksums (GPG)
+        if: env.GPG_PRIVATE_KEY != ''
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          cd artifacts
+          gpg --batch --yes --pinentry-mode loopback \
+            --passphrase "$GPG_PASSPHRASE" \
+            --detach-sign --armor SHA256SUMS.txt
+          echo "✅ SHA256SUMS.txt.asc created"
+
+      - name: Record build metadata
+        run: |
+          cd artifacts
+          cat > BUILD_INFO.txt << EOF
+          NoString Release Build
+          ======================
+          Git ref:       ${{ github.ref_name }}
+          Git SHA:       ${{ github.sha }}
+          Rust toolchain: ${{ env.RUST_TOOLCHAIN }}
+          Build time:    $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          Runner OS:     ${{ matrix.os || 'release-runner' }}
+
+          Verify checksums:
+            sha256sum --check SHA256SUMS.txt
+
+          Verify GPG signature (if signed):
+            gpg --verify SHA256SUMS.txt.asc SHA256SUMS.txt
+          EOF
+          cat BUILD_INFO.txt
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -110,3 +158,5 @@ jobs:
             artifacts/**/*.tar.gz
             artifacts/**/*.zip
             artifacts/SHA256SUMS.txt
+            artifacts/SHA256SUMS.txt.asc
+            artifacts/BUILD_INFO.txt

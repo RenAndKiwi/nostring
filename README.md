@@ -220,6 +220,9 @@ nostring/
 - Full 128-bit entropy for Argon2 salt
 - Core dump prevention (`setrlimit RLIMIT_CORE=0`)
 - Memory locking (`mlock`) for seed pages — `LockedBuffer` RAII with zeroize-on-drop
+- Password entropy estimation with strength warnings
+- QR libraries vendored locally (no CDN dependencies)
+- Reproducible builds (pinned Rust toolchain, `--locked`, committed `Cargo.lock`)
 
 ### v0.3 ✅ — Infrastructure
 - [x] Docker self-hosting (headless `nostring-server` daemon)
