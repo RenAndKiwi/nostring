@@ -14,6 +14,7 @@
 
 pub mod crypto;
 pub mod keys;
+pub mod memory;
 pub mod seed;
 
 pub use crypto::{decrypt_seed, encrypt_seed, CryptoError, EncryptedSeed};

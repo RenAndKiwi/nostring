@@ -18,6 +18,9 @@ use anyhow::{Context, Result};
 use std::path::PathBuf;
 
 fn main() -> Result<()> {
+    // Security hardening: disable core dumps to prevent seed material leaking to disk
+    nostring_core::memory::disable_core_dumps();
+
     // Initialize rustls CryptoProvider before any Nostr/TLS operations.
     // Without this, WebSocket connections via nostr-sdk will panic.
     rustls::crypto::ring::default_provider()
