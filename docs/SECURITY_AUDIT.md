@@ -215,7 +215,7 @@ Found 167 `unwrap()` calls, but all are in:
 
 | Item | Status | Priority |
 |------|--------|----------|
-| Add `zeroize` to seed | ❌ TODO | High |
+| Add `zeroize` to seed | ✅ Done | High |
 | Disable core dumps | ❌ TODO | Medium |
 | mlock seed pages | ❌ TODO | Medium |
 

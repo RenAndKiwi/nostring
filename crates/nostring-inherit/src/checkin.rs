@@ -17,12 +17,15 @@
 //! the check-in happens automatically.
 
 use bitcoin::absolute::LockTime;
+use bitcoin::bip32::{ChildNumber, DerivationPath, Fingerprint};
 use bitcoin::psbt::Psbt;
 use bitcoin::transaction::Version;
+use bitcoin::secp256k1;
 use bitcoin::{Amount, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Witness};
 use miniscript::descriptor::DescriptorPublicKey;
-use miniscript::Descriptor;
+use miniscript::{Descriptor, ForEachKey};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
@@ -341,6 +344,77 @@ impl CheckinTxBuilder {
 
         psbt.inputs[0].witness_script = Some(witness_script);
 
+        // Populate BIP-32 derivation paths (BIP-174 PSBT_IN_BIP32_DERIVATION).
+        // This tells hardware wallets which HD key path to use for signing.
+        // For each key in the descriptor, we map the derived public key to
+        // its (master_fingerprint, full_derivation_path).
+        let mut bip32_derivation: BTreeMap<secp256k1::PublicKey, (Fingerprint, DerivationPath)> =
+            BTreeMap::new();
+
+        receive_desc.for_each_key(|key| {
+            if let DescriptorPublicKey::XPub(ref xkey) = key {
+                if let Some((fingerprint, base_path)) = &xkey.origin {
+                    // Derive the child pubkey at our derivation index
+                    if let Ok(child_xpub) = xkey.xkey.derive_pub(
+                        &secp,
+                        &[ChildNumber::Normal {
+                            index: self.derivation_index,
+                        }],
+                    ) {
+                        let pubkey = child_xpub.public_key;
+
+                        // Full path = origin path + xpub derivation path + child index
+                        // e.g., [fingerprint/84'/0'/0']xpub/0/* at index 5 →
+                        //        m/84'/0'/0'/0/5
+                        let mut full_path: Vec<ChildNumber> =
+                            base_path.as_ref().to_vec();
+                        for step in xkey.derivation_path.as_ref() {
+                            full_path.push(*step);
+                        }
+                        full_path.push(ChildNumber::Normal {
+                            index: self.derivation_index,
+                        });
+
+                        bip32_derivation
+                            .insert(pubkey, (*fingerprint, DerivationPath::from(full_path)));
+                    }
+                }
+            } else if let DescriptorPublicKey::MultiXPub(ref xkey) = key {
+                if let Some((fingerprint, base_path)) = &xkey.origin {
+                    // For multi-path xpubs (<0;1>/*), use path index 0 (receive)
+                    if let Some(first_path) = xkey.derivation_paths.paths().first() {
+                        if let Ok(child_xpub) = xkey.xkey.derive_pub(&secp, first_path) {
+                            if let Ok(final_xpub) = child_xpub.derive_pub(
+                                &secp,
+                                &[ChildNumber::Normal {
+                                    index: self.derivation_index,
+                                }],
+                            ) {
+                                let pubkey = final_xpub.public_key;
+
+                                let mut full_path: Vec<ChildNumber> =
+                                    base_path.as_ref().to_vec();
+                                for step in first_path.as_ref() {
+                                    full_path.push(*step);
+                                }
+                                full_path.push(ChildNumber::Normal {
+                                    index: self.derivation_index,
+                                });
+
+                                bip32_derivation.insert(
+                                    pubkey,
+                                    (*fingerprint, DerivationPath::from(full_path)),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            true // continue iterating
+        });
+
+        psbt.inputs[0].bip32_derivation = bip32_derivation;
+
         Ok(psbt)
     }
 
@@ -523,6 +597,46 @@ mod tests {
             "witness_script must hash to the P2WSH script_pubkey"
         );
 
+        // --- Verify BIP-32 derivation paths are populated ---
+        let bip32 = &psbt.inputs[0].bip32_derivation;
+        assert!(
+            !bip32.is_empty(),
+            "bip32_derivation must be populated for hardware wallet signing"
+        );
+        // Note: test uses same xpub for owner+heir (different origin paths),
+        // so derived concrete pubkeys collide in the BTreeMap. In production,
+        // different hardware wallets would have distinct xpubs → 2 entries.
+        // Here we verify at least 1 valid entry exists.
+        assert!(
+            bip32.len() >= 1,
+            "should have at least one derivation path entry"
+        );
+
+        // Verify each entry has the correct fingerprint and path structure
+        for (pubkey, (fingerprint, path)) in bip32 {
+            // Fingerprint should be one of our test fingerprints
+            let fp_bytes = fingerprint.to_bytes();
+            assert!(
+                fp_bytes == [0, 0, 0, 1] || fp_bytes == [0, 0, 0, 2],
+                "unexpected fingerprint: {:?}",
+                fingerprint
+            );
+
+            // Path should have 5 components: 84'/0'/N'/0/0
+            // (origin 84'/0'/N' + receive chain 0 + derivation index 0)
+            let path_vec: Vec<_> = path.into_iter().collect();
+            assert_eq!(
+                path_vec.len(),
+                5,
+                "derivation path should have 5 components, got {}: {:?}",
+                path_vec.len(),
+                path
+            );
+
+            // Verify the pubkey is a valid secp256k1 point
+            assert_eq!(pubkey.serialize().len(), 33, "pubkey should be compressed");
+        }
+
         // Test base64 encoding
         let base64_result = builder.build_psbt_base64();
         assert!(base64_result.is_ok());
@@ -602,5 +716,83 @@ mod tests {
             witness_scripts[1], witness_scripts[2],
             "index 1 and 2 must differ"
         );
+    }
+
+    #[test]
+    fn test_psbt_bip32_derivation_with_distinct_keys() {
+        use crate::policy::{InheritancePolicy, Timelock};
+        use bitcoin::bip32::Xpub;
+        use miniscript::descriptor::DescriptorPublicKey;
+        use std::str::FromStr;
+
+        // Use two DIFFERENT xpubs (derived from same root at different paths, but distinct keys)
+        // These are the BIP-32 test vector xpubs
+        let owner_xpub = Xpub::from_str(
+            "xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8NqtwybGhePY2gZ29ESFjqJoCu1Rupje8YtGqsefD265TMg7usUDFdp6W1EGMcet8"
+        ).unwrap();
+        // Second xpub: derive child from first to get a genuinely different key
+        let secp = bitcoin::secp256k1::Secp256k1::verification_only();
+        let heir_xpub = owner_xpub
+            .derive_pub(
+                &secp,
+                &[bitcoin::bip32::ChildNumber::Normal { index: 1 }],
+            )
+            .unwrap();
+
+        let owner_key = DescriptorPublicKey::from_str(&format!(
+            "[00000001/84'/0'/0']{}/<0;1>/*",
+            owner_xpub
+        ))
+        .unwrap();
+        let heir_key = DescriptorPublicKey::from_str(&format!(
+            "[00000002/84'/0'/1']{}/<0;1>/*",
+            heir_xpub
+        ))
+        .unwrap();
+
+        let policy =
+            InheritancePolicy::simple(owner_key, heir_key, Timelock::six_months()).unwrap();
+        let descriptor = policy.to_wsh_descriptor().unwrap();
+        let spk = derive_script_pubkey(&descriptor, 0);
+
+        let outpoint = OutPoint {
+            txid: Txid::all_zeros(),
+            vout: 0,
+        };
+        let utxo = InheritanceUtxo::new(outpoint, Amount::from_sat(100_000), 800_000, spk);
+        let builder = CheckinTxBuilder::new(utxo, descriptor, 10, 0);
+        let psbt = builder.build_psbt().expect("PSBT creation should succeed");
+
+        let bip32 = &psbt.inputs[0].bip32_derivation;
+
+        // With distinct xpubs, we should have 2 entries (owner + heir)
+        assert_eq!(
+            bip32.len(),
+            2,
+            "distinct xpubs should produce 2 bip32_derivation entries, got {}",
+            bip32.len()
+        );
+
+        // Collect fingerprints
+        let fingerprints: Vec<_> = bip32.values().map(|(fp, _)| fp.to_bytes()).collect();
+        assert!(
+            fingerprints.contains(&[0, 0, 0, 1]),
+            "owner fingerprint 00000001 missing"
+        );
+        assert!(
+            fingerprints.contains(&[0, 0, 0, 2]),
+            "heir fingerprint 00000002 missing"
+        );
+
+        // Verify paths end with derivation index 0
+        for (_pubkey, (_fp, path)) in bip32 {
+            let steps: Vec<_> = path.into_iter().collect();
+            let last = steps.last().expect("path must not be empty");
+            assert_eq!(
+                *last,
+                &bitcoin::bip32::ChildNumber::Normal { index: 0 },
+                "derivation path must end with child index 0"
+            );
+        }
     }
 }

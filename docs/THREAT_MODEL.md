@@ -42,7 +42,7 @@ This document describes the security threats NoString is designed to mitigate an
 **Mitigations:**
 - Seed encrypted with AES-256-GCM + Argon2id
 - Password never stored
-- Memory zeroing (TODO: verify with `zeroize` crate)
+- Memory zeroing via `zeroize` crate (Zeroizing<> wrapper on derived keys, Drop impl on EncryptedSeed)
 - Core dumps disabled (TODO: implement)
 
 ### 3. Malicious Heir
@@ -168,9 +168,9 @@ This document describes the security threats NoString is designed to mitigate an
 
 **Defense:**
 1. Seed only in memory during operations
-2. TODO: Use `zeroize` crate for explicit zeroing
+2. ✅ `zeroize` crate used — `Zeroizing<>` wrapper on derived keys, `Drop` impl zeroes EncryptedSeed fields
 3. TODO: Disable core dumps
-4. TODO: Lock memory pages
+4. TODO: Lock memory pages (`mlock`)
 
 **Residual Risk:** Cold boot attacks, hypervisor escapes.
 
@@ -244,7 +244,7 @@ This document describes the security threats NoString is designed to mitigate an
 
 | Issue | Severity | Status |
 |-------|----------|--------|
-| Memory zeroing | Medium | TODO |
+| Memory zeroing | Medium | ✅ Done (`zeroize` crate) |
 | Core dump disable | Low | TODO |
 | Minimum password entropy | Low | TODO |
 | Multi-server consensus | Low | TODO |

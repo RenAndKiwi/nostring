@@ -208,8 +208,8 @@ This checklist mirrors what a professional auditor would check. Complete every i
 
 ### 5.4 PSBT & Transaction
 
-- [ ] **Witness UTXO populated:** Fix TODO — `psbt.inputs[0].witness_utxo` must contain the previous output.
-- [ ] **Witness script populated:** Fix TODO — `psbt.inputs[0].witness_script` must contain the redeem script.
+- [x] **Witness UTXO populated:** ~~Fix TODO~~ — `psbt.inputs[0].witness_utxo` populated with correct TxOut (amount + P2WSH script_pubkey). Tested.
+- [x] **Witness script populated:** ~~Fix TODO~~ — `psbt.inputs[0].witness_script` populated via descriptor derivation. Hash-verified against script_pubkey in tests.
 - [ ] **Fee sanity check:** Verify fee estimation accounts for worst-case witness size.
 - [ ] **Change address validation:** Confirm change goes back to the same policy address (same descriptor).
 - [ ] **RBF signaling:** Confirm `Sequence::ENABLE_RBF_NO_LOCKTIME` is appropriate for check-in transactions.
@@ -272,16 +272,16 @@ These are concrete issues to fix **before** engaging auditors. Fixing known issu
 
 **Estimated effort:** 1–2 hours
 
-### Gap 2: PSBT Input Data (HIGH Priority)
+### Gap 2: PSBT Input Data — ✅ RESOLVED
 
-**Problem:** `build_psbt()` has a TODO: `witness_utxo` and `witness_script` are not populated. Without these, hardware wallets cannot validate input amounts, enabling fee-manipulation attacks where a malicious software wallet claims a lower input value than reality.
+**Problem:** `build_psbt()` previously had TODO for `witness_utxo` and `witness_script`.
 
-**Fix:**
-1. Populate `psbt.inputs[0].witness_utxo` with the actual `TxOut` being spent
-2. Populate `psbt.inputs[0].witness_script` with the witness script from the descriptor
-3. Add BIP-174 derivation paths to PSBT inputs/outputs
+**Resolution:** Fully implemented in `checkin.rs`:
+1. ✅ `psbt.inputs[0].witness_utxo` populated with correct `TxOut` (amount + script_pubkey)
+2. ✅ `psbt.inputs[0].witness_script` populated via descriptor derivation with multi-path support
+3. ⬜ BIP-174 derivation paths in PSBT inputs/outputs (future enhancement, not critical)
 
-**Estimated effort:** 2–4 hours
+**Test:** `test_checkin_psbt_generation` verifies witness_utxo amount, P2WSH type, witness_script non-empty, and hash consistency.
 
 ### Gap 3: Panic in GF(256) Division (MEDIUM Priority)
 
@@ -483,11 +483,11 @@ Prepare this package before the engagement begins:
 
 | Task | Priority | Effort | Assignee |
 |------|----------|--------|----------|
-| Implement `zeroize` for seed handling | HIGH | 2h | — |
-| Fix PSBT `witness_utxo`/`witness_script` TODO | HIGH | 4h | — |
-| Replace `assert!` with `Result` in GF(256) | MEDIUM | 2h | — |
-| Fix salt generation (use OsRng directly) | MEDIUM | 30min | — |
-| Create fuzz targets (5 targets) | MEDIUM | 6h | — |
+| ~~Implement `zeroize` for seed handling~~ | ~~HIGH~~ | ~~2h~~ | ✅ Done |
+| ~~Fix PSBT `witness_utxo`/`witness_script` TODO~~ | ~~HIGH~~ | ~~4h~~ | ✅ Done |
+| ~~Replace `assert!` with `Result` in GF(256)~~ | ~~MEDIUM~~ | ~~2h~~ | ✅ Done |
+| ~~Fix salt generation (use OsRng directly)~~ | ~~MEDIUM~~ | ~~30min~~ | ✅ Done |
+| ~~Create fuzz targets (5 targets)~~ | ~~MEDIUM~~ | ~~6h~~ | ✅ 3 targets |
 | Add core dump protection | MEDIUM | 1h | — |
 | Add mlock for seed pages | MEDIUM | 2h | — |
 | Run `cargo audit` + `cargo deny`, fix issues | MEDIUM | 2h | — |
