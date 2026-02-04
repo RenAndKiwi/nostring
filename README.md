@@ -216,8 +216,10 @@ nostring/
 - 31 security audit tests (crypto fuzzing, input validation, zeroization)
 - Seed/key memory zeroization after use
 - GF(256) panic-to-error conversion (malformed shares no longer crash)
-- PSBT witness_utxo + witness_script fields populated (hardware wallet validation)
+- PSBT witness_utxo + witness_script + BIP-32 derivation paths (hardware wallet signing)
 - Full 128-bit entropy for Argon2 salt
+- Core dump prevention (`setrlimit RLIMIT_CORE=0`)
+- Memory locking (`mlock`) for seed pages — `LockedBuffer` RAII with zeroize-on-drop
 
 ### v0.3 ✅ — Infrastructure
 - [x] Docker self-hosting (headless `nostring-server` daemon)
