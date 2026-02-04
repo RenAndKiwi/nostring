@@ -8,8 +8,9 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  # Pin Rust toolchain for reproducible builds
-  RUST_TOOLCHAIN: "1.85.0"
+  # Reproducibility via Cargo.lock + --locked builds
+  # Using stable rather than pinned version — Tauri deps require recent Rust
+  RUST_TOOLCHAIN: "stable"
 
 jobs:
   build:
