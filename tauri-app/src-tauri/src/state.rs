@@ -62,9 +62,6 @@ pub struct AppState {
     pub unlocked: Mutex<bool>,
     /// Cached policy status (recomputed from blockchain)
     pub policy_status: Mutex<Option<PolicyStatus>>,
-    /// Cached UTXOs
-    #[allow(dead_code)]
-    pub cached_utxos: Mutex<Vec<()>>,
 }
 
 impl AppState {
@@ -83,10 +80,6 @@ impl AppState {
             .ok()
             .flatten()
             .and_then(|hex_str| hex::decode(&hex_str).ok());
-        let electrum_url = db::config_get(&conn, "electrum_url")
-            .ok()
-            .flatten()
-            .unwrap_or_else(|| "ssl://electrum.blockstream.info:60002".to_string());
         let network_str = db::config_get(&conn, "network")
             .ok()
             .flatten()
@@ -97,6 +90,10 @@ impl AppState {
             "regtest" => Network::Regtest,
             _ => Network::Bitcoin,
         };
+        let electrum_url = db::config_get(&conn, "electrum_url")
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| nostring_electrum::default_server(network).to_string());
         let service_key = db::config_get(&conn, "service_key").ok().flatten();
         let service_npub = db::config_get(&conn, "service_npub").ok().flatten();
 
@@ -162,7 +159,6 @@ impl AppState {
             network: Mutex::new(network),
             unlocked: Mutex::new(unlocked),
             policy_status: Mutex::new(policy_status),
-            cached_utxos: Mutex::new(Vec::new()),
         }
     }
 }
@@ -179,7 +175,6 @@ impl AppState {
     }
 
     /// Delete a config key.
-    #[allow(dead_code)]
     pub fn delete_config(&self, key: &str) {
         let conn = self.db.lock().unwrap();
         let _ = db::config_delete(&conn, key);

@@ -11,7 +11,6 @@ tauri-build = { version = "2.0", features = [] }
 [dependencies]
 nostring-core = { path = "../../crates/nostring-core" }
 nostring-electrum = { path = "../../crates/nostring-electrum" }
-nostring-email = { path = "../../crates/nostring-email" }
 nostring-inherit = { path = "../../crates/nostring-inherit" }
 nostring-notify = { path = "../../crates/nostring-notify" }
 nostring-shamir = { path = "../../crates/nostring-shamir" }
