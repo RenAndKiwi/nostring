@@ -202,10 +202,10 @@ const result = await invoke('add_heir', {
 43. `get_electrum_url` ✅
 44. `set_electrum_url` ✅
 
-**Commented out (not registered):**
-45. `publish_locked_shares_to_relays` — commented out (TODO: fix async Send issue)
-46. `fetch_locked_shares_from_relays` — commented out
-47. `get_relay_publication_status` — commented out
+**Previously commented out — now resolved:**
+45. `publish_locked_shares_to_relays` ✅ — registered, async Send issue resolved
+46. `fetch_locked_shares_from_relays` ✅ — registered, working
+47. `get_relay_publication_status` ✅ — registered, working
 
 ### Parity Summary
 
@@ -295,6 +295,6 @@ All argument names match after camelCase→snake_case conversion.
 ### Observations
 
 - **14 registered Tauri commands have no UI** — these are v0.2/v0.3 features (heir contacts, pre-signed check-ins, auto-broadcast) that have backend support but no frontend yet. This is expected for incremental development.
-- **3 relay commands commented out** in handler registration due to async `Send` issue — tracked as TODO.
+- **3 relay commands** — previously commented out due to async `Send` issue, now fully registered and working.
 - **Release is draft** — needs manual publish on GitHub.
 - **Demo mode is comprehensive** — 29/29 invoked commands have mock responses, enabling full UI testing without a Rust backend.

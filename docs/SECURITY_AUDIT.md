@@ -211,13 +211,13 @@ Found 167 `unwrap()` calls, but all are in:
 
 **No `unwrap()` on untrusted input.**
 
-### Memory Safety TODO
+### Memory Safety (Resolved)
 
 | Item | Status | Priority |
 |------|--------|----------|
 | Add `zeroize` to seed | ✅ Done | High |
-| Disable core dumps | ❌ TODO | Medium |
-| mlock seed pages | ❌ TODO | Medium |
+| Disable core dumps | ✅ Done | Medium |
+| mlock seed pages | ✅ Done | Medium |
 
 ---
 
