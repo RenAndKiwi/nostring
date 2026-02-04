@@ -1,12 +1,34 @@
+# Build artifacts
 target/
+fuzz/target/
+
+# Git
 .git/
 .gitignore
+
+# Documentation (not needed in build)
 *.md
 !crates/*/README.md
 docs/
+
+# Frontend / Desktop (not needed for server)
 tauri-app/node_modules/
 tauri-app/dist/
 tauri-app/.next/
+tauri-app/src/
+
+# Fuzz targets
+fuzz/
+
+# Landing page
+nostring-site/
+
+# Config & secrets
 config/nostring-server.toml
 .env
 *.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
