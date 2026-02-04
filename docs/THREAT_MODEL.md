@@ -246,7 +246,7 @@ This document describes the security threats NoString is designed to mitigate an
 |-------|----------|--------|
 | Memory zeroing | Medium | ✅ Done (`zeroize` crate) |
 | Core dump disable | Low | ✅ Done (`setrlimit`) |
-| Minimum password entropy | Low | TODO |
+| Minimum password entropy | Low | ✅ Done (entropy estimation + warnings) |
 | Multi-server consensus | Low | TODO |
 
 ---

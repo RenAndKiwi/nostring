@@ -73,6 +73,32 @@ pub async fn validate_seed(mnemonic: String) -> CommandResult<bool> {
     }
 }
 
+/// Check password strength before using it for seed encryption.
+///
+/// Returns entropy analysis with strength classification and warnings.
+/// The frontend should call this as the user types to provide real-time feedback.
+#[tauri::command]
+pub async fn check_password_strength(password: String) -> CommandResult<PasswordStrengthResult> {
+    let analysis = nostring_core::password::estimate_entropy(&password);
+    CommandResult::ok(PasswordStrengthResult {
+        entropy_bits: analysis.entropy_bits,
+        strength: format!("{:?}", analysis.strength),
+        description: analysis.strength.description().to_string(),
+        meets_minimum: analysis.meets_minimum,
+        warnings: analysis.warnings,
+    })
+}
+
+/// Password strength analysis result
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PasswordStrengthResult {
+    pub entropy_bits: f64,
+    pub strength: String,
+    pub description: String,
+    pub meets_minimum: bool,
+    pub warnings: Vec<String>,
+}
+
 /// Import and encrypt a seed (persisted to SQLite)
 #[tauri::command]
 pub async fn import_seed(

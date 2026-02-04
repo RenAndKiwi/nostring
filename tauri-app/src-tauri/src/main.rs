@@ -46,6 +46,7 @@ fn main() {
             // Seed / wallet management
             commands::create_seed,
             commands::validate_seed,
+            commands::check_password_strength,
             commands::import_seed,
             commands::import_watch_only,
             commands::has_seed,
