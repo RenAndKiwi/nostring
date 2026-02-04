@@ -247,46 +247,17 @@ This document describes the security threats NoString is designed to mitigate an
 | Memory zeroing | Medium | ✅ Done (`zeroize` crate) |
 | Core dump disable | Low | ✅ Done (`setrlimit`) |
 | Minimum password entropy | Low | ✅ Done (entropy estimation + warnings) |
-| Multi-server consensus | Low | Design documented (see §Multi-Server Consensus below) |
+| Multi-server consensus | Low | ❌ Rejected — Bitcoin timelock is the consensus mechanism |
 
 ---
 
-## Multi-Server Consensus (Future)
+## Multi-Server Consensus
 
-### Problem
-
-A single `nostring-server` daemon monitors the owner's check-in. If that
-server is compromised, an attacker could:
-- Suppress notifications (owner thinks timelock is far away)
-- Send false "timelock expiring" alerts to heirs
-- Tamper with the check-in schedule
-
-### Proposed Design
-
-**N-of-M server consensus** — multiple independent servers must agree
-that a check-in was missed before heir notifications fire.
-
-**Architecture:**
-1. Owner runs 2-3 `nostring-server` instances on different infrastructure
-   (e.g., home server + VPS + friend's server)
-2. Each server independently monitors the blockchain for check-in UTXOs
-3. Servers publish signed attestations to Nostr relays:
-   - `"check-in seen at block X"` or `"no check-in, timelock at Y%"`
-4. Heir notification only fires when **M-of-N servers agree** the timelock
-   is approaching/expired
-5. Heirs (or a coordinator) verify the attestation signatures before acting
-
-**Key properties:**
-- No single server can trigger false alerts
-- No single server can suppress real alerts
-- Servers don't need to communicate directly (relay-based coordination)
-- Each server is stateless except for its signing key
-
-**Implementation priority:** Low — the Bitcoin timelock itself is the
-consensus mechanism. Multi-server consensus adds defense-in-depth for
-the notification layer, not the inheritance mechanism itself. A compromised
-server can annoy heirs with false alerts but cannot steal funds or
-bypass the timelock.
+**Considered and rejected.** The Bitcoin timelock is the consensus mechanism.
+Local reminders handle owner alerting. Heirs monitor the chain directly
+using the policy descriptor they already possess. Adding a server-side
+notification consensus layer would increase complexity and attack surface
+without improving the security properties that actually matter (fund safety).
 
 ---
 
