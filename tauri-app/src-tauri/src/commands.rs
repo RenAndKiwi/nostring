@@ -1790,50 +1790,88 @@ pub async fn get_descriptor_backup(
 }
 
 /// Generate Codex32 shares for a seed
+///
+/// Requires the wallet password to decrypt the seed for splitting.
+/// The decrypted seed is held in memory only during share generation,
+/// then zeroized.
 #[tauri::command]
 pub async fn generate_codex32_shares(
     threshold: u8,
     total_shares: u8,
+    mut password: String,
     identifier: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<CommandResult<Vec<String>>, ()> {
     let unlocked = state.unlocked.lock().unwrap();
     if !*unlocked {
+        password.zeroize();
         return Ok(CommandResult::err("Wallet is locked"));
     }
     drop(unlocked);
 
     if !(2..=9).contains(&threshold) {
+        password.zeroize();
         return Ok(CommandResult::err("Threshold must be 2-9"));
     }
     if total_shares < threshold {
+        password.zeroize();
         return Ok(CommandResult::err("Total shares must be >= threshold"));
     }
     if total_shares > 31 {
+        password.zeroize();
         return Ok(CommandResult::err("Maximum 31 shares supported"));
     }
 
-    let id = identifier.unwrap_or_else(|| "TEST".to_string());
+    let id = identifier.unwrap_or_else(|| "SEED".to_string());
 
     let config = match Codex32Config::new(threshold, &id, total_shares) {
         Ok(c) => c,
-        Err(e) => return Ok(CommandResult::err(format!("Invalid config: {}", e))),
-    };
-
-    let _seed_bytes = {
-        let seed_lock = state.encrypted_seed.lock().unwrap();
-        match &*seed_lock {
-            Some(bytes) => bytes.clone(),
-            None => return Ok(CommandResult::err("No seed loaded")),
+        Err(e) => {
+            password.zeroize();
+            return Ok(CommandResult::err(format!("Invalid config: {}", e)));
         }
     };
 
-    // TODO: Decrypt actual seed with password (needs session key management)
-    let demo_seed = [0u8; 32];
+    // Decrypt the seed using the provided password
+    let encrypted_bytes = {
+        let seed_lock = state.encrypted_seed.lock().unwrap();
+        match &*seed_lock {
+            Some(bytes) => bytes.clone(),
+            None => {
+                password.zeroize();
+                return Ok(CommandResult::err(
+                    "No seed loaded. This feature requires a seed-based wallet (not watch-only).",
+                ));
+            }
+        }
+    };
+
+    let encrypted = match EncryptedSeed::from_bytes(&encrypted_bytes) {
+        Ok(e) => e,
+        Err(_) => {
+            password.zeroize();
+            return Ok(CommandResult::err("Corrupted seed data"));
+        }
+    };
+
+    let decrypted_seed = match decrypt_seed(&encrypted, &password) {
+        Ok(seed) => seed,
+        Err(_) => {
+            password.zeroize();
+            return Ok(CommandResult::err("Incorrect password"));
+        }
+    };
+
+    // Password no longer needed
+    password.zeroize();
+
+    // Use first 32 bytes of the 64-byte derived seed for Codex32
+    // (Codex32 supports 16 or 32 byte secrets)
+    let seed_bytes = &decrypted_seed[..32];
 
     use nostring_shamir::codex32::generate_shares;
 
-    match generate_shares(&demo_seed, &config) {
+    let result = match generate_shares(seed_bytes, &config) {
         Ok(shares) => {
             let share_strings: Vec<String> = shares.iter().map(|s| s.encoded.clone()).collect();
             Ok(CommandResult::ok(share_strings))
@@ -1842,7 +1880,10 @@ pub async fn generate_codex32_shares(
             "Failed to generate shares: {}",
             e
         ))),
-    }
+    };
+
+    // decrypted_seed is Zeroizing<[u8; 64]> — auto-zeroized on drop
+    result
 }
 
 /// Combine Codex32 shares to recover a seed

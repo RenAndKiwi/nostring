@@ -229,4 +229,4 @@ mod tests {
     }
 }
 
-// TODO: Implement encrypted storage with Argon2id + AES-256-GCM
+// Encrypted storage implemented in crypto.rs (Argon2id + AES-256-GCM)
