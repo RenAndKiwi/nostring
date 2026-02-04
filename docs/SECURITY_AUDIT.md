@@ -238,7 +238,7 @@ Found 167 `unwrap()` calls, but all are in:
 
 ### Testing
 
-- [x] All tests pass (115)
+- [x] All tests pass (284 passed, 17 ignored — network/testnet-dependent)
 - [ ] Fuzzing targets available
 - [x] Edge cases covered
 

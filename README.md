@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/RenAndKiwi/nostring/actions/workflows/ci.yml/badge.svg)](https://github.com/RenAndKiwi/nostring/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-243%20passing-brightgreen.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-284%20passing-brightgreen.svg)](#)
 
 *Your heirs inherit your Bitcoin when you stop checking in. No custodians. No monthly fees. Just math.*
 

@@ -263,7 +263,7 @@ nostring/
 | e2e integration | 26 | ✅ |
 | security tests | 31 | ✅ |
 | doc-tests | 2 | ✅ (4 ignored) |
-| **Total** | **243** | ✅ |
+| **Total** | **284** | ✅ |
 
 *Ignored tests require network access or are doc-test placeholders. Run with `--ignored`.*
 
