@@ -249,38 +249,112 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_disable_core_dumps() {
-        // Should succeed (or at least not crash)
+    fn test_disable_core_dumps_succeeds_on_unix() {
         let result = disable_core_dumps();
-        // On CI/sandboxed environments this might fail, so we just
-        // verify it doesn't panic
-        eprintln!("Core dump disable result: {}", result);
 
-        // Calling twice should still return true
+        // On Unix, this should succeed
+        #[cfg(unix)]
+        assert!(result, "disable_core_dumps must succeed on Unix");
+
+        // Idempotent — second call returns true (already disabled)
         let result2 = disable_core_dumps();
         assert!(result2, "second call should return true (already disabled)");
     }
 
+    #[cfg(unix)]
     #[test]
-    fn test_locked_buffer() {
+    fn test_core_dumps_actually_disabled() {
+        // Verify the rlimit is actually set to 0 after calling disable_core_dumps
+        disable_core_dumps();
+
+        unsafe {
+            let mut rlim = libc::rlimit {
+                rlim_cur: 999,
+                rlim_max: 999,
+            };
+            let result = libc::getrlimit(libc::RLIMIT_CORE, &mut rlim);
+            assert_eq!(result, 0, "getrlimit should succeed");
+            assert_eq!(rlim.rlim_cur, 0, "RLIMIT_CORE soft limit must be 0");
+            assert_eq!(rlim.rlim_max, 0, "RLIMIT_CORE hard limit must be 0");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_mlock_actually_locks_pages() {
+        // Allocate a page-aligned buffer and verify mlock succeeds
+        let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as usize;
+        let data = vec![0u8; page_size];
+
+        unsafe {
+            let locked = mlock(data.as_ptr(), data.len());
+            assert!(locked, "mlock should succeed for a single page");
+
+            // Verify we can read/write the locked memory normally
+            let ptr = data.as_ptr() as *mut u8;
+            std::ptr::write_volatile(ptr, 0xAB);
+            let val = std::ptr::read_volatile(ptr);
+            assert_eq!(val, 0xAB, "locked memory must be readable/writable");
+
+            let unlocked = munlock(data.as_ptr(), data.len());
+            assert!(unlocked, "munlock should succeed");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_mlock_large_allocation() {
+        // Test locking a larger region (256 KB) — typical seed + key material
+        let size = 256 * 1024;
+        let data = vec![0xFFu8; size];
+
+        unsafe {
+            let locked = mlock(data.as_ptr(), data.len());
+            // This may fail if ulimit -l is too low, which is fine —
+            // we just verify it doesn't crash
+            if locked {
+                let unlocked = munlock(data.as_ptr(), data.len());
+                assert!(unlocked, "munlock should succeed after successful mlock");
+            } else {
+                eprintln!(
+                    "mlock for {} bytes failed (likely ulimit -l too low) — acceptable",
+                    size
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_mlock_zero_length_is_noop() {
+        // Zero-length lock should succeed trivially
+        let data = vec![0u8; 0];
+        unsafe {
+            assert!(mlock(data.as_ptr(), 0));
+            assert!(munlock(data.as_ptr(), 0));
+        }
+    }
+
+    #[test]
+    fn test_locked_buffer_basic_operations() {
         let mut buf = LockedBuffer::new(64);
 
-        // Write some data
-        buf.as_mut_slice()[0] = 0xDE;
-        buf.as_mut_slice()[1] = 0xAD;
-        assert_eq!(buf.as_slice()[0], 0xDE);
-        assert_eq!(buf.as_slice()[1], 0xAD);
+        // Verify initial state is zeroed
+        assert!(
+            buf.as_slice().iter().all(|&b| b == 0),
+            "LockedBuffer must be zero-initialized"
+        );
         assert_eq!(buf.as_slice().len(), 64);
 
-        // Buffer should be locked on supported platforms
-        #[cfg(unix)]
-        {
-            // mlock may fail in sandboxed environments, so we just check
-            // it doesn't crash
-            eprintln!("Buffer locked: {}", buf.is_locked());
-        }
+        // Write and read back
+        buf.as_mut_slice()[0] = 0xDE;
+        buf.as_mut_slice()[1] = 0xAD;
+        buf.as_mut_slice()[63] = 0xFF;
+        assert_eq!(buf.as_slice()[0], 0xDE);
+        assert_eq!(buf.as_slice()[1], 0xAD);
+        assert_eq!(buf.as_slice()[63], 0xFF);
 
-        // Drop will zeroize and munlock
+        #[cfg(unix)]
+        assert!(buf.is_locked(), "LockedBuffer should be locked on Unix");
     }
 
     #[test]
@@ -292,27 +366,133 @@ mod tests {
 
     #[test]
     fn test_locked_buffer_zeroizes_on_drop() {
-        // We can't directly check memory after drop, but we can verify
-        // the zeroize path by manually calling it
-        let mut buf = LockedBuffer::new(32);
-        buf.as_mut_slice().fill(0xFF);
-        assert!(buf.as_slice().iter().all(|&b| b == 0xFF));
+        // Use a raw pointer to observe the memory after drop.
+        // This is the only way to verify zeroization actually happened.
+        let buf = LockedBuffer::new(64);
+        let ptr = buf.as_slice().as_ptr();
+        let len = buf.as_slice().len();
 
-        // Simulate drop behavior
-        use zeroize::Zeroize;
-        buf.data.zeroize();
-        assert!(buf.as_slice().iter().all(|&b| b == 0));
+        // Write known pattern
+        unsafe {
+            let mptr = ptr as *mut u8;
+            for i in 0..len {
+                std::ptr::write_volatile(mptr.add(i), 0xFF);
+            }
+        }
+
+        // Verify pattern is there
+        unsafe {
+            for i in 0..len {
+                assert_eq!(
+                    std::ptr::read_volatile(ptr.add(i)),
+                    0xFF,
+                    "pre-drop: byte {} should be 0xFF",
+                    i
+                );
+            }
+        }
+
+        // Drop the buffer — this should zeroize
+        drop(buf);
+
+        // After drop, the memory *should* be zeroed.
+        // Note: this is technically UB (reading freed memory), but it's
+        // the only way to verify zeroization in a test. The allocator
+        // won't have reused this memory yet in a single-threaded test.
+        unsafe {
+            let mut zeroed_count = 0;
+            for i in 0..len {
+                if std::ptr::read_volatile(ptr.add(i)) == 0 {
+                    zeroed_count += 1;
+                }
+            }
+            // We expect all bytes to be zero, but allow for allocator
+            // metadata overwriting a few bytes
+            assert!(
+                zeroed_count >= len - 16,
+                "after drop: at least {} of {} bytes should be zeroed, got {}",
+                len - 16,
+                len,
+                zeroed_count
+            );
+        }
     }
 
     #[test]
-    fn test_mlock_munlock_roundtrip() {
-        let data = vec![42u8; 128];
-        unsafe {
-            let locked = mlock(data.as_ptr(), data.len());
-            eprintln!("mlock result: {}", locked);
+    fn test_locked_buffer_multiple_allocations() {
+        // Verify we can have multiple locked buffers simultaneously
+        let mut bufs: Vec<LockedBuffer> = Vec::new();
+        for i in 0..5 {
+            let mut buf = LockedBuffer::new(128);
+            buf.as_mut_slice().fill(i as u8);
+            bufs.push(buf);
+        }
 
-            let unlocked = munlock(data.as_ptr(), data.len());
-            eprintln!("munlock result: {}", unlocked);
+        // Verify each buffer has its own data
+        for (i, buf) in bufs.iter().enumerate() {
+            assert!(
+                buf.as_slice().iter().all(|&b| b == i as u8),
+                "buffer {} should contain all 0x{:02X}",
+                i,
+                i
+            );
+        }
+
+        // Drop all — should zeroize each
+        drop(bufs);
+    }
+
+    #[test]
+    fn test_locked_buffer_with_seed_sized_data() {
+        // 64 bytes = BIP-39 seed, 32 bytes = private key
+        for size in [32, 64, 128] {
+            let mut buf = LockedBuffer::new(size);
+            assert_eq!(buf.as_slice().len(), size);
+
+            // Simulate writing seed material
+            for (i, byte) in buf.as_mut_slice().iter_mut().enumerate() {
+                *byte = (i % 256) as u8;
+            }
+
+            // Verify
+            for (i, &byte) in buf.as_slice().iter().enumerate() {
+                assert_eq!(byte, (i % 256) as u8);
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_mlock_unaligned_address() {
+        // mlock should handle non-page-aligned addresses
+        // (the kernel rounds down to page boundary)
+        let data = vec![0u8; 256];
+        let offset = 17; // intentionally unaligned
+        unsafe {
+            let ptr = data.as_ptr().add(offset);
+            let len = data.len() - offset;
+            let locked = mlock(ptr, len);
+            // Should succeed — kernel handles alignment
+            if locked {
+                let unlocked = munlock(ptr, len);
+                assert!(unlocked);
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_double_mlock_same_region() {
+        // Locking the same region twice should not cause issues
+        let data = vec![0u8; 4096];
+        unsafe {
+            let locked1 = mlock(data.as_ptr(), data.len());
+            let locked2 = mlock(data.as_ptr(), data.len());
+            // Both should succeed (mlock is idempotent)
+            if locked1 {
+                assert!(locked2, "second mlock on same region should succeed");
+                munlock(data.as_ptr(), data.len());
+            }
         }
     }
 }
