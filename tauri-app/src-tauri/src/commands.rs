@@ -616,6 +616,59 @@ pub async fn check_heir_claims(state: State<'_, AppState>) -> Result<bool, ()> {
 // Settings Commands
 // ============================================================================
 
+/// Get the current Bitcoin network as a string.
+#[tauri::command]
+pub async fn get_network(state: State<'_, AppState>) -> Result<String, ()> {
+    let network = *state.network.lock().unwrap();
+    let s = match network {
+        bitcoin::Network::Bitcoin => "bitcoin",
+        bitcoin::Network::Testnet => "testnet",
+        bitcoin::Network::Signet => "signet",
+        bitcoin::Network::Regtest => "regtest",
+        _ => "bitcoin",
+    };
+    Ok(s.to_string())
+}
+
+/// Set the Bitcoin network. Validates input, updates state, persists to SQLite,
+/// and auto-sets the default Electrum server URL for the chosen network.
+#[tauri::command]
+pub async fn set_network(
+    network: String,
+    state: State<'_, AppState>,
+) -> Result<CommandResult<String>, ()> {
+    let net = match network.as_str() {
+        "bitcoin" | "mainnet" => bitcoin::Network::Bitcoin,
+        "testnet" | "testnet3" => bitcoin::Network::Testnet,
+        "signet" => bitcoin::Network::Signet,
+        "regtest" => bitcoin::Network::Regtest,
+        _ => {
+            return Ok(CommandResult::err(format!(
+                "Invalid network '{}'. Use: bitcoin, testnet, signet, regtest",
+                network
+            )))
+        }
+    };
+
+    // Write-through: memory + SQLite
+    state.set_network(net);
+
+    // Auto-set default Electrum URL for the network
+    let default_url = nostring_electrum::default_server(net);
+    state.set_electrum_url(default_url);
+
+    let label = match net {
+        bitcoin::Network::Bitcoin => "bitcoin",
+        bitcoin::Network::Testnet => "testnet",
+        bitcoin::Network::Signet => "signet",
+        bitcoin::Network::Regtest => "regtest",
+        _ => "bitcoin",
+    };
+    log::info!("Network switched to {} (Electrum: {})", label, default_url);
+
+    Ok(CommandResult::ok(label.to_string()))
+}
+
 /// Get Electrum server URL
 #[tauri::command]
 pub async fn get_electrum_url(state: State<'_, AppState>) -> Result<String, ()> {

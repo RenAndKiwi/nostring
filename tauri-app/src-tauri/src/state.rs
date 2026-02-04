@@ -302,6 +302,22 @@ impl AppState {
         self.persist_config("encrypted_seed", &hex_str);
     }
 
+    /// Set Bitcoin network and persist.
+    pub fn set_network(&self, network: Network) {
+        let network_str = match network {
+            Network::Bitcoin => "bitcoin",
+            Network::Testnet => "testnet",
+            Network::Signet => "signet",
+            Network::Regtest => "regtest",
+            _ => "bitcoin",
+        };
+        {
+            let mut lock = self.network.lock().unwrap();
+            *lock = network;
+        }
+        self.persist_config("network", network_str);
+    }
+
     /// Set electrum URL and persist.
     pub fn set_electrum_url(&self, url: &str) {
         {

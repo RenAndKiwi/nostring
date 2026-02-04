@@ -1413,3 +1413,93 @@ textarea {
         flex-direction: column;
     }
 }
+
+/* ============================================================================
+ * Network Banner (testnet/signet warning)
+ * ============================================================================ */
+
+.network-banner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 9999;
+    padding: 6px 16px;
+    text-align: center;
+    font-weight: 700;
+    font-size: 0.85rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    animation: network-banner-pulse 3s ease-in-out infinite;
+}
+
+.network-banner-testnet {
+    background: linear-gradient(90deg, #7c3aed, #9333ea, #7c3aed);
+    color: #fff;
+}
+
+.network-banner-signet {
+    background: linear-gradient(90deg, #2563eb, #3b82f6, #2563eb);
+    color: #fff;
+}
+
+.network-banner-regtest {
+    background: linear-gradient(90deg, #dc2626, #ef4444, #dc2626);
+    color: #fff;
+}
+
+@keyframes network-banner-pulse {
+    0%, 100% { opacity: 0.95; }
+    50% { opacity: 1; }
+}
+
+/* Push app content down when banner is showing */
+body:has(.network-banner) {
+    padding-top: 32px;
+}
+
+/* ============================================================================
+ * Network Selector (radio buttons in Settings)
+ * ============================================================================ */
+
+.network-selector {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-top: 0.5rem;
+}
+
+.network-option {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    cursor: pointer;
+    background: var(--bg-card);
+    transition: all 0.2s ease;
+    font-size: 0.9rem;
+}
+
+.network-option:hover {
+    border-color: var(--accent);
+    background: var(--bg-hover);
+}
+
+.network-option:has(input:checked) {
+    border-color: var(--accent);
+    background: rgba(251, 220, 123, 0.1);
+    box-shadow: 0 0 0 1px var(--accent);
+}
+
+.network-option input[type="radio"] {
+    accent-color: var(--accent);
+    width: 16px;
+    height: 16px;
+}
+
+.network-label {
+    color: var(--text-primary);
+    white-space: nowrap;
+}

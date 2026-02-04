@@ -44,6 +44,8 @@ const invoke = DEMO_MODE
             },
             'unlock_seed': { success: true },
             'lock_wallet': { success: true },
+            'get_network': 'bitcoin',
+            'set_network': { success: true, data: 'bitcoin' },
             'get_electrum_url': 'ssl://blockstream.info:700',
             'set_electrum_url': { success: true },
             'add_heir': { success: true },
@@ -114,12 +116,22 @@ let wizardStep = 1;
 let wizardHeirs = [];
 let spendEvents = [];
 let hasHeirClaims = false;
+let currentNetwork = 'bitcoin'; // 'bitcoin' | 'testnet' | 'signet'
 
 // ============================================================================
 // Initialization
 // ============================================================================
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('NoString initializing...');
+    
+    // Load network early so the banner shows on all screens
+    try {
+        const network = await invoke('get_network');
+        currentNetwork = network || 'bitcoin';
+        updateNetworkBanner();
+    } catch (err) {
+        console.error('Failed to load network on init:', err);
+    }
     
     // Check if wallet exists (seed OR watch-only xpub)
     const hasWallet = await invoke('has_seed');
@@ -896,8 +908,25 @@ function showMainApp() {
             </div>
             
             <div class="settings-group">
-                <h3>Network</h3>
+                <h3>🌐 Network</h3>
                 <div class="setting">
+                    <label>Bitcoin Network:</label>
+                    <div class="network-selector" id="network-selector">
+                        <label class="network-option">
+                            <input type="radio" name="network" value="bitcoin"> 
+                            <span class="network-label">🟠 Bitcoin Mainnet</span>
+                        </label>
+                        <label class="network-option">
+                            <input type="radio" name="network" value="testnet">
+                            <span class="network-label">🟣 Testnet</span>
+                        </label>
+                        <label class="network-option">
+                            <input type="radio" name="network" value="signet">
+                            <span class="network-label">🔵 Signet</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="setting" style="margin-top: 0.75rem;">
                     <label>Electrum Server:</label>
                     <input type="text" id="electrum-url" placeholder="ssl://blockstream.info:700">
                     <button type="button" id="btn-save-electrum" class="btn-secondary">Save</button>
@@ -938,6 +967,11 @@ function showMainApp() {
     document.getElementById('btn-save-electrum').addEventListener('click', saveElectrumUrl);
     document.getElementById('btn-download-backup').addEventListener('click', downloadDescriptorBackup);
     
+    // Network selector change handler
+    document.querySelectorAll('#network-selector input[name="network"]').forEach(radio => {
+        radio.addEventListener('change', handleNetworkChange);
+    });
+    
     // How it works toggle
     document.getElementById('btn-toggle-how').addEventListener('click', () => {
         document.getElementById('how-content').classList.toggle('hidden');
@@ -965,6 +999,7 @@ function showMainApp() {
     
     // Load initial data
     refreshStatus();
+    loadNetwork();
     loadElectrumUrl();
     loadServiceNpub();
     loadNotificationSettings();
@@ -2008,6 +2043,107 @@ async function lockWallet() {
     showLockScreen();
 }
 
+// ============================================================================
+// Network Management
+// ============================================================================
+
+const DEFAULT_ELECTRUM_URLS = {
+    bitcoin: 'ssl://blockstream.info:700',
+    testnet: 'ssl://blockstream.info:993',
+    signet: 'ssl://mempool.space:60602',
+};
+
+async function loadNetwork() {
+    try {
+        const network = await invoke('get_network');
+        currentNetwork = network || 'bitcoin';
+        // Set the correct radio button
+        const radio = document.querySelector(`#network-selector input[value="${currentNetwork}"]`);
+        if (radio) radio.checked = true;
+        updateNetworkBanner();
+    } catch (err) {
+        console.error('Failed to load network:', err);
+    }
+}
+
+async function handleNetworkChange(e) {
+    const newNetwork = e.target.value;
+
+    // Confirmation when switching TO mainnet
+    if (newNetwork === 'bitcoin' && currentNetwork !== 'bitcoin') {
+        const confirmed = confirm(
+            '⚠️ Switch to Bitcoin Mainnet?\n\n' +
+            'This will use REAL bitcoin. Make sure you know what you\'re doing.\n\n' +
+            'The Electrum server will be updated to the mainnet default.'
+        );
+        if (!confirmed) {
+            // Revert radio selection
+            const radio = document.querySelector(`#network-selector input[value="${currentNetwork}"]`);
+            if (radio) radio.checked = true;
+            return;
+        }
+    }
+
+    try {
+        const result = await invoke('set_network', { network: newNetwork });
+        if (result && result.success) {
+            currentNetwork = newNetwork;
+            // Reload the Electrum URL (backend auto-sets the default)
+            await loadElectrumUrl();
+            updateNetworkBanner();
+            showSuccess(`Switched to ${getNetworkDisplayName(newNetwork)}`);
+        } else {
+            showError(result?.error || 'Failed to switch network');
+            // Revert radio
+            const radio = document.querySelector(`#network-selector input[value="${currentNetwork}"]`);
+            if (radio) radio.checked = true;
+        }
+    } catch (err) {
+        console.error('Failed to switch network:', err);
+        showError('Failed to switch network');
+        // Revert radio
+        const radio = document.querySelector(`#network-selector input[value="${currentNetwork}"]`);
+        if (radio) radio.checked = true;
+    }
+}
+
+function getNetworkDisplayName(network) {
+    switch (network) {
+        case 'bitcoin': return 'Bitcoin Mainnet';
+        case 'testnet': return 'Testnet';
+        case 'signet': return 'Signet';
+        case 'regtest': return 'Regtest';
+        default: return network;
+    }
+}
+
+function updateNetworkBanner() {
+    // Remove existing banner
+    const existing = document.getElementById('network-banner');
+    if (existing) existing.remove();
+
+    if (currentNetwork === 'bitcoin') return;
+
+    const banner = document.createElement('div');
+    banner.id = 'network-banner';
+    banner.className = `network-banner network-banner-${currentNetwork}`;
+    
+    const icon = currentNetwork === 'testnet' ? '🟣' : '🔵';
+    const name = getNetworkDisplayName(currentNetwork);
+    banner.innerHTML = `<span>${icon} ${name.toUpperCase()} MODE — Not real bitcoin</span>`;
+    
+    // Insert at the very top of the app
+    document.body.prepend(banner);
+}
+
+function getMempoolBaseUrl(network) {
+    switch (network || currentNetwork) {
+        case 'testnet': return 'https://mempool.space/testnet';
+        case 'signet': return 'https://mempool.space/signet';
+        default: return 'https://mempool.space';
+    }
+}
+
 async function loadElectrumUrl() {
     const url = await invoke('get_electrum_url');
     document.getElementById('electrum-url').value = url;
@@ -2170,8 +2306,8 @@ function renderSpendEventRow(event) {
         : event.method === 'indeterminate' ? 'Indeterminate'
         : event.method || 'Unknown';
 
-    // Detect network from any available context — default to mainnet
-    const network = 'mainnet';
+    // Use the globally-tracked current network
+    const network = currentNetwork;
 
     return `
         <div class="spend-event-row">
@@ -2226,11 +2362,7 @@ function formatTxidLink(txid, network) {
         ? txid.substring(0, 8) + '…' + txid.substring(txid.length - 6)
         : txid;
 
-    const baseUrl = network === 'testnet'
-        ? 'https://mempool.space/testnet/tx/'
-        : network === 'signet'
-        ? 'https://mempool.space/signet/tx/'
-        : 'https://mempool.space/tx/';
+    const baseUrl = getMempoolBaseUrl(network || currentNetwork) + '/tx/';
 
     return `<a href="${baseUrl}${encodeURIComponent(txid)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(txid)}">${truncated}</a>`;
 }

@@ -20,6 +20,14 @@ path = "live_integration.rs"
 name = "testnet_checkin_broadcast"
 path = "testnet_checkin_broadcast.rs"
 
+[[test]]
+name = "testnet_heir_claim"
+path = "testnet_heir_claim.rs"
+
+[[test]]
+name = "testnet_cascade_demo"
+path = "testnet_cascade_demo.rs"
+
 [dependencies]
 nostring-core = { path = "../../crates/nostring-core" }
 nostring-inherit = { path = "../../crates/nostring-inherit" }

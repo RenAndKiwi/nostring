@@ -99,6 +99,8 @@ fn main() {
             commands::fetch_locked_shares_from_relays,
             commands::get_relay_publication_status,
             // Settings
+            commands::get_network,
+            commands::set_network,
             commands::get_electrum_url,
             commands::set_electrum_url,
         ])
