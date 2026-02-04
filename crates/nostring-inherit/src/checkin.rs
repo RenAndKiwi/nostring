@@ -19,8 +19,8 @@
 use bitcoin::absolute::LockTime;
 use bitcoin::bip32::{ChildNumber, DerivationPath, Fingerprint};
 use bitcoin::psbt::Psbt;
-use bitcoin::transaction::Version;
 use bitcoin::secp256k1;
+use bitcoin::transaction::Version;
 use bitcoin::{Amount, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Witness};
 use miniscript::descriptor::DescriptorPublicKey;
 use miniscript::{Descriptor, ForEachKey};
@@ -366,8 +366,7 @@ impl CheckinTxBuilder {
                         // Full path = origin path + xpub derivation path + child index
                         // e.g., [fingerprint/84'/0'/0']xpub/0/* at index 5 →
                         //        m/84'/0'/0'/0/5
-                        let mut full_path: Vec<ChildNumber> =
-                            base_path.as_ref().to_vec();
+                        let mut full_path: Vec<ChildNumber> = base_path.as_ref().to_vec();
                         for step in xkey.derivation_path.as_ref() {
                             full_path.push(*step);
                         }
@@ -392,8 +391,7 @@ impl CheckinTxBuilder {
                             ) {
                                 let pubkey = final_xpub.public_key;
 
-                                let mut full_path: Vec<ChildNumber> =
-                                    base_path.as_ref().to_vec();
+                                let mut full_path: Vec<ChildNumber> = base_path.as_ref().to_vec();
                                 for step in first_path.as_ref() {
                                     full_path.push(*step);
                                 }
@@ -733,22 +731,15 @@ mod tests {
         // Second xpub: derive child from first to get a genuinely different key
         let secp = bitcoin::secp256k1::Secp256k1::verification_only();
         let heir_xpub = owner_xpub
-            .derive_pub(
-                &secp,
-                &[bitcoin::bip32::ChildNumber::Normal { index: 1 }],
-            )
+            .derive_pub(&secp, &[bitcoin::bip32::ChildNumber::Normal { index: 1 }])
             .unwrap();
 
-        let owner_key = DescriptorPublicKey::from_str(&format!(
-            "[00000001/84'/0'/0']{}/<0;1>/*",
-            owner_xpub
-        ))
-        .unwrap();
-        let heir_key = DescriptorPublicKey::from_str(&format!(
-            "[00000002/84'/0'/1']{}/<0;1>/*",
-            heir_xpub
-        ))
-        .unwrap();
+        let owner_key =
+            DescriptorPublicKey::from_str(&format!("[00000001/84'/0'/0']{}/<0;1>/*", owner_xpub))
+                .unwrap();
+        let heir_key =
+            DescriptorPublicKey::from_str(&format!("[00000002/84'/0'/1']{}/<0;1>/*", heir_xpub))
+                .unwrap();
 
         let policy =
             InheritancePolicy::simple(owner_key, heir_key, Timelock::six_months()).unwrap();

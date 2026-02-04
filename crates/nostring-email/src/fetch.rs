@@ -148,8 +148,7 @@ pub fn extract_descriptor_from_body(body: &str) -> Option<String> {
 fn parse_email(seq: u32, raw: &[u8]) -> Result<FetchedEmail, EmailError> {
     let raw_str = String::from_utf8_lossy(raw);
 
-    let subject =
-        extract_header(&raw_str, "Subject").unwrap_or_else(|| "(no subject)".to_string());
+    let subject = extract_header(&raw_str, "Subject").unwrap_or_else(|| "(no subject)".to_string());
     let from = extract_header(&raw_str, "From").unwrap_or_else(|| "(unknown)".to_string());
 
     // Extract body (after the first blank line)

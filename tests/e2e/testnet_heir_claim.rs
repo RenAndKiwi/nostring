@@ -65,10 +65,7 @@ fn connect_testnet() -> ElectrumClient {
 }
 
 /// Derive the explicit witness script from a multi-path descriptor at a given index
-fn derive_witness_script(
-    descriptor: &Descriptor<DescriptorPublicKey>,
-    index: u32,
-) -> ScriptBuf {
+fn derive_witness_script(descriptor: &Descriptor<DescriptorPublicKey>, index: u32) -> ScriptBuf {
     let secp = bitcoin::secp256k1::Secp256k1::verification_only();
     let single_descs = descriptor.clone().into_single_descriptors().unwrap();
     let receive_desc = &single_descs[0];
@@ -79,10 +76,7 @@ fn derive_witness_script(
 }
 
 /// Derive the script_pubkey (P2WSH) from a multi-path descriptor at a given index
-fn derive_script_pubkey(
-    descriptor: &Descriptor<DescriptorPublicKey>,
-    index: u32,
-) -> ScriptBuf {
+fn derive_script_pubkey(descriptor: &Descriptor<DescriptorPublicKey>, index: u32) -> ScriptBuf {
     let secp = bitcoin::secp256k1::Secp256k1::verification_only();
     let single_descs = descriptor.clone().into_single_descriptors().unwrap();
     let receive_desc = &single_descs[0];
@@ -174,12 +168,8 @@ fn test_real_testnet_heir_claim() {
     .expect("valid heir descriptor key");
 
     let timelock = Timelock::from_blocks(1).expect("CSV 1 block");
-    let policy = InheritancePolicy::simple(
-        owner_desc_key.clone(),
-        heir_desc_key.clone(),
-        timelock,
-    )
-    .unwrap();
+    let policy =
+        InheritancePolicy::simple(owner_desc_key.clone(), heir_desc_key.clone(), timelock).unwrap();
 
     let descriptor = policy.to_wsh_descriptor().unwrap();
 
@@ -191,12 +181,22 @@ fn test_real_testnet_heir_claim() {
     let witness_script = derive_witness_script(&descriptor, 0);
 
     assert!(inheritance_spk.is_p2wsh(), "Must be P2WSH");
-    println!("  ✓ Inheritance scriptPubKey: {}", inheritance_spk.to_hex_string());
-    println!("  ✓ Witness script ({} bytes): {}", witness_script.len(), witness_script.to_hex_string());
+    println!(
+        "  ✓ Inheritance scriptPubKey: {}",
+        inheritance_spk.to_hex_string()
+    );
+    println!(
+        "  ✓ Witness script ({} bytes): {}",
+        witness_script.len(),
+        witness_script.to_hex_string()
+    );
 
     // Verify the witness script hashes to the P2WSH script_pubkey
     let expected_wsh = ScriptBuf::new_p2wsh(&WScriptHash::hash(witness_script.as_bytes()));
-    assert_eq!(inheritance_spk, expected_wsh, "Witness script hash mismatch!");
+    assert_eq!(
+        inheritance_spk, expected_wsh,
+        "Witness script hash mismatch!"
+    );
     println!("  ✓ Witness script hash verified");
 
     // ========================================================================
@@ -218,26 +218,35 @@ fn test_real_testnet_heir_claim() {
     for utxo in &utxos {
         println!(
             "    - {}:{} = {} sats (height {})",
-            utxo.outpoint.txid, utxo.outpoint.vout,
-            utxo.value.to_sat(), utxo.height
+            utxo.outpoint.txid,
+            utxo.outpoint.vout,
+            utxo.value.to_sat(),
+            utxo.height
         );
     }
 
     if utxos.is_empty() {
-        panic!("No UTXOs available at owner address {}. Fund it first!", EXPECTED_ADDRESS);
+        panic!(
+            "No UTXOs available at owner address {}. Fund it first!",
+            EXPECTED_ADDRESS
+        );
     }
 
     // Use the largest UTXO
     let best_utxo = utxos.iter().max_by_key(|u| u.value.to_sat()).unwrap();
     let spend_value = best_utxo.value.to_sat();
 
-    println!("  ✓ Using UTXO: {}:{} ({} sats)",
-        best_utxo.outpoint.txid, best_utxo.outpoint.vout, spend_value);
+    println!(
+        "  ✓ Using UTXO: {}:{} ({} sats)",
+        best_utxo.outpoint.txid, best_utxo.outpoint.vout, spend_value
+    );
 
     assert!(
         spend_value >= FUNDING_AMOUNT_SATS + FEE_SATS,
         "UTXO too small: {} < {} + {}",
-        spend_value, FUNDING_AMOUNT_SATS, FEE_SATS
+        spend_value,
+        FUNDING_AMOUNT_SATS,
+        FEE_SATS
     );
 
     // ========================================================================
@@ -270,7 +279,10 @@ fn test_real_testnet_heir_claim() {
         ],
     };
 
-    println!("  ✓ Output 0: {} sats → P2WSH inheritance", FUNDING_AMOUNT_SATS);
+    println!(
+        "  ✓ Output 0: {} sats → P2WSH inheritance",
+        FUNDING_AMOUNT_SATS
+    );
     println!("  ✓ Output 1: {} sats → owner change", change_value);
     println!("  ✓ Fee: {} sats", FEE_SATS);
 
@@ -325,7 +337,10 @@ fn test_real_testnet_heir_claim() {
     assert_eq!(broadcast_txid, funding_txid);
     println!("  ✓ FUNDING BROADCAST SUCCESS!");
     println!("  ✓ Txid: {}", funding_txid);
-    println!("  ✓ Explorer: https://mempool.space/testnet/tx/{}", funding_txid);
+    println!(
+        "  ✓ Explorer: https://mempool.space/testnet/tx/{}",
+        funding_txid
+    );
 
     // ========================================================================
     // Step 8: Wait for funding tx to confirm
@@ -347,25 +362,34 @@ fn test_real_testnet_heir_claim() {
         // Check if funding tx output appears as UTXO on the inheritance script
         match client.get_utxos_for_script(inheritance_spk.as_script()) {
             Ok(utxos) => {
-                if let Some(utxo) = utxos.iter().find(|u| {
-                    u.outpoint.txid == funding_txid && u.outpoint.vout == funding_vout
-                }) {
+                if let Some(utxo) = utxos
+                    .iter()
+                    .find(|u| u.outpoint.txid == funding_txid && u.outpoint.vout == funding_vout)
+                {
                     if utxo.height > 0 {
                         funding_height = utxo.height;
                         confirmed = true;
                         println!("  ✓ Funding tx confirmed at height {}!", funding_height);
                         break;
                     } else {
-                        println!("  ⏳ Funding tx seen but unconfirmed ({}s elapsed)...",
-                            start.elapsed().as_secs());
+                        println!(
+                            "  ⏳ Funding tx seen but unconfirmed ({}s elapsed)...",
+                            start.elapsed().as_secs()
+                        );
                     }
                 } else {
-                    println!("  ⏳ Funding tx not yet visible ({}s elapsed)...",
-                        start.elapsed().as_secs());
+                    println!(
+                        "  ⏳ Funding tx not yet visible ({}s elapsed)...",
+                        start.elapsed().as_secs()
+                    );
                 }
             }
             Err(e) => {
-                println!("  ⚠ Error checking: {} ({}s elapsed)", e, start.elapsed().as_secs());
+                println!(
+                    "  ⚠ Error checking: {} ({}s elapsed)",
+                    e,
+                    start.elapsed().as_secs()
+                );
             }
         }
 
@@ -376,7 +400,10 @@ fn test_real_testnet_heir_claim() {
         println!("\n  ⚠ FUNDING TX DID NOT CONFIRM within 30 minutes.");
         println!("  Funding txid: {}", funding_txid);
         println!("  The heir claim will need to be attempted later.");
-        println!("  Inheritance P2WSH script: {}", inheritance_spk.to_hex_string());
+        println!(
+            "  Inheritance P2WSH script: {}",
+            inheritance_spk.to_hex_string()
+        );
         println!("  Witness script: {}", witness_script.to_hex_string());
         println!("  Heir mnemonic: {}", heir_mnemonic);
         panic!("Funding tx did not confirm in time. Save the txid and retry later.");
@@ -386,21 +413,30 @@ fn test_real_testnet_heir_claim() {
     // Step 9: Wait for CSV timelock to mature (1 more block after confirmation)
     // ========================================================================
     println!("\nStep 9: Waiting for CSV timelock to mature (need 1 block after confirmation)...");
-    println!("  Funding confirmed at height {}. Heir can spend at height {} (CSV 1).",
-        funding_height, funding_height + 1);
+    println!(
+        "  Funding confirmed at height {}. Heir can spend at height {} (CSV 1).",
+        funding_height,
+        funding_height + 1
+    );
 
     let mut current_height = client.get_height().unwrap();
 
     // We need current_height >= funding_height + 1 for CSV 1 to be satisfied
     while current_height < funding_height + 1 {
-        println!("  ⏳ Current height: {}. Need: {}. Waiting...",
-            current_height, funding_height + 1);
+        println!(
+            "  ⏳ Current height: {}. Need: {}. Waiting...",
+            current_height,
+            funding_height + 1
+        );
         std::thread::sleep(poll_interval);
         current_height = client.get_height().unwrap();
     }
 
-    println!("  ✓ CSV timelock matured! Current height: {} >= {}",
-        current_height, funding_height + 1);
+    println!(
+        "  ✓ CSV timelock matured! Current height: {} >= {}",
+        current_height,
+        funding_height + 1
+    );
 
     // ========================================================================
     // Step 10: Build the heir claim transaction
@@ -435,8 +471,14 @@ fn test_real_testnet_heir_claim() {
         }],
     };
 
-    println!("  ✓ Input: {}:{} (CSV sequence: {:?})", funding_txid, funding_vout, csv_sequence);
-    println!("  ✓ Output: {} sats → {} (heir P2WPKH)", claim_value, heir_receive_address);
+    println!(
+        "  ✓ Input: {}:{} (CSV sequence: {:?})",
+        funding_txid, funding_vout, csv_sequence
+    );
+    println!(
+        "  ✓ Output: {} sats → {} (heir P2WPKH)",
+        claim_value, heir_receive_address
+    );
     println!("  ✓ Fee: {} sats", HEIR_CLAIM_FEE_SATS);
 
     // ========================================================================
@@ -502,8 +544,8 @@ fn test_real_testnet_heir_claim() {
     // The script executes top-down consuming from the stack.
     // Owner CHECKSIG eats the top item (empty → fails → 0).
     // Then NOTIF enters heir branch, CHECKSIGVERIFY eats next item (heir sig).
-    claim_witness.push(&claim_sig_bytes);          // heir signature (consumed by CHECKSIGVERIFY)
-    claim_witness.push(&[]);                       // empty — fails owner CHECKSIG → enters NOTIF
+    claim_witness.push(&claim_sig_bytes); // heir signature (consumed by CHECKSIGVERIFY)
+    claim_witness.push(&[]); // empty — fails owner CHECKSIG → enters NOTIF
     claim_witness.push(witness_script.as_bytes()); // the witness script itself (P2WSH requirement)
 
     signed_claim_tx.input[0].witness = claim_witness;
@@ -532,7 +574,10 @@ fn test_real_testnet_heir_claim() {
 
     println!("  ✓ HEIR CLAIM BROADCAST SUCCESS!");
     println!("  ✓ Txid: {}", claim_broadcast_txid);
-    println!("  ✓ Explorer: https://mempool.space/testnet/tx/{}", claim_broadcast_txid);
+    println!(
+        "  ✓ Explorer: https://mempool.space/testnet/tx/{}",
+        claim_broadcast_txid
+    );
 
     // ========================================================================
     // Step 14: Wait for heir claim to confirm
@@ -551,16 +596,24 @@ fn test_real_testnet_heir_claim() {
                         println!("  ✓ Heir claim confirmed at height {}!", utxo.height);
                         break;
                     } else {
-                        println!("  ⏳ Heir claim in mempool ({}s elapsed)...",
-                            claim_start.elapsed().as_secs());
+                        println!(
+                            "  ⏳ Heir claim in mempool ({}s elapsed)...",
+                            claim_start.elapsed().as_secs()
+                        );
                     }
                 } else {
-                    println!("  ⏳ Heir claim not yet visible ({}s elapsed)...",
-                        claim_start.elapsed().as_secs());
+                    println!(
+                        "  ⏳ Heir claim not yet visible ({}s elapsed)...",
+                        claim_start.elapsed().as_secs()
+                    );
                 }
             }
             Err(e) => {
-                println!("  ⚠ Error checking: {} ({}s elapsed)", e, claim_start.elapsed().as_secs());
+                println!(
+                    "  ⚠ Error checking: {} ({}s elapsed)",
+                    e,
+                    claim_start.elapsed().as_secs()
+                );
             }
         }
         std::thread::sleep(poll_interval);

@@ -46,7 +46,9 @@ impl PasswordStrength {
         match self {
             Self::Dangerous => "Dangerous — trivially crackable, do not use for seed encryption",
             Self::Weak => "Weak — vulnerable to targeted attacks",
-            Self::Fair => "Fair — adequate for casual threats but not recommended for seed encryption",
+            Self::Fair => {
+                "Fair — adequate for casual threats but not recommended for seed encryption"
+            }
             Self::Strong => "Strong — resistant to well-funded attackers",
             Self::Excellent => "Excellent — beyond brute-force for the foreseeable future",
         }
@@ -73,11 +75,35 @@ pub struct PasswordAnalysis {
 
 /// Common weak passwords and patterns to detect
 const COMMON_PASSWORDS: &[&str] = &[
-    "password", "123456", "12345678", "qwerty", "abc123", "monkey",
-    "1234567", "letmein", "trustno1", "dragon", "baseball", "iloveyou",
-    "master", "sunshine", "ashley", "bailey", "shadow", "123456789",
-    "1234567890", "password1", "bitcoin", "satoshi", "nakamoto",
-    "hodl", "moon", "lambo", "seed", "wallet", "crypto",
+    "password",
+    "123456",
+    "12345678",
+    "qwerty",
+    "abc123",
+    "monkey",
+    "1234567",
+    "letmein",
+    "trustno1",
+    "dragon",
+    "baseball",
+    "iloveyou",
+    "master",
+    "sunshine",
+    "ashley",
+    "bailey",
+    "shadow",
+    "123456789",
+    "1234567890",
+    "password1",
+    "bitcoin",
+    "satoshi",
+    "nakamoto",
+    "hodl",
+    "moon",
+    "lambo",
+    "seed",
+    "wallet",
+    "crypto",
 ];
 
 /// Estimate the entropy of a password in bits.
@@ -110,7 +136,10 @@ pub fn estimate_entropy(password: &str) -> PasswordAnalysis {
 
     // Check against common passwords (case-insensitive)
     let lower = password.to_lowercase();
-    if COMMON_PASSWORDS.iter().any(|&cp| lower == cp || lower.contains(cp)) {
+    if COMMON_PASSWORDS
+        .iter()
+        .any(|&cp| lower == cp || lower.contains(cp))
+    {
         warnings.push("Contains a commonly used password or word".to_string());
     }
 
@@ -184,7 +213,8 @@ pub fn estimate_entropy(password: &str) -> PasswordAnalysis {
     if (has_lower != has_upper) && !has_digit && !has_symbol {
         entropy *= 0.85;
         if password.len() < 12 {
-            warnings.push("Single character class — add numbers, symbols, or mixed case".to_string());
+            warnings
+                .push("Single character class — add numbers, symbols, or mixed case".to_string());
         }
     }
 
@@ -266,14 +296,23 @@ mod tests {
     #[test]
     fn test_common_password_detected() {
         let analysis = estimate_entropy("password");
-        assert!(analysis.warnings.iter().any(|w| w.contains("commonly used")));
+        assert!(analysis
+            .warnings
+            .iter()
+            .any(|w| w.contains("commonly used")));
         assert!(!analysis.meets_minimum);
 
         let analysis = estimate_entropy("bitcoin");
-        assert!(analysis.warnings.iter().any(|w| w.contains("commonly used")));
+        assert!(analysis
+            .warnings
+            .iter()
+            .any(|w| w.contains("commonly used")));
 
         let analysis = estimate_entropy("satoshi");
-        assert!(analysis.warnings.iter().any(|w| w.contains("commonly used")));
+        assert!(analysis
+            .warnings
+            .iter()
+            .any(|w| w.contains("commonly used")));
     }
 
     #[test]

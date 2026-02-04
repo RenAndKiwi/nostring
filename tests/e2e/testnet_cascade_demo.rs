@@ -28,11 +28,12 @@ use bitcoin::{
     hashes::Hash,
     sighash::{EcdsaSighashType, SighashCache},
     transaction::Version,
-    Address, Amount, CompressedPublicKey, Network, OutPoint, ScriptBuf, Sequence,
-    Transaction, TxIn, TxOut, WScriptHash, Witness,
+    Address, Amount, CompressedPublicKey, Network, OutPoint, ScriptBuf, Sequence, Transaction,
+    TxIn, TxOut, WScriptHash, Witness,
 };
 use miniscript::descriptor::DescriptorPublicKey;
 use miniscript::Descriptor;
+use nostr_sdk::prelude::*;
 use nostring_core::keys::derive_nostr_keys;
 use nostring_core::seed::{derive_seed, parse_mnemonic};
 use nostring_electrum::ElectrumClient;
@@ -41,7 +42,6 @@ use nostring_notify::smtp::send_email_to_recipient;
 use nostring_notify::templates::NotificationMessage;
 use nostring_notify::EmailConfig;
 use nostring_shamir::{reconstruct_secret, split_secret, Share};
-use nostr_sdk::prelude::*;
 use std::str::FromStr;
 use std::sync::Once;
 use std::time::{Duration, Instant};
@@ -119,10 +119,7 @@ struct DemoResults {
 // ============================================================================
 
 fn connect_testnet() -> ElectrumClient {
-    let servers = [
-        "ssl://blockstream.info:993",
-        "ssl://mempool.space:60002",
-    ];
+    let servers = ["ssl://blockstream.info:993", "ssl://mempool.space:60002"];
     for server in &servers {
         println!("  Trying {}...", server);
         match ElectrumClient::new(server, Network::Testnet) {
@@ -136,21 +133,17 @@ fn connect_testnet() -> ElectrumClient {
     panic!("Could not connect to any testnet Electrum server");
 }
 
-fn derive_witness_script(
-    descriptor: &Descriptor<DescriptorPublicKey>,
-    index: u32,
-) -> ScriptBuf {
+fn derive_witness_script(descriptor: &Descriptor<DescriptorPublicKey>, index: u32) -> ScriptBuf {
     let secp = bitcoin::secp256k1::Secp256k1::verification_only();
     let single_descs = descriptor.clone().into_single_descriptors().unwrap();
     let receive_desc = &single_descs[0];
     let derived = receive_desc.derived_descriptor(&secp, index).unwrap();
-    derived.explicit_script().expect("P2WSH must have explicit script")
+    derived
+        .explicit_script()
+        .expect("P2WSH must have explicit script")
 }
 
-fn derive_script_pubkey(
-    descriptor: &Descriptor<DescriptorPublicKey>,
-    index: u32,
-) -> ScriptBuf {
+fn derive_script_pubkey(descriptor: &Descriptor<DescriptorPublicKey>, index: u32) -> ScriptBuf {
     let secp = bitcoin::secp256k1::Secp256k1::verification_only();
     let single_descs = descriptor.clone().into_single_descriptors().unwrap();
     let receive_desc = &single_descs[0];
@@ -268,20 +261,20 @@ fn build_heir_witness(
         0 => {
             // Wife: outer IF = TRUE
             // Stack (bottom→top): [sig, pubkey, TRUE, empty]
-            w.push(sig_bytes);                    // heir sig (for CHECKSIGVERIFY)
-            w.push(heir_pubkey.serialize());      // heir pubkey (for DUP HASH160 check)
-            w.push(&[1u8]);                       // TRUE → outer IF → wife branch
-            w.push(&[]);                          // empty → fails owner CHECKSIG → 0
-            w.push(witness_script.as_bytes());    // P2WSH witness script
+            w.push(sig_bytes); // heir sig (for CHECKSIGVERIFY)
+            w.push(heir_pubkey.serialize()); // heir pubkey (for DUP HASH160 check)
+            w.push(&[1u8]); // TRUE → outer IF → wife branch
+            w.push(&[]); // empty → fails owner CHECKSIG → 0
+            w.push(witness_script.as_bytes()); // P2WSH witness script
         }
         1 => {
             // Daughter: outer IF = FALSE (ELSE), inner IF = TRUE
             // Stack (bottom→top): [sig, pubkey, TRUE, FALSE, empty]
             w.push(sig_bytes);
             w.push(heir_pubkey.serialize());
-            w.push(&[1u8]);                       // TRUE → inner IF → daughter branch
-            w.push(&[]);                          // FALSE → outer ELSE
-            w.push(&[]);                          // empty → fails owner CHECKSIG
+            w.push(&[1u8]); // TRUE → inner IF → daughter branch
+            w.push(&[]); // FALSE → outer ELSE
+            w.push(&[]); // empty → fails owner CHECKSIG
             w.push(witness_script.as_bytes());
         }
         2 => {
@@ -289,9 +282,9 @@ fn build_heir_witness(
             // Stack (bottom→top): [sig, pubkey, FALSE, FALSE, empty]
             w.push(sig_bytes);
             w.push(heir_pubkey.serialize());
-            w.push(&[]);                          // FALSE → inner ELSE → lawyer branch
-            w.push(&[]);                          // FALSE → outer ELSE
-            w.push(&[]);                          // empty → fails owner CHECKSIG
+            w.push(&[]); // FALSE → inner ELSE → lawyer branch
+            w.push(&[]); // FALSE → outer ELSE
+            w.push(&[]); // empty → fails owner CHECKSIG
             w.push(witness_script.as_bytes());
         }
         _ => panic!("Invalid heir_index"),
@@ -318,9 +311,17 @@ fn mailhog_email_config() -> EmailConfig {
 // Async notification helpers
 // ============================================================================
 
-async fn send_setup_email(config: &EmailConfig, heir_name: &str, heir_email: &str, descriptor: &str) {
+async fn send_setup_email(
+    config: &EmailConfig,
+    heir_name: &str,
+    heir_email: &str,
+    descriptor: &str,
+) {
     let msg = NotificationMessage {
-        subject: format!("🔐 NoString: Your Inheritance Has Been Configured — {}", heir_name),
+        subject: format!(
+            "🔐 NoString: Your Inheritance Has Been Configured — {}",
+            heir_name
+        ),
         body: format!(
             r#"Dear {heir_name},
 
@@ -361,7 +362,10 @@ async fn send_timelock_matured_email(
     current_height: u32,
 ) {
     let msg = NotificationMessage {
-        subject: format!("⏰ NoString: {}'s Inheritance Timelock Has Matured!", heir_name),
+        subject: format!(
+            "⏰ NoString: {}'s Inheritance Timelock Has Matured!",
+            heir_name
+        ),
         body: format!(
             r#"Dear {heir_name},
 
@@ -497,13 +501,18 @@ Keep this message safe. DO NOT share with anyone.
         Ok(output) => {
             println!(
                 "    📨 {} share DM sent to {} (event: {})",
-                share_label, heir_name, output.id().to_hex()
+                share_label,
+                heir_name,
+                output.id().to_hex()
             );
             client.disconnect().await;
             Some(event_id)
         }
         Err(e) => {
-            println!("    ⚠ DM send failed for {}: {} (continuing...)", heir_name, e);
+            println!(
+                "    ⚠ DM send failed for {}: {} (continuing...)",
+                heir_name, e
+            );
             client.disconnect().await;
             None
         }
@@ -518,20 +527,25 @@ fn verify_dm_decryption(
     share: &Share,
     heir_name: &str,
 ) -> bool {
-    let content = format!("share_index:{},share_data:{}", share.index, hex::encode(&share.data));
+    let content = format!(
+        "share_index:{},share_data:{}",
+        share.index,
+        hex::encode(&share.data)
+    );
 
     // Encrypt with sender's key to heir's pubkey
-    let encrypted = match nip04::encrypt(
-        sender_keys.secret_key(),
-        &heir_keys.public_key(),
-        &content,
-    ) {
-        Ok(enc) => enc,
-        Err(_) => return false,
-    };
+    let encrypted =
+        match nip04::encrypt(sender_keys.secret_key(), &heir_keys.public_key(), &content) {
+            Ok(enc) => enc,
+            Err(_) => return false,
+        };
 
     // Decrypt with heir's key from sender's pubkey
-    match nip04::decrypt(heir_keys.secret_key(), &sender_keys.public_key(), &encrypted) {
+    match nip04::decrypt(
+        heir_keys.secret_key(),
+        &sender_keys.public_key(),
+        &encrypted,
+    ) {
         Ok(decrypted) => {
             let expected = content;
             if decrypted == expected {
@@ -589,10 +603,7 @@ fn test_cascade_inheritance_demo() {
     let child_path: DerivationPath = "m/0/0".parse().unwrap();
     let owner_child_priv = owner_acct.derive_priv(&secp, &child_path).unwrap();
     let owner_child_pubkey = owner_child_priv.private_key.public_key(&secp);
-    let owner_address = Address::p2wpkh(
-        &CompressedPublicKey(owner_child_pubkey),
-        Network::Testnet,
-    );
+    let owner_address = Address::p2wpkh(&CompressedPublicKey(owner_child_pubkey), Network::Testnet);
     assert_eq!(owner_address.to_string(), EXPECTED_OWNER_ADDRESS);
     let owner_spk = owner_address.script_pubkey();
 
@@ -616,7 +627,7 @@ fn test_cascade_inheritance_demo() {
     let mut heirs: Vec<HeirData> = Vec::new();
 
     for (name, csv_blocks, acct_idx, email) in &heir_configs {
-        let path: DerivationPath = format!("m/84'/1'/{}'" , acct_idx).parse().unwrap();
+        let path: DerivationPath = format!("m/84'/1'/{}'", acct_idx).parse().unwrap();
         let acct_priv = root.derive_priv(&secp, &path).unwrap();
         let acct_xpub = Xpub::from_priv(&secp, &acct_priv);
         let h_child = acct_priv.derive_priv(&secp, &child_path).unwrap();
@@ -633,7 +644,10 @@ fn test_cascade_inheritance_demo() {
 
         println!(
             "  {} (CSV {}): fp={} → {}",
-            name, csv_blocks, acct_xpub.fingerprint(), h_address
+            name,
+            csv_blocks,
+            acct_xpub.fingerprint(),
+            h_address
         );
 
         heirs.push(HeirData {
@@ -646,7 +660,10 @@ fn test_cascade_inheritance_demo() {
             receive_address: h_address,
             email,
             nostr_keys: Keys::generate(), // placeholder, set in step 2
-            personal_share: Share { index: 0, data: vec![] }, // placeholder
+            personal_share: Share {
+                index: 0,
+                data: vec![],
+            }, // placeholder
             funding_vout: (*acct_idx - 1), // 0, 1, 2
         });
     }
@@ -666,8 +683,15 @@ fn test_cascade_inheritance_demo() {
         Keys::parse(&hex::encode(owner_nsec_bytes)).expect("valid nostr secret key");
 
     println!("  Owner npub:  {}", owner_npub);
-    println!("  Owner nsec:  {}...{}", &owner_nsec_bech32[..16], &owner_nsec_bech32[owner_nsec_bech32.len()-8..]);
-    println!("  Nsec bytes:  {} (32 bytes)", hex::encode(&owner_nsec_bytes[..8]));
+    println!(
+        "  Owner nsec:  {}...{}",
+        &owner_nsec_bech32[..16],
+        &owner_nsec_bech32[owner_nsec_bech32.len() - 8..]
+    );
+    println!(
+        "  Nsec bytes:  {} (32 bytes)",
+        hex::encode(&owner_nsec_bytes[..8])
+    );
 
     // Generate fresh Nostr keys for each heir
     for heir in &mut heirs {
@@ -684,13 +708,17 @@ fn test_cascade_inheritance_demo() {
     // ====================================================================
     println!("\n━━━ STEP 3: Shamir 2-of-4 Split of nsec ━━━\n");
 
-    let shares = split_secret(&owner_nsec_bytes, 2, 4)
-        .expect("Shamir split failed");
+    let shares = split_secret(&owner_nsec_bytes, 2, 4).expect("Shamir split failed");
 
     assert_eq!(shares.len(), 4);
     println!("  Split nsec into 4 shares (threshold: 2)");
     for s in &shares {
-        println!("    Share {}: {} bytes — {}...", s.index, s.data.len(), hex::encode(&s.data[..4]));
+        println!(
+            "    Share {}: {} bytes — {}...",
+            s.index,
+            s.data.len(),
+            hex::encode(&s.data[..4])
+        );
     }
 
     // Assign shares:
@@ -751,9 +779,18 @@ fn test_cascade_inheritance_demo() {
     let policy = InheritancePolicy::cascade(
         owner_desc_key.clone(),
         vec![
-            (Timelock::from_blocks(1).unwrap(), PathInfo::Single(heirs[0].desc_key.clone())),
-            (Timelock::from_blocks(2).unwrap(), PathInfo::Single(heirs[1].desc_key.clone())),
-            (Timelock::from_blocks(3).unwrap(), PathInfo::Single(heirs[2].desc_key.clone())),
+            (
+                Timelock::from_blocks(1).unwrap(),
+                PathInfo::Single(heirs[0].desc_key.clone()),
+            ),
+            (
+                Timelock::from_blocks(2).unwrap(),
+                PathInfo::Single(heirs[1].desc_key.clone()),
+            ),
+            (
+                Timelock::from_blocks(3).unwrap(),
+                PathInfo::Single(heirs[2].desc_key.clone()),
+            ),
         ],
     )
     .unwrap();
@@ -766,11 +803,14 @@ fn test_cascade_inheritance_demo() {
 
     // Verify witness script hash
     let expected_wsh = ScriptBuf::new_p2wsh(&WScriptHash::hash(witness_script.as_bytes()));
-    assert_eq!(inheritance_spk, expected_wsh, "Witness script hash mismatch!");
+    assert_eq!(
+        inheritance_spk, expected_wsh,
+        "Witness script hash mismatch!"
+    );
 
     // Derive the P2WSH address for display
-    let p2wsh_address = Address::from_script(&inheritance_spk, Network::Testnet)
-        .expect("valid P2WSH address");
+    let p2wsh_address =
+        Address::from_script(&inheritance_spk, Network::Testnet).expect("valid P2WSH address");
 
     println!("  Policy: or(pk(owner), or_i(and_v(v:pkh(wife),older(1)), or_i(and_v(v:pkh(daughter),older(2)), and_v(v:pkh(lawyer),older(3)))))");
     println!("  Descriptor: {}", descriptor);
@@ -785,7 +825,12 @@ fn test_cascade_inheritance_demo() {
 
     let desc_str = descriptor.to_string();
     for heir in &heirs {
-        rt.block_on(send_setup_email(&email_config, heir.name, heir.email, &desc_str));
+        rt.block_on(send_setup_email(
+            &email_config,
+            heir.name,
+            heir.email,
+            &desc_str,
+        ));
         emails_sent.push((heir.name.to_string(), "Setup notification".to_string()));
     }
 
@@ -827,8 +872,17 @@ fn test_cascade_inheritance_demo() {
     );
 
     let change_value = spend_value - total_funding;
-    println!("  Using UTXO: {}:{} ({} sats)", best_utxo.outpoint.txid, best_utxo.outpoint.vout, spend_value);
-    println!("  Funding: 3 × {} = {} sats + {} fee = {} total", FUNDING_PER_HEIR_SATS, FUNDING_PER_HEIR_SATS * 3, FUNDING_TX_FEE_SATS, total_funding);
+    println!(
+        "  Using UTXO: {}:{} ({} sats)",
+        best_utxo.outpoint.txid, best_utxo.outpoint.vout, spend_value
+    );
+    println!(
+        "  Funding: 3 × {} = {} sats + {} fee = {} total",
+        FUNDING_PER_HEIR_SATS,
+        FUNDING_PER_HEIR_SATS * 3,
+        FUNDING_TX_FEE_SATS,
+        total_funding
+    );
     println!("  Change: {} sats → owner", change_value);
 
     // Build funding tx: 1 input (P2WPKH) → 3 P2WSH outputs + change
@@ -838,7 +892,10 @@ fn test_cascade_inheritance_demo() {
             value: Amount::from_sat(FUNDING_PER_HEIR_SATS),
             script_pubkey: inheritance_spk.clone(),
         });
-        println!("  Output {}: {} sats → P2WSH ({})", heir.funding_vout, FUNDING_PER_HEIR_SATS, heir.name);
+        println!(
+            "  Output {}: {} sats → P2WSH ({})",
+            heir.funding_vout, FUNDING_PER_HEIR_SATS, heir.name
+        );
     }
     // Change output
     if change_value > 546 {
@@ -865,7 +922,12 @@ fn test_cascade_inheritance_demo() {
     let funding_sighash = {
         let mut cache = SighashCache::new(&funding_tx);
         cache
-            .p2wpkh_signature_hash(0, &owner_spk, Amount::from_sat(spend_value), EcdsaSighashType::All)
+            .p2wpkh_signature_hash(
+                0,
+                &owner_spk,
+                Amount::from_sat(spend_value),
+                EcdsaSighashType::All,
+            )
             .expect("Funding sighash failed")
     };
     let funding_msg = bitcoin::secp256k1::Message::from_digest(funding_sighash.to_byte_array());
@@ -888,7 +950,10 @@ fn test_cascade_inheritance_demo() {
 
     println!("  ✓ FUNDING BROADCAST SUCCESS!");
     println!("  ✓ Txid: {}", funding_txid);
-    println!("  ✓ Explorer: https://mempool.space/testnet/tx/{}", funding_txid);
+    println!(
+        "  ✓ Explorer: https://mempool.space/testnet/tx/{}",
+        funding_txid
+    );
 
     // ====================================================================
     // STEP 8: Wait for Funding Confirmation
@@ -901,9 +966,10 @@ fn test_cascade_inheritance_demo() {
     loop {
         match client.get_utxos_for_script(inheritance_spk.as_script()) {
             Ok(utxos) => {
-                if let Some(utxo) = utxos.iter().find(|u| {
-                    u.outpoint.txid == funding_txid && u.outpoint.vout == 0
-                }) {
+                if let Some(utxo) = utxos
+                    .iter()
+                    .find(|u| u.outpoint.txid == funding_txid && u.outpoint.vout == 0)
+                {
                     if utxo.height > 0 {
                         funding_height = utxo.height;
                         println!("  ✓ Funding confirmed at height {}!", funding_height);
@@ -925,7 +991,10 @@ fn test_cascade_inheritance_demo() {
         }
 
         if start.elapsed() > MAX_WAIT {
-            panic!("Funding did not confirm within {:?}. Txid: {}", MAX_WAIT, funding_txid);
+            panic!(
+                "Funding did not confirm within {:?}. Txid: {}",
+                MAX_WAIT, funding_txid
+            );
         }
         std::thread::sleep(POLL_INTERVAL);
     }
@@ -955,13 +1024,19 @@ fn test_cascade_inheritance_demo() {
     {
         let d = &heirs[1]; // daughter
         let mut claim_tx = build_claim_tx(
-            funding_txid, d.funding_vout, d.csv_blocks, claim_amount,
+            funding_txid,
+            d.funding_vout,
+            d.csv_blocks,
+            claim_amount,
             d.receive_address.script_pubkey(),
         );
         let sig = sign_p2wsh_input(
-            &claim_tx, 0, &witness_script,
+            &claim_tx,
+            0,
+            &witness_script,
             Amount::from_sat(FUNDING_PER_HEIR_SATS),
-            &d.child_priv, &secp,
+            &d.child_priv,
+            &secp,
         );
         claim_tx.input[0].witness = build_heir_witness(1, &sig, &d.child_pubkey, &witness_script);
         daughter_early_txid = claim_tx.compute_txid();
@@ -969,11 +1044,19 @@ fn test_cascade_inheritance_demo() {
         match client.broadcast(&claim_tx) {
             Err(e) => {
                 let err_msg = format!("{}", e);
-                println!("  ✓ Rejected at broadcast: {} (strict BIP-68 enforcement)", err_msg);
+                println!(
+                    "  ✓ Rejected at broadcast: {} (strict BIP-68 enforcement)",
+                    err_msg
+                );
             }
             Ok(txid) => {
-                println!("  ⏳ Accepted to mempool (txid: {}) — node has relaxed BIP-68 mempool policy", txid);
-                println!("    This tx has nSequence=2 (CSV 2) but only 1 block since confirmation.");
+                println!(
+                    "  ⏳ Accepted to mempool (txid: {}) — node has relaxed BIP-68 mempool policy",
+                    txid
+                );
+                println!(
+                    "    This tx has nSequence=2 (CSV 2) but only 1 block since confirmation."
+                );
                 println!("    It CANNOT be mined until H+2. Verifying it stays unconfirmed...");
                 // Brief check: should NOT be confirmed at current height
                 std::thread::sleep(std::time::Duration::from_secs(5));
@@ -998,13 +1081,19 @@ fn test_cascade_inheritance_demo() {
     {
         let l = &heirs[2]; // lawyer
         let mut claim_tx = build_claim_tx(
-            funding_txid, l.funding_vout, l.csv_blocks, claim_amount,
+            funding_txid,
+            l.funding_vout,
+            l.csv_blocks,
+            claim_amount,
             l.receive_address.script_pubkey(),
         );
         let sig = sign_p2wsh_input(
-            &claim_tx, 0, &witness_script,
+            &claim_tx,
+            0,
+            &witness_script,
             Amount::from_sat(FUNDING_PER_HEIR_SATS),
-            &l.child_priv, &secp,
+            &l.child_priv,
+            &secp,
         );
         claim_tx.input[0].witness = build_heir_witness(2, &sig, &l.child_pubkey, &witness_script);
         lawyer_early_txid = claim_tx.compute_txid();
@@ -1012,11 +1101,19 @@ fn test_cascade_inheritance_demo() {
         match client.broadcast(&claim_tx) {
             Err(e) => {
                 let err_msg = format!("{}", e);
-                println!("  ✓ Rejected at broadcast: {} (strict BIP-68 enforcement)", err_msg);
+                println!(
+                    "  ✓ Rejected at broadcast: {} (strict BIP-68 enforcement)",
+                    err_msg
+                );
             }
             Ok(txid) => {
-                println!("  ⏳ Accepted to mempool (txid: {}) — node has relaxed BIP-68 mempool policy", txid);
-                println!("    This tx has nSequence=3 (CSV 3) but only 1 block since confirmation.");
+                println!(
+                    "  ⏳ Accepted to mempool (txid: {}) — node has relaxed BIP-68 mempool policy",
+                    txid
+                );
+                println!(
+                    "    This tx has nSequence=3 (CSV 3) but only 1 block since confirmation."
+                );
                 println!("    It CANNOT be mined until H+3. Verifying it stays unconfirmed...");
                 std::thread::sleep(std::time::Duration::from_secs(5));
                 match client.is_confirmed(&txid) {
@@ -1040,13 +1137,19 @@ fn test_cascade_inheritance_demo() {
     {
         let w = &heirs[0]; // wife
         let mut claim_tx = build_claim_tx(
-            funding_txid, w.funding_vout, w.csv_blocks, claim_amount,
+            funding_txid,
+            w.funding_vout,
+            w.csv_blocks,
+            claim_amount,
             w.receive_address.script_pubkey(),
         );
         let sig = sign_p2wsh_input(
-            &claim_tx, 0, &witness_script,
+            &claim_tx,
+            0,
+            &witness_script,
             Amount::from_sat(FUNDING_PER_HEIR_SATS),
-            &w.child_priv, &secp,
+            &w.child_priv,
+            &secp,
         );
         claim_tx.input[0].witness = build_heir_witness(0, &sig, &w.child_pubkey, &witness_script);
 
@@ -1058,19 +1161,40 @@ fn test_cascade_inheritance_demo() {
             broadcast_result.err()
         );
         println!("  ✓ Wife claim broadcast! Txid: {}", wife_claim_txid);
-        println!("  ✓ Explorer: https://mempool.space/testnet/tx/{}", wife_claim_txid);
+        println!(
+            "  ✓ Explorer: https://mempool.space/testnet/tx/{}",
+            wife_claim_txid
+        );
 
         // Send notifications
         rt.block_on(async {
-            send_timelock_matured_email(&email_config, w.name, w.email, w.csv_blocks, funding_height + 1).await;
-            send_claim_confirmed_email(&email_config, w.name, w.email, &wife_claim_txid, claim_amount, &w.receive_address).await;
+            send_timelock_matured_email(
+                &email_config,
+                w.name,
+                w.email,
+                w.csv_blocks,
+                funding_height + 1,
+            )
+            .await;
+            send_claim_confirmed_email(
+                &email_config,
+                w.name,
+                w.email,
+                &wife_claim_txid,
+                claim_amount,
+                &w.receive_address,
+            )
+            .await;
         });
         emails_sent.push(("Wife".into(), "Timelock matured + claim confirmed".into()));
 
         // Send inheritance share via DM
         let eid = rt.block_on(send_share_dm(
-            &owner_nostr_sdk_keys, &w.nostr_keys, w.name,
-            &common_inheritance_share, "inheritance",
+            &owner_nostr_sdk_keys,
+            &w.nostr_keys,
+            w.name,
+            &common_inheritance_share,
+            "inheritance",
         ));
         if let Some(id) = eid {
             nostr_event_ids.push(("Wife inheritance".into(), id));
@@ -1100,7 +1224,10 @@ fn test_cascade_inheritance_demo() {
                 panic!("Lawyer tx confirmed at H+2 — CSV enforcement broken!");
             }
             Err(e) => {
-                println!("  ✓ Lawyer early tx not found/unconfirmed at H+2: {} (CSV 3 working)", e);
+                println!(
+                    "  ✓ Lawyer early tx not found/unconfirmed at H+2: {} (CSV 3 working)",
+                    e
+                );
             }
         }
     }
@@ -1117,44 +1244,84 @@ fn test_cascade_inheritance_demo() {
         // Check if early broadcast is already confirmed or in mempool
         let early_confirmed = client.is_confirmed(&daughter_early_txid).unwrap_or(false);
         if early_confirmed {
-            println!("  ✓ Early daughter tx already confirmed: {}", daughter_early_txid);
+            println!(
+                "  ✓ Early daughter tx already confirmed: {}",
+                daughter_early_txid
+            );
             daughter_claim_txid = daughter_early_txid;
         } else {
             // Build and broadcast (may conflict with early tx in mempool)
             let mut claim_tx = build_claim_tx(
-                funding_txid, d.funding_vout, d.csv_blocks, claim_amount,
+                funding_txid,
+                d.funding_vout,
+                d.csv_blocks,
+                claim_amount,
                 d.receive_address.script_pubkey(),
             );
             let sig = sign_p2wsh_input(
-                &claim_tx, 0, &witness_script,
+                &claim_tx,
+                0,
+                &witness_script,
                 Amount::from_sat(FUNDING_PER_HEIR_SATS),
-                &d.child_priv, &secp,
+                &d.child_priv,
+                &secp,
             );
-            claim_tx.input[0].witness = build_heir_witness(1, &sig, &d.child_pubkey, &witness_script);
+            claim_tx.input[0].witness =
+                build_heir_witness(1, &sig, &d.child_pubkey, &witness_script);
             daughter_claim_txid = claim_tx.compute_txid();
 
             match client.broadcast(&claim_tx) {
                 Ok(_) => {
-                    println!("  ✓ Daughter claim broadcast! Txid: {}", daughter_claim_txid);
+                    println!(
+                        "  ✓ Daughter claim broadcast! Txid: {}",
+                        daughter_claim_txid
+                    );
                 }
                 Err(_e) => {
                     // Early tx already in mempool — use that txid instead
-                    println!("  ✓ Using early broadcast tx (already in mempool): {}", daughter_early_txid);
+                    println!(
+                        "  ✓ Using early broadcast tx (already in mempool): {}",
+                        daughter_early_txid
+                    );
                     daughter_claim_txid = daughter_early_txid;
                 }
             }
         }
-        println!("  ✓ Explorer: https://mempool.space/testnet/tx/{}", daughter_claim_txid);
+        println!(
+            "  ✓ Explorer: https://mempool.space/testnet/tx/{}",
+            daughter_claim_txid
+        );
 
         rt.block_on(async {
-            send_timelock_matured_email(&email_config, d.name, d.email, d.csv_blocks, funding_height + 2).await;
-            send_claim_confirmed_email(&email_config, d.name, d.email, &daughter_claim_txid, claim_amount, &d.receive_address).await;
+            send_timelock_matured_email(
+                &email_config,
+                d.name,
+                d.email,
+                d.csv_blocks,
+                funding_height + 2,
+            )
+            .await;
+            send_claim_confirmed_email(
+                &email_config,
+                d.name,
+                d.email,
+                &daughter_claim_txid,
+                claim_amount,
+                &d.receive_address,
+            )
+            .await;
         });
-        emails_sent.push(("Daughter".into(), "Timelock matured + claim confirmed".into()));
+        emails_sent.push((
+            "Daughter".into(),
+            "Timelock matured + claim confirmed".into(),
+        ));
 
         let eid = rt.block_on(send_share_dm(
-            &owner_nostr_sdk_keys, &d.nostr_keys, d.name,
-            &common_inheritance_share, "inheritance",
+            &owner_nostr_sdk_keys,
+            &d.nostr_keys,
+            d.name,
+            &common_inheritance_share,
+            "inheritance",
         ));
         if let Some(id) = eid {
             nostr_event_ids.push(("Daughter inheritance".into(), id));
@@ -1177,19 +1344,29 @@ fn test_cascade_inheritance_demo() {
         // Check if early broadcast is already confirmed or in mempool
         let early_confirmed = client.is_confirmed(&lawyer_early_txid).unwrap_or(false);
         if early_confirmed {
-            println!("  ✓ Early lawyer tx already confirmed: {}", lawyer_early_txid);
+            println!(
+                "  ✓ Early lawyer tx already confirmed: {}",
+                lawyer_early_txid
+            );
             lawyer_claim_txid = lawyer_early_txid;
         } else {
             let mut claim_tx = build_claim_tx(
-                funding_txid, l.funding_vout, l.csv_blocks, claim_amount,
+                funding_txid,
+                l.funding_vout,
+                l.csv_blocks,
+                claim_amount,
                 l.receive_address.script_pubkey(),
             );
             let sig = sign_p2wsh_input(
-                &claim_tx, 0, &witness_script,
+                &claim_tx,
+                0,
+                &witness_script,
                 Amount::from_sat(FUNDING_PER_HEIR_SATS),
-                &l.child_priv, &secp,
+                &l.child_priv,
+                &secp,
             );
-            claim_tx.input[0].witness = build_heir_witness(2, &sig, &l.child_pubkey, &witness_script);
+            claim_tx.input[0].witness =
+                build_heir_witness(2, &sig, &l.child_pubkey, &witness_script);
             lawyer_claim_txid = claim_tx.compute_txid();
 
             match client.broadcast(&claim_tx) {
@@ -1197,22 +1374,46 @@ fn test_cascade_inheritance_demo() {
                     println!("  ✓ Lawyer claim broadcast! Txid: {}", lawyer_claim_txid);
                 }
                 Err(_e) => {
-                    println!("  ✓ Using early broadcast tx (already in mempool): {}", lawyer_early_txid);
+                    println!(
+                        "  ✓ Using early broadcast tx (already in mempool): {}",
+                        lawyer_early_txid
+                    );
                     lawyer_claim_txid = lawyer_early_txid;
                 }
             }
         }
-        println!("  ✓ Explorer: https://mempool.space/testnet/tx/{}", lawyer_claim_txid);
+        println!(
+            "  ✓ Explorer: https://mempool.space/testnet/tx/{}",
+            lawyer_claim_txid
+        );
 
         rt.block_on(async {
-            send_timelock_matured_email(&email_config, l.name, l.email, l.csv_blocks, funding_height + 3).await;
-            send_claim_confirmed_email(&email_config, l.name, l.email, &lawyer_claim_txid, claim_amount, &l.receive_address).await;
+            send_timelock_matured_email(
+                &email_config,
+                l.name,
+                l.email,
+                l.csv_blocks,
+                funding_height + 3,
+            )
+            .await;
+            send_claim_confirmed_email(
+                &email_config,
+                l.name,
+                l.email,
+                &lawyer_claim_txid,
+                claim_amount,
+                &l.receive_address,
+            )
+            .await;
         });
         emails_sent.push(("Lawyer".into(), "Timelock matured + claim confirmed".into()));
 
         let eid = rt.block_on(send_share_dm(
-            &owner_nostr_sdk_keys, &l.nostr_keys, l.name,
-            &common_inheritance_share, "inheritance",
+            &owner_nostr_sdk_keys,
+            &l.nostr_keys,
+            l.name,
+            &common_inheritance_share,
+            "inheritance",
         ));
         if let Some(id) = eid {
             nostr_event_ids.push(("Lawyer inheritance".into(), id));
@@ -1261,9 +1462,12 @@ fn test_cascade_inheritance_demo() {
             heir.name
         );
 
-        println!("    ✓ {} recovered nsec: {}...{}", heir.name,
+        println!(
+            "    ✓ {} recovered nsec: {}...{}",
+            heir.name,
             &recovered_keys.secret_key().to_bech32().unwrap()[..16],
-            &owner_nsec_bech32[owner_nsec_bech32.len()-8..]);
+            &owner_nsec_bech32[owner_nsec_bech32.len() - 8..]
+        );
         println!("    ✓ Recovered npub matches owner: {}", owner_npub);
     }
 
@@ -1285,7 +1489,11 @@ fn test_cascade_inheritance_demo() {
 
     println!("\n  🔑 SHAMIR SECRET SHARING:");
     println!("    Scheme:           2-of-4");
-    println!("    Owner nsec:       {}...{}", &owner_nsec_bech32[..20], &owner_nsec_bech32[owner_nsec_bech32.len()-8..]);
+    println!(
+        "    Owner nsec:       {}...{}",
+        &owner_nsec_bech32[..20],
+        &owner_nsec_bech32[owner_nsec_bech32.len() - 8..]
+    );
     println!("    Owner npub:       {}", owner_npub);
     println!("    All 3 heirs:      ✓ Reconstructed correctly");
 
@@ -1300,15 +1508,27 @@ fn test_cascade_inheritance_demo() {
     }
 
     println!("\n  📊 CASCADE TIMELINE:");
-    println!("    H+0 ({}): Funding confirmed — 3 UTXOs at P2WSH", funding_height);
-    println!("    H+1 ({}): ⛔ Daughter REJECTED, ⛔ Lawyer REJECTED, ✅ Wife CLAIMED", funding_height + 1);
-    println!("    H+2 ({}): ⛔ Lawyer REJECTED, ✅ Daughter CLAIMED", funding_height + 2);
+    println!(
+        "    H+0 ({}): Funding confirmed — 3 UTXOs at P2WSH",
+        funding_height
+    );
+    println!(
+        "    H+1 ({}): ⛔ Daughter REJECTED, ⛔ Lawyer REJECTED, ✅ Wife CLAIMED",
+        funding_height + 1
+    );
+    println!(
+        "    H+2 ({}): ⛔ Lawyer REJECTED, ✅ Daughter CLAIMED",
+        funding_height + 2
+    );
     println!("    H+3 ({}): ✅ Lawyer CLAIMED", funding_height + 3);
 
     println!("\n  🔗 EXPLORER LINKS:");
     println!("    https://mempool.space/testnet/tx/{}", funding_txid);
     println!("    https://mempool.space/testnet/tx/{}", wife_claim_txid);
-    println!("    https://mempool.space/testnet/tx/{}", daughter_claim_txid);
+    println!(
+        "    https://mempool.space/testnet/tx/{}",
+        daughter_claim_txid
+    );
     println!("    https://mempool.space/testnet/tx/{}", lawyer_claim_txid);
 
     println!("\n  Descriptor:");
@@ -1346,8 +1566,12 @@ fn test_cascade_inheritance_demo() {
 
     if let Ok(json_str) = serde_json::to_string_pretty(&results_json) {
         let results_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent().unwrap().parent().unwrap()
-            .join("docs").join("cascade_demo_results.json");
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("docs")
+            .join("cascade_demo_results.json");
         let _ = std::fs::create_dir_all(results_path.parent().unwrap());
         let _ = std::fs::write(&results_path, &json_str);
         println!("  Results saved to: {}", results_path.display());

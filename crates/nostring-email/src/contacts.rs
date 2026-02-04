@@ -99,8 +99,8 @@ impl ContactRegistry {
 pub async fn lookup_nip05(npub: &str) -> Result<Option<String>, EmailError> {
     use nostr_sdk::prelude::*;
 
-    let pubkey = PublicKey::parse(npub)
-        .map_err(|e| EmailError::Nip05(format!("Invalid npub: {}", e)))?;
+    let pubkey =
+        PublicKey::parse(npub).map_err(|e| EmailError::Nip05(format!("Invalid npub: {}", e)))?;
 
     // Connect to relays and fetch the profile
     let client = Client::default();
@@ -114,10 +114,7 @@ pub async fn lookup_nip05(npub: &str) -> Result<Option<String>, EmailError> {
         .map_err(|e| EmailError::Nip05(format!("Relay error: {}", e)))?;
     client.connect().await;
 
-    let filter = Filter::new()
-        .author(pubkey)
-        .kind(Kind::Metadata)
-        .limit(1);
+    let filter = Filter::new().author(pubkey).kind(Kind::Metadata).limit(1);
 
     let events = client
         .fetch_events(filter, std::time::Duration::from_secs(5))
@@ -155,10 +152,7 @@ mod tests {
         });
 
         assert_eq!(registry.len(), 1);
-        assert_eq!(
-            registry.get_email("npub1alice"),
-            Some("alice@example.com")
-        );
+        assert_eq!(registry.get_email("npub1alice"), Some("alice@example.com"));
 
         // Upsert overwrites
         registry.upsert(Contact {

@@ -9,7 +9,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   # Pin Rust toolchain for reproducible builds
-  RUST_TOOLCHAIN: "1.83.0"
+  RUST_TOOLCHAIN: "1.85.0"
 
 jobs:
   build:

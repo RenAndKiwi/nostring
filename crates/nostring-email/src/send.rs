@@ -189,9 +189,7 @@ pub async fn send_bulk(
     results
 }
 
-fn build_transport(
-    config: &SmtpConfig,
-) -> Result<AsyncSmtpTransport<Tokio1Executor>, EmailError> {
+fn build_transport(config: &SmtpConfig) -> Result<AsyncSmtpTransport<Tokio1Executor>, EmailError> {
     let creds = Credentials::new(config.username.clone(), config.password.clone());
 
     if config.plaintext {
@@ -202,13 +200,11 @@ fn build_transport(
                 .build(),
         )
     } else {
-        Ok(
-            AsyncSmtpTransport::<Tokio1Executor>::relay(&config.host)
-                .map_err(|e| EmailError::Smtp(format!("SMTP relay error: {}", e)))?
-                .credentials(creds)
-                .port(config.port)
-                .build(),
-        )
+        Ok(AsyncSmtpTransport::<Tokio1Executor>::relay(&config.host)
+            .map_err(|e| EmailError::Smtp(format!("SMTP relay error: {}", e)))?
+            .credentials(creds)
+            .port(config.port)
+            .build())
     }
 }
 
