@@ -1,0 +1,25 @@
+[package]
+name = "nostring-ccd"
+description = "Chain Code Delegation — privacy-preserving collaborative custody for NoString"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+bitcoin.workspace = true
+secp256k1.workspace = true
+nostr-sdk.workspace = true
+rand.workspace = true
+zeroize.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+# HMAC for BIP-32 tweak extraction
+hmac = "0.12"
+sha2 = "0.10"
+
+[dev-dependencies]
+hex = "0.4"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

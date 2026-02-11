@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/nostring-ccd",
     "crates/nostring-core",
     "crates/nostring-email",
     "crates/nostring-electrum",
