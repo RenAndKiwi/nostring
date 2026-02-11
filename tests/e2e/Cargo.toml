@@ -28,7 +28,12 @@ path = "testnet_heir_claim.rs"
 name = "testnet_cascade_demo"
 path = "testnet_cascade_demo.rs"
 
+[[test]]
+name = "ccd_vault_demo"
+path = "ccd_vault_demo.rs"
+
 [dependencies]
+nostring-ccd = { path = "../../crates/nostring-ccd" }
 nostring-core = { path = "../../crates/nostring-core" }
 nostring-inherit = { path = "../../crates/nostring-inherit" }
 nostring-shamir = { path = "../../crates/nostring-shamir" }

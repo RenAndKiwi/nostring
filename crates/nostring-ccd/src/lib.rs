@@ -20,6 +20,23 @@ use bitcoin::hashes::{sha512, Hash, HashEngine, Hmac, HmacEngine};
 use bitcoin::secp256k1::{PublicKey, Scalar, Secp256k1, SecretKey};
 use types::*;
 
+/// Derive a deterministic chain code from a seed.
+///
+/// Uses HMAC-SHA512(seed, "nostring-ccd-chain-code") and takes the first 32 bytes.
+/// This makes the vault address reproducible from the mnemonic alone.
+///
+/// For production, consider using a separate random chain code per co-signer
+/// (via `generate_chain_code()`). This helper is primarily useful for demos
+/// and recovery scenarios where reproducibility from a single seed matters.
+pub fn derive_chain_code_from_seed(seed: &[u8; 64]) -> ChainCode {
+    let mut engine = HmacEngine::<sha512::Hash>::new(b"nostring-ccd-chain-code");
+    engine.input(seed);
+    let hmac_result = Hmac::from_engine(engine);
+    let mut bytes = [0u8; 32];
+    bytes.copy_from_slice(&hmac_result[..32]);
+    ChainCode(bytes)
+}
+
 /// Generate a random chain code (32 bytes from CSPRNG).
 ///
 /// The owner generates this FOR the co-signer's key. The co-signer never sees it.

@@ -2808,6 +2808,7 @@ dependencies = [
  "hex",
  "miniscript",
  "nostr-sdk",
+ "nostring-ccd",
  "nostring-core",
  "nostring-electrum",
  "nostring-inherit",
