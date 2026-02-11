@@ -179,6 +179,94 @@ pub fn deserialize_ack(json: &str) -> Result<TweakAck, CcdError> {
     serde_json::from_str(json).map_err(|e| CcdError::SerializationError(e.to_string()))
 }
 
+// ─── Async Nostr Transport (NIP-17 private messages) ────────────────────────
+
+/// Send a CCD message as a NIP-17 private DM to a co-signer.
+///
+/// Uses `nostr_sdk::Client::send_private_msg()` which gift-wraps (NIP-59)
+/// the message automatically. The relay sees only an encrypted blob with
+/// a random ephemeral sender pubkey.
+///
+/// # Arguments
+///
+/// * `client` — Connected nostr-sdk Client with signer
+/// * `recipient` — Co-signer's Nostr public key
+/// * `message` — CCD protocol message to send
+pub async fn send_ccd_dm(
+    client: &nostr_sdk::Client,
+    recipient: &nostr_sdk::nostr::PublicKey,
+    message: &CcdMessage,
+) -> Result<nostr_sdk::nostr::EventId, CcdError> {
+    let json = serialize_message(message)?;
+
+    let output = client
+        .send_private_msg(*recipient, json, Vec::<nostr_sdk::nostr::Tag>::new())
+        .await
+        .map_err(|e| CcdError::TransportError(format!("send_private_msg failed: {e}")))?;
+
+    Ok(*output.id())
+}
+
+/// Fetch CCD messages from a specific sender since a timestamp.
+///
+/// Fetches NIP-59 gift-wrapped events addressed to us, unwraps them,
+/// and filters for valid CCD protocol messages. Non-CCD messages and
+/// failed unwraps are silently skipped (expected when filtering broadly).
+///
+/// # Arguments
+///
+/// * `client` — Connected nostr-sdk Client with signer (needed for unwrapping)
+/// * `our_keys` — Our Nostr keys (for gift-wrap decryption)
+/// * `sender` — Expected sender's Nostr public key (filter after unwrap)
+/// * `since` — Only fetch messages after this timestamp (None = no time filter)
+/// * `timeout` — How long to wait for relay responses
+pub async fn receive_ccd_dms(
+    client: &nostr_sdk::Client,
+    our_keys: &nostr_sdk::nostr::Keys,
+    sender: &nostr_sdk::nostr::PublicKey,
+    since: Option<nostr_sdk::nostr::Timestamp>,
+    timeout: std::time::Duration,
+) -> Result<Vec<CcdMessage>, CcdError> {
+    use nostr_sdk::nostr::nips::nip59;
+
+    // Gift-wrapped events addressed to us
+    let mut filter = nostr_sdk::nostr::Filter::new()
+        .kind(nostr_sdk::nostr::Kind::GiftWrap)
+        .pubkey(our_keys.public_key());
+
+    if let Some(ts) = since {
+        filter = filter.since(ts);
+    }
+
+    let events = client
+        .fetch_events(filter, timeout)
+        .await
+        .map_err(|e| CcdError::TransportError(format!("fetch_events failed: {e}")))?;
+
+    let mut messages = Vec::new();
+
+    for gift_wrap in events {
+        // Try to unwrap — may fail if not addressed to us
+        let unwrapped = match nip59::UnwrappedGift::from_gift_wrap(our_keys, &gift_wrap).await {
+            Ok(u) => u,
+            Err(_) => continue, // Not for us or corrupted
+        };
+
+        // Filter by sender
+        if unwrapped.sender != *sender {
+            continue;
+        }
+
+        // Try to parse content as CCD message
+        if let Ok(msg) = deserialize_message(&unwrapped.rumor.content) {
+            messages.push(msg);
+        }
+        // Non-CCD messages silently skipped — could be regular DMs
+    }
+
+    Ok(messages)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -624,5 +712,259 @@ mod tests {
             }
             _ => panic!("expected NonceRequest"),
         }
+    }
+
+    // ─── Async transport tests ──────────────────────────────────────────
+
+    /// Requires a running Nostr relay at ws://localhost:8080.
+    /// Run with: cargo test --package nostring-ccd -- --ignored
+    #[tokio::test]
+    #[ignore]
+    async fn test_send_and_receive_ccd_dm() {
+        use nostr_sdk::nostr::{Keys, Kind};
+        use std::time::Duration;
+
+        let alice_keys = Keys::generate();
+        let bob_keys = Keys::generate();
+
+        // Connect Alice
+        let alice_client = nostr_sdk::Client::new(alice_keys.clone());
+        alice_client.add_relay("ws://localhost:8080").await.unwrap();
+        alice_client.connect().await;
+
+        // Connect Bob
+        let bob_client = nostr_sdk::Client::new(bob_keys.clone());
+        bob_client.add_relay("ws://localhost:8080").await.unwrap();
+        bob_client.connect().await;
+
+        // Alice sends a NonceRequest to Bob
+        let nonce_req = CcdMessage::NonceRequest(blind::NonceRequest {
+            session_id: "relay-test-123".into(),
+            num_inputs: 2,
+            tweaks: vec![],
+        });
+
+        let event_id = send_ccd_dm(&alice_client, &bob_keys.public_key(), &nonce_req)
+            .await
+            .unwrap();
+        assert_ne!(event_id, nostr_sdk::nostr::EventId::all_zeros());
+
+        // Small delay for relay propagation
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        // Bob receives
+        let received = receive_ccd_dms(
+            &bob_client,
+            &bob_keys,
+            &alice_keys.public_key(),
+            None,
+            Duration::from_secs(10),
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            !received.is_empty(),
+            "Bob should receive at least one CCD message"
+        );
+
+        match &received[0] {
+            CcdMessage::NonceRequest(req) => {
+                assert_eq!(req.session_id, "relay-test-123");
+                assert_eq!(req.num_inputs, 2);
+            }
+            other => panic!("expected NonceRequest, got {:?}", other),
+        }
+
+        alice_client.disconnect().await;
+        bob_client.disconnect().await;
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_receive_ccd_dms_empty() {
+        use nostr_sdk::nostr::Keys;
+        use std::time::Duration;
+
+        let alice_keys = Keys::generate();
+        let bob_keys = Keys::generate();
+
+        let bob_client = nostr_sdk::Client::new(bob_keys.clone());
+        bob_client.add_relay("ws://localhost:8080").await.unwrap();
+        bob_client.connect().await;
+
+        // Bob tries to receive — nothing sent
+        let received = receive_ccd_dms(
+            &bob_client,
+            &bob_keys,
+            &alice_keys.public_key(),
+            None,
+            Duration::from_secs(3),
+        )
+        .await
+        .unwrap();
+
+        assert!(received.is_empty(), "should receive nothing");
+
+        bob_client.disconnect().await;
+    }
+
+    /// Verifies that receive_ccd_dms filters by sender pubkey.
+    #[tokio::test]
+    #[ignore]
+    async fn test_receive_filters_by_sender() {
+        use nostr_sdk::nostr::Keys;
+        use std::time::Duration;
+
+        let alice_keys = Keys::generate();
+        let bob_keys = Keys::generate();
+        let charlie_keys = Keys::generate();
+
+        let alice_client = nostr_sdk::Client::new(alice_keys.clone());
+        alice_client.add_relay("ws://localhost:8080").await.unwrap();
+        alice_client.connect().await;
+
+        let charlie_client = nostr_sdk::Client::new(charlie_keys.clone());
+        charlie_client
+            .add_relay("ws://localhost:8080")
+            .await
+            .unwrap();
+        charlie_client.connect().await;
+
+        let bob_client = nostr_sdk::Client::new(bob_keys.clone());
+        bob_client.add_relay("ws://localhost:8080").await.unwrap();
+        bob_client.connect().await;
+
+        // Alice sends to Bob
+        let alice_msg = CcdMessage::NonceRequest(blind::NonceRequest {
+            session_id: "from-alice".into(),
+            num_inputs: 1,
+            tweaks: vec![],
+        });
+        send_ccd_dm(&alice_client, &bob_keys.public_key(), &alice_msg)
+            .await
+            .unwrap();
+
+        // Charlie also sends to Bob
+        let charlie_msg = CcdMessage::NonceRequest(blind::NonceRequest {
+            session_id: "from-charlie".into(),
+            num_inputs: 3,
+            tweaks: vec![],
+        });
+        send_ccd_dm(&charlie_client, &bob_keys.public_key(), &charlie_msg)
+            .await
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        // Bob filters for Alice only
+        let from_alice = receive_ccd_dms(
+            &bob_client,
+            &bob_keys,
+            &alice_keys.public_key(),
+            None,
+            Duration::from_secs(10),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(from_alice.len(), 1, "should only get messages from Alice");
+        match &from_alice[0] {
+            CcdMessage::NonceRequest(req) => assert_eq!(req.session_id, "from-alice"),
+            _ => panic!("expected NonceRequest"),
+        }
+
+        // Bob filters for Charlie only
+        let from_charlie = receive_ccd_dms(
+            &bob_client,
+            &bob_keys,
+            &charlie_keys.public_key(),
+            None,
+            Duration::from_secs(10),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            from_charlie.len(),
+            1,
+            "should only get messages from Charlie"
+        );
+        match &from_charlie[0] {
+            CcdMessage::NonceRequest(req) => assert_eq!(req.session_id, "from-charlie"),
+            _ => panic!("expected NonceRequest"),
+        }
+
+        alice_client.disconnect().await;
+        bob_client.disconnect().await;
+        charlie_client.disconnect().await;
+    }
+
+    /// Verifies that the `since` timestamp filter works.
+    #[tokio::test]
+    #[ignore]
+    async fn test_receive_since_filter() {
+        use nostr_sdk::nostr::{Keys, Timestamp};
+        use std::time::Duration;
+
+        let alice_keys = Keys::generate();
+        let bob_keys = Keys::generate();
+
+        let alice_client = nostr_sdk::Client::new(alice_keys.clone());
+        alice_client.add_relay("ws://localhost:8080").await.unwrap();
+        alice_client.connect().await;
+
+        let bob_client = nostr_sdk::Client::new(bob_keys.clone());
+        bob_client.add_relay("ws://localhost:8080").await.unwrap();
+        bob_client.connect().await;
+
+        // Send a message
+        let msg = CcdMessage::TweakAck(TweakAck {
+            version: 1,
+            msg_type: "tweak_ack".into(),
+            derived_pubkey: "02".to_string() + &"aa".repeat(32),
+            accepted: true,
+        });
+        send_ccd_dm(&alice_client, &bob_keys.public_key(), &msg)
+            .await
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        // Fetch with since = now (should get nothing — message is in the past)
+        let future_ts = Timestamp::now();
+        let received = receive_ccd_dms(
+            &bob_client,
+            &bob_keys,
+            &alice_keys.public_key(),
+            Some(future_ts),
+            Duration::from_secs(5),
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            received.is_empty(),
+            "since=now should filter out past messages"
+        );
+
+        // Fetch with since = None (should get the message)
+        let received_all = receive_ccd_dms(
+            &bob_client,
+            &bob_keys,
+            &alice_keys.public_key(),
+            None,
+            Duration::from_secs(5),
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            !received_all.is_empty(),
+            "since=None should get all messages"
+        );
+
+        alice_client.disconnect().await;
+        bob_client.disconnect().await;
     }
 }
