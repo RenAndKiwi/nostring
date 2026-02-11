@@ -153,10 +153,175 @@ mod tests {
         let client = MessagingClient::new(Keys::generate());
         let group_id = GroupId::from_slice(&[0u8; 16]);
 
-        // This will fail because the group doesn't exist in MDK,
-        // but it verifies the types compile correctly.
         let channel = CcdChannel::new(&client, group_id);
         // get_messages on nonexistent group returns error, which is expected
-        let _ = channel.receive_ccd_messages();
+        let result = channel.receive_ccd_messages();
+        assert!(result.is_err(), "nonexistent group should error");
+    }
+
+    #[tokio::test]
+    async fn test_ccd_channel_filters_non_ccd_messages() {
+        // All messages in an MLS group use Kind::Custom(9), so the filter
+        // currently catches everything. This test verifies that behavior
+        // and documents that CCD-only filtering requires content inspection.
+        let alice = MessagingClient::new(Keys::generate());
+        let bob = MessagingClient::new(Keys::generate());
+        let relay = RelayUrl::parse("ws://localhost:8080").unwrap();
+
+        let (bob_kp, bob_tags) = bob.create_key_package(vec![relay.clone()]).unwrap();
+        let bob_kp_event = EventBuilder::new(Kind::MlsKeyPackage, bob_kp)
+            .tags(bob_tags)
+            .build(bob.public_key())
+            .sign(bob.keys())
+            .await
+            .unwrap();
+
+        let result = alice
+            .create_group(
+                "mixed-channel",
+                "CCD + chat",
+                vec![relay],
+                vec![bob.public_key()],
+                vec![bob_kp_event],
+            )
+            .unwrap();
+
+        bob.process_welcome(&EventId::all_zeros(), &result.welcome_rumors[0])
+            .unwrap();
+        let bob_group = bob.accept_first_welcome().unwrap();
+
+        let channel = CcdChannel::new(&alice, result.group.mls_group_id.clone());
+
+        // Send a CCD message
+        let ccd_json = r#"{"ccd_type":"TweakRequest","owner_pubkey":"abc","relays":[]}"#;
+        let ccd_event = channel.send_ccd_message(ccd_json).unwrap();
+
+        // Send a regular chat message (also Kind::Custom(9))
+        let chat_result = alice
+            .send_message(&result.group.mls_group_id, "hey, ready to sign?")
+            .unwrap();
+
+        // Bob processes both
+        bob.process_message(&ccd_event).unwrap();
+        bob.process_message(&chat_result.event).unwrap();
+
+        let bob_channel = CcdChannel::new(&bob, bob_group.mls_group_id.clone());
+        let messages = bob_channel.receive_ccd_messages().unwrap();
+
+        // Currently returns ALL messages (both CCD and chat) since they're all Kind::Custom(9)
+        // This documents the known limitation: CCD filtering is by Kind only, not content
+        assert_eq!(
+            messages.len(),
+            2,
+            "currently returns all Custom(9) messages, not just CCD"
+        );
+
+        // Verify we can identify CCD messages by checking for ccd_type field
+        let ccd_only: Vec<_> = messages
+            .iter()
+            .filter(|m| m.content.contains("ccd_type"))
+            .collect();
+        assert_eq!(ccd_only.len(), 1, "only one message has ccd_type field");
+        assert!(ccd_only[0].content.contains("TweakRequest"));
+    }
+
+    #[tokio::test]
+    async fn test_ccd_channel_malformed_json() {
+        // CcdChannel accepts any string — it doesn't validate JSON.
+        // This test documents that behavior.
+        let alice = MessagingClient::new(Keys::generate());
+        let bob = MessagingClient::new(Keys::generate());
+        let relay = RelayUrl::parse("ws://localhost:8080").unwrap();
+
+        let (bob_kp, bob_tags) = bob.create_key_package(vec![relay.clone()]).unwrap();
+        let bob_kp_event = EventBuilder::new(Kind::MlsKeyPackage, bob_kp)
+            .tags(bob_tags)
+            .build(bob.public_key())
+            .sign(bob.keys())
+            .await
+            .unwrap();
+
+        let result = alice
+            .create_group(
+                "malformed-test",
+                "test",
+                vec![relay],
+                vec![bob.public_key()],
+                vec![bob_kp_event],
+            )
+            .unwrap();
+
+        bob.process_welcome(&EventId::all_zeros(), &result.welcome_rumors[0])
+            .unwrap();
+        let bob_group = bob.accept_first_welcome().unwrap();
+
+        let channel = CcdChannel::new(&alice, result.group.mls_group_id.clone());
+
+        // Send malformed JSON — CcdChannel doesn't validate
+        let event = channel.send_ccd_message("not json at all {{{").unwrap();
+
+        bob.process_message(&event).unwrap();
+        let bob_channel = CcdChannel::new(&bob, bob_group.mls_group_id.clone());
+        let messages = bob_channel.receive_ccd_messages().unwrap();
+
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].content, "not json at all {{{");
+        // This proves CcdChannel is a dumb pipe — validation is the caller's job
+    }
+
+    #[tokio::test]
+    async fn test_ccd_message_ordering() {
+        let alice = MessagingClient::new(Keys::generate());
+        let bob = MessagingClient::new(Keys::generate());
+        let relay = RelayUrl::parse("ws://localhost:8080").unwrap();
+
+        let (bob_kp, bob_tags) = bob.create_key_package(vec![relay.clone()]).unwrap();
+        let bob_kp_event = EventBuilder::new(Kind::MlsKeyPackage, bob_kp)
+            .tags(bob_tags)
+            .build(bob.public_key())
+            .sign(bob.keys())
+            .await
+            .unwrap();
+
+        let result = alice
+            .create_group(
+                "order-test",
+                "test",
+                vec![relay],
+                vec![bob.public_key()],
+                vec![bob_kp_event],
+            )
+            .unwrap();
+
+        bob.process_welcome(&EventId::all_zeros(), &result.welcome_rumors[0])
+            .unwrap();
+        let bob_group = bob.accept_first_welcome().unwrap();
+
+        let channel = CcdChannel::new(&alice, result.group.mls_group_id.clone());
+
+        // Send messages in ceremony order
+        let e1 = channel
+            .send_ccd_message(r#"{"ccd_type":"NonceRequest","step":1}"#)
+            .unwrap();
+        let e2 = channel
+            .send_ccd_message(r#"{"ccd_type":"NonceResponse","step":2}"#)
+            .unwrap();
+        let e3 = channel
+            .send_ccd_message(r#"{"ccd_type":"SignChallenge","step":3}"#)
+            .unwrap();
+
+        // Bob processes in order
+        bob.process_message(&e1).unwrap();
+        bob.process_message(&e2).unwrap();
+        bob.process_message(&e3).unwrap();
+
+        let bob_channel = CcdChannel::new(&bob, bob_group.mls_group_id.clone());
+        let messages = bob_channel.receive_ccd_messages().unwrap();
+
+        assert_eq!(messages.len(), 3);
+        // Verify all three arrived
+        assert!(messages.iter().any(|m| m.content.contains("NonceRequest")));
+        assert!(messages.iter().any(|m| m.content.contains("NonceResponse")));
+        assert!(messages.iter().any(|m| m.content.contains("SignChallenge")));
     }
 }

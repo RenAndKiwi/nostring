@@ -214,15 +214,28 @@ impl RelayMessagingClient {
         let mut new_groups = Vec::new();
 
         for gift_wrap in events {
+            // Unwrap gift wrap — may fail if not addressed to us or corrupted
             let unwrapped =
                 nip59::UnwrappedGift::from_gift_wrap(self.inner.keys(), &gift_wrap).await;
 
-            if let Ok(unwrapped) = unwrapped {
-                let rumor = unwrapped.rumor;
-                if self.inner.process_welcome(&gift_wrap.id, &rumor).is_ok() {
-                    if let Ok(group) = self.inner.accept_first_welcome() {
-                        new_groups.push(group);
+            match unwrapped {
+                Ok(unwrapped) => {
+                    let rumor = unwrapped.rumor;
+                    match self.inner.process_welcome(&gift_wrap.id, &rumor) {
+                        Ok(()) => {
+                            if let Ok(group) = self.inner.accept_first_welcome() {
+                                new_groups.push(group);
+                            }
+                        }
+                        Err(_) => {
+                            // Not an MLS welcome — could be a different gift-wrapped event.
+                            // This is expected and not an error.
+                        }
                     }
+                }
+                Err(_) => {
+                    // Gift wrap not addressed to us or corrupted — skip silently.
+                    // This is normal when filtering by Kind::GiftWrap broadly.
                 }
             }
         }
