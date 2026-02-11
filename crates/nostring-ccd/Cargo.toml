@@ -23,4 +23,5 @@ sha2 = "0.10"
 
 [dev-dependencies]
 hex = "0.4"
+nostring-electrum = { path = "../nostring-electrum" }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
