@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 bitcoin.workspace = true
 secp256k1.workspace = true
+musig2.workspace = true
 nostr-sdk.workspace = true
 rand.workspace = true
 zeroize.workspace = true

@@ -9,6 +9,7 @@
 //! Based on: Jurvis Tan & Jesse Posner, "Chain Code Delegation: Private Access Control
 //! for Bitcoin Keys" (Delving Bitcoin, 2025).
 
+pub mod musig;
 pub mod transport;
 pub mod types;
 pub mod vault;
