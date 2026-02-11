@@ -193,17 +193,52 @@ impl ElectrumClient {
     }
 
     /// Check if a transaction is confirmed
+    /// Check if a transaction is confirmed by looking at its script history.
+    ///
+    /// This works by fetching the transaction, then checking its presence
+    /// in the script history (which includes block height for confirmed txs).
     pub fn is_confirmed(&self, txid: &Txid) -> Result<bool, Error> {
-        match self.client.transaction_get(txid) {
-            Ok(_) => {
-                // Check if it has confirmations by looking at merkle proof
-                match self.client.transaction_get_merkle(txid, 0) {
-                    Ok(merkle) => Ok(merkle.block_height > 0),
-                    Err(_) => Ok(false),
+        // Get the transaction to find its outputs
+        let tx = match self.client.transaction_get(txid) {
+            Ok(t) => t,
+            Err(_) => return Ok(false),
+        };
+
+        // Check script history for the first output — if the tx is confirmed,
+        // it will appear with height > 0
+        if let Some(output) = tx.output.first() {
+            let history = self
+                .client
+                .script_get_history(output.script_pubkey.as_script())?;
+            for item in &history {
+                if item.tx_hash == *txid && item.height > 0 {
+                    return Ok(true);
                 }
             }
-            Err(_) => Ok(false),
         }
+
+        Ok(false)
+    }
+
+    /// Get the confirmation height of a transaction, if confirmed.
+    pub fn get_confirmation_height(&self, txid: &Txid) -> Result<Option<u32>, Error> {
+        let tx = match self.client.transaction_get(txid) {
+            Ok(t) => t,
+            Err(_) => return Ok(None),
+        };
+
+        if let Some(output) = tx.output.first() {
+            let history = self
+                .client
+                .script_get_history(output.script_pubkey.as_script())?;
+            for item in &history {
+                if item.tx_hash == *txid && item.height > 0 {
+                    return Ok(Some(item.height as u32));
+                }
+            }
+        }
+
+        Ok(None)
     }
 }
 

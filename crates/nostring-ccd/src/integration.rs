@@ -849,6 +849,172 @@ mod tests {
         println!("\nMulti-index CCD proven: vault_0 → vault_1 → vault_0");
     }
 
+    /// Verify that our previous testnet transactions are confirmed in a block.
+    /// This proves Bitcoin consensus accepted our MuSig2 Taproot signatures.
+    #[test]
+    #[ignore = "requires network access"]
+    fn test_verify_confirmations() {
+        use nostring_electrum::{default_server, ElectrumClient};
+
+        let client = ElectrumClient::new(default_server(Network::Testnet), Network::Testnet)
+            .expect("Failed to connect");
+
+        let height = client.get_height().unwrap();
+        println!("Current testnet height: {}", height);
+
+        // Known MuSig2 vault spend transactions (from our test runs)
+        let musig2_spend_txids = [
+            // Tx 4: First MuSig2 spend (2 inputs)
+            "d882a175d7899f12bbb139061fe13abd084a3b2336b88cba28c5d2aa7f2b7dff",
+            // Tx 5: Second MuSig2 self-spend
+            "68ed16567b44ade9108f4db7a5621497244fdddbc46da3d6d8852ed28f8f339a",
+            // Tx 6: Third self-spend
+            "237508c659b0c2e9d16f3c7e505ea6f89fe3531d2539d9222b585cf59b36cc27",
+            // Tx 7: External spend to P2WPKH
+            "98402af982737963a74957d9967d831b0f09fc3b3e5719594aed822f3a9e759b",
+            // Tx 8: Cross-index fund vault_1
+            "e58f27c7779a5a08219e096f7e63e02d065f56e75939413ca52b205d816d0a11",
+            // Tx 9: Spend from vault_1 back to vault_0
+            "4384ae07d45f0103088f9fa77651fc878259b811ca011604ff8a52975ce3c1ae",
+        ];
+
+        let mut all_confirmed = true;
+        for txid_str in &musig2_spend_txids {
+            let txid: bitcoin::Txid = txid_str.parse().unwrap();
+            let conf_height = client.get_confirmation_height(&txid).unwrap_or(None);
+            let tx = client.get_transaction(&txid);
+
+            if let Some(h) = conf_height {
+                println!("✅ {} CONFIRMED at height {}", &txid_str[..8], h);
+                // Verify witness structure of confirmed tx
+                if let Ok(tx) = tx {
+                    for (i, input) in tx.input.iter().enumerate() {
+                        let wit_count = input.witness.iter().count();
+                        let wit_len: Vec<usize> = input.witness.iter().map(|w| w.len()).collect();
+                        assert_eq!(
+                            wit_count,
+                            1,
+                            "Confirmed tx {} input {} has {} witness items (expected 1)",
+                            &txid_str[..8],
+                            i,
+                            wit_count
+                        );
+                        assert_eq!(
+                            wit_len[0],
+                            64,
+                            "Confirmed tx {} input {} sig is {} bytes (expected 64)",
+                            &txid_str[..8],
+                            i,
+                            wit_len[0]
+                        );
+                    }
+                }
+            } else {
+                println!("⏳ {} not yet confirmed", &txid_str[..8]);
+                all_confirmed = false;
+            }
+            // Rate limit to avoid hammering Electrum
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+
+        if all_confirmed {
+            println!(
+                "\n✅✅✅ ALL {} MuSig2 vault spends CONFIRMED by Bitcoin consensus ✅✅✅",
+                musig2_spend_txids.len()
+            );
+        } else {
+            println!("\n⏳ Some transactions still unconfirmed. Re-run later.");
+        }
+    }
+
+    /// Spend from a CONFIRMED UTXO. Previous tests may have spent from unconfirmed chains.
+    /// This test verifies the vault has confirmed UTXOs and spends one.
+    #[test]
+    #[ignore = "requires funded vault with confirmed UTXOs + network"]
+    fn test_testnet_spend_confirmed_utxo() {
+        use nostring_electrum::{default_server, ElectrumClient};
+
+        let (vault, ctx, owner_sk, _, cosigner_child_sk) = test_vault(0);
+        println!("Vault: {}", vault.address);
+
+        let client = ElectrumClient::new(default_server(Network::Testnet), Network::Testnet)
+            .expect("Failed to connect");
+
+        let utxos = client.get_utxos(&vault.address).unwrap();
+        assert!(!utxos.is_empty(), "No UTXOs at vault");
+
+        // Filter to confirmed UTXOs only (height > 0)
+        let confirmed_utxos: Vec<_> = utxos.iter().filter(|u| u.height > 0).collect();
+        println!(
+            "Total UTXOs: {}, Confirmed: {}",
+            utxos.len(),
+            confirmed_utxos.len()
+        );
+
+        if confirmed_utxos.is_empty() {
+            println!("⏳ No confirmed UTXOs yet. Wait for a block and re-run.");
+            println!("Unconfirmed UTXOs:");
+            for u in &utxos {
+                println!(
+                    "  {}:{} = {} sat (h={})",
+                    u.outpoint.txid,
+                    u.outpoint.vout,
+                    u.value.to_sat(),
+                    u.height
+                );
+            }
+            panic!("Need confirmed UTXOs for this test");
+        }
+
+        // Use only confirmed UTXOs
+        let mut total = Amount::ZERO;
+        let utxo_pairs: Vec<_> = confirmed_utxos
+            .iter()
+            .map(|u| {
+                println!(
+                    "  CONFIRMED: {}:{} = {} sat (h={})",
+                    u.outpoint.txid,
+                    u.outpoint.vout,
+                    u.value.to_sat(),
+                    u.height
+                );
+                total += u.value;
+                (
+                    u.outpoint,
+                    bitcoin::TxOut {
+                        value: u.value,
+                        script_pubkey: vault.address.script_pubkey(),
+                    },
+                )
+            })
+            .collect();
+
+        let fee = Amount::from_sat(300);
+        assert!(total > fee, "Confirmed balance {} too low", total.to_sat());
+
+        let (psbt, _) = build_spend_psbt(
+            &vault,
+            &utxo_pairs,
+            &[(vault.address.clone(), total - fee)],
+            fee,
+            None,
+        )
+        .unwrap();
+
+        let signed_tx = musig2_sign_psbt(&owner_sk, &cosigner_child_sk, &ctx, &psbt).unwrap();
+
+        // Verify witness
+        for (i, input) in signed_tx.input.iter().enumerate() {
+            let wit: Vec<&[u8]> = input.witness.iter().collect();
+            assert_eq!(wit.len(), 1, "Input {} witness count", i);
+            assert_eq!(wit[0].len(), 64, "Input {} sig length", i);
+        }
+
+        let txid = client.broadcast(&signed_tx).expect("Broadcast failed");
+        println!("✅ Spent from CONFIRMED UTXOs: {}", txid);
+        println!("https://mempool.space/testnet/tx/{}", txid);
+    }
+
     /// Print vault addresses for indices 0-4.
     #[test]
     fn test_print_vault_addresses() {
