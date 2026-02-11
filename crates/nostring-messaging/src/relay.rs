@@ -74,7 +74,7 @@ impl RelayMessagingClient {
             .await
             .map_err(|e| MessagingError::Processing(format!("publish failed: {e}")))?;
 
-        Ok(output.id().clone())
+        Ok(*output.id())
     }
 
     /// Fetch a user's MLS key package from relays.
@@ -143,7 +143,7 @@ impl RelayMessagingClient {
             .await
             .map_err(|e| MessagingError::Processing(format!("send failed: {e}")))?;
 
-        Ok(output.id().clone())
+        Ok(*output.id())
     }
 
     /// Fetch and process new group messages from relays.

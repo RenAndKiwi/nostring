@@ -11,6 +11,7 @@ use mdk_memory_storage::MdkMemoryStorage;
 use nostr::Keys;
 use thiserror::Error;
 
+pub mod ccd;
 pub mod groups;
 pub mod persistent;
 pub mod relay;
