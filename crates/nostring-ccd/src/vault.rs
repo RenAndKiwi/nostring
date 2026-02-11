@@ -105,9 +105,9 @@ pub fn build_spend_psbt(
         })
         .collect();
 
-    // Change output if needed
+    // Change output if needed (drop sub-dust change — absorb into fee)
     let change = total_in - total_out_with_fee;
-    if change > Amount::ZERO {
+    if change >= Amount::from_sat(DUST_LIMIT_SAT) {
         let change_script = match change_address {
             Some(addr) => addr.script_pubkey(),
             None => vault.address.script_pubkey(), // send change back to vault
@@ -116,6 +116,9 @@ pub fn build_spend_psbt(
             value: change,
             script_pubkey: change_script,
         });
+    } else if change > Amount::ZERO {
+        // Change is below dust limit — absorb into fee rather than creating
+        // an unspendable output. The miner gets the extra sats.
     }
 
     // Build inputs

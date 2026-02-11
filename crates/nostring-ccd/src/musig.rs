@@ -17,13 +17,13 @@ use crate::types::CcdError;
 // ─── Type conversion helpers ────────────────────────────────────────────────
 
 /// Convert our secp256k1 0.29 PublicKey to musig2's secp256k1 0.31 PublicKey.
-fn pubkey_to_musig(pk: &PublicKey) -> Result<musig2::secp256k1::PublicKey, CcdError> {
+pub fn pubkey_to_musig(pk: &PublicKey) -> Result<musig2::secp256k1::PublicKey, CcdError> {
     musig2::secp256k1::PublicKey::from_slice(&pk.serialize())
         .map_err(|e| CcdError::DerivationFailed(format!("pubkey conversion: {}", e)))
 }
 
 /// Convert our secp256k1 0.29 SecretKey to musig2's secp256k1 0.31 SecretKey.
-fn seckey_to_musig(sk: &SecretKey) -> Result<musig2::secp256k1::SecretKey, CcdError> {
+pub fn seckey_to_musig(sk: &SecretKey) -> Result<musig2::secp256k1::SecretKey, CcdError> {
     #[allow(deprecated)]
     musig2::secp256k1::SecretKey::from_slice(&sk.secret_bytes())
         .map_err(|e| CcdError::SigningError(format!("seckey conversion: {}", e)))

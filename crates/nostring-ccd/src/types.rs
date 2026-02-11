@@ -91,7 +91,7 @@ pub struct CcdVault {
 }
 
 /// A tweak for a single PSBT input.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct InputTweak {
     /// Which PSBT input index
     pub input_index: usize,
