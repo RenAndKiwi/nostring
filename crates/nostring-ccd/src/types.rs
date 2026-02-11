@@ -71,6 +71,77 @@ pub struct TweakAck {
     pub accepted: bool,
 }
 
+/// A CCD vault: Taproot output from owner + delegated co-signer.
+#[derive(Clone)]
+pub struct CcdVault {
+    /// The owner's public key for this vault
+    pub owner_pubkey: PublicKey,
+    /// The delegated co-signer registration
+    pub delegated: DelegatedKey,
+    /// Derivation index for this vault's address (non-hardened)
+    pub address_index: u32,
+    /// The co-signer's derived public key at this index
+    pub cosigner_derived_pubkey: PublicKey,
+    /// The aggregated x-only public key (internal key for key-path spend)
+    pub aggregate_xonly: bitcoin::key::XOnlyPublicKey,
+    /// The Taproot address
+    pub address: bitcoin::Address,
+    /// Network
+    pub network: bitcoin::Network,
+}
+
+/// A tweak for a single PSBT input.
+#[derive(Clone)]
+pub struct InputTweak {
+    /// Which PSBT input index
+    pub input_index: usize,
+    /// The scalar tweak
+    pub tweak: Scalar,
+    /// Expected derived pubkey (for verification)
+    pub derived_pubkey: PublicKey,
+}
+
+/// Serializable signing request for Nostr transport.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SigningSessionMessage {
+    pub version: u8,
+    #[serde(rename = "type")]
+    pub msg_type: String,
+    /// Base64-encoded PSBT
+    pub psbt: String,
+    /// Tweaks for each input
+    pub input_tweaks: Vec<SerializedInputTweak>,
+}
+
+/// Serialized input tweak for transport.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SerializedInputTweak {
+    pub input_index: usize,
+    /// Hex-encoded scalar tweak
+    pub tweak: String,
+    /// Hex-encoded derived pubkey
+    pub derived_pubkey: String,
+}
+
+/// Co-signer's signing response for Nostr transport.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SigningResponseMessage {
+    pub version: u8,
+    #[serde(rename = "type")]
+    pub msg_type: String,
+    /// Hex-encoded Schnorr signatures, one per input
+    pub partial_sigs: Vec<SerializedPartialSig>,
+    pub accepted: bool,
+}
+
+/// A single partial signature for transport.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SerializedPartialSig {
+    pub input_index: usize,
+    /// Hex-encoded 64-byte Schnorr signature
+    pub signature: String,
+}
+
 #[derive(Error, Debug)]
 pub enum CcdError {
     #[error("Hardened derivation indices not supported in CCD")]
@@ -85,4 +156,12 @@ pub enum CcdError {
     TransportError(String),
     #[error("Serialization error: {0}")]
     SerializationError(String),
+    #[error("PSBT error: {0}")]
+    PsbtError(String),
+    #[error("Signing error: {0}")]
+    SigningError(String),
+    #[error("Tweak verification failed for input {0}")]
+    TweakVerificationFailed(usize),
+    #[error("Invalid signature: {0}")]
+    InvalidSignature(String),
 }

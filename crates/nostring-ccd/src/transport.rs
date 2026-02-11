@@ -115,6 +115,10 @@ mod hex {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::{
+        SerializedInputTweak, SerializedPartialSig, SigningResponseMessage,
+        SigningSessionMessage,
+    };
     use crate::{compute_tweak, register_cosigner};
     use bitcoin::secp256k1::{Secp256k1, SecretKey};
 
@@ -242,6 +246,72 @@ mod tests {
         };
         let result = decode_tweak_request(&request);
         assert!(matches!(result, Err(CcdError::SerializationError(_))));
+    }
+
+    #[test]
+    fn test_signing_session_roundtrip() {
+        let session = SigningSessionMessage {
+            version: 1,
+            msg_type: "signing_request".into(),
+            psbt: "cHNidP8B...base64...".into(),
+            input_tweaks: vec![
+                SerializedInputTweak {
+                    input_index: 0,
+                    tweak: "aa".repeat(32),
+                    derived_pubkey: "02".to_string() + &"bb".repeat(32),
+                },
+                SerializedInputTweak {
+                    input_index: 1,
+                    tweak: "cc".repeat(32),
+                    derived_pubkey: "03".to_string() + &"dd".repeat(32),
+                },
+            ],
+        };
+
+        let json = serde_json::to_string(&session).unwrap();
+        let parsed: SigningSessionMessage = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.version, 1);
+        assert_eq!(parsed.msg_type, "signing_request");
+        assert_eq!(parsed.input_tweaks.len(), 2);
+        assert_eq!(parsed.input_tweaks[0].input_index, 0);
+        assert_eq!(parsed.input_tweaks[1].input_index, 1);
+    }
+
+    #[test]
+    fn test_signing_response_roundtrip() {
+        let response = SigningResponseMessage {
+            version: 1,
+            msg_type: "signing_response".into(),
+            partial_sigs: vec![SerializedPartialSig {
+                input_index: 0,
+                signature: "ee".repeat(64),
+            }],
+            accepted: true,
+        };
+
+        let json = serde_json::to_string(&response).unwrap();
+        let parsed: SigningResponseMessage = serde_json::from_str(&json).unwrap();
+
+        assert!(parsed.accepted);
+        assert_eq!(parsed.partial_sigs.len(), 1);
+        assert_eq!(parsed.partial_sigs[0].signature.len(), 128); // 64 bytes hex
+    }
+
+    #[test]
+    fn test_signing_response_rejected() {
+        let response = SigningResponseMessage {
+            version: 1,
+            msg_type: "signing_response".into(),
+            partial_sigs: vec![],
+            accepted: false,
+        };
+
+        let json = serde_json::to_string(&response).unwrap();
+        let parsed: SigningResponseMessage = serde_json::from_str(&json).unwrap();
+
+        assert!(!parsed.accepted);
+        assert!(parsed.partial_sigs.is_empty());
     }
 
     #[test]
