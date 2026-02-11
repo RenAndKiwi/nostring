@@ -20,9 +20,9 @@ tokio.workspace = true
 # HMAC for BIP-32 tweak extraction
 hmac = "0.12"
 sha2 = "0.10"
+hex = "0.4"
 
 [dev-dependencies]
-hex = "0.4"
 nostring-core = { path = "../nostring-core" }
 nostring-electrum = { path = "../nostring-electrum" }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

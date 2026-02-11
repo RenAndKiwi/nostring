@@ -9,6 +9,7 @@
 //! Based on: Jurvis Tan & Jesse Posner, "Chain Code Delegation: Private Access Control
 //! for Bitcoin Keys" (Delving Bitcoin, 2025).
 
+pub mod blind;
 mod fund_vault;
 mod integration;
 pub mod musig;
