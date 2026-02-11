@@ -11,6 +11,29 @@ use bitcoin::{Address, Amount, Network, TxOut};
 use crate::types::*;
 use crate::{aggregate_taproot_key, apply_tweak, compute_tweak, verify_tweak};
 
+/// Estimate the virtual size (vbytes) of a CCD vault spend transaction.
+///
+/// P2TR key-path spend weight calculation:
+/// - Tx overhead: 10.5 vbytes (version + marker/flag + counts + locktime)
+/// - Per input: 57.5 vbytes (prevout + sequence + 64-byte Schnorr witness)
+/// - Per P2TR output: 43 vbytes
+/// - Per P2WPKH output: 31 vbytes
+///
+/// For simplicity, assumes all outputs are P2TR (conservative estimate).
+/// Add 1 vbyte padding for safety.
+pub fn estimate_vault_spend_vbytes(num_inputs: usize, num_outputs: usize) -> usize {
+    // Weight units (WU):
+    // Overhead: version(4*4) + marker(1) + flag(1) + input_count(1*4) + output_count(1*4) + locktime(4*4) = 42 WU
+    // Per input: (36+1+4)*4 base + (1+1+64) witness = 164 + 66 = 230 WU
+    // Per P2TR output: (8+1+34)*4 = 172 WU
+    let overhead_wu = 42;
+    let input_wu = 230;
+    let output_wu = 172; // P2TR
+    let total_wu = overhead_wu + (num_inputs * input_wu) + (num_outputs * output_wu);
+    // vbytes = ceil(weight / 4) + 1 padding
+    total_wu.div_ceil(4) + 1
+}
+
 /// Create a new CCD vault at a given address index.
 ///
 /// The vault's Taproot address is derived from the aggregated key:
@@ -1109,5 +1132,97 @@ mod tests {
                 idx
             );
         }
+    }
+
+    #[test]
+    fn test_estimate_vault_spend_vbytes() {
+        // 1 input, 1 output (self-spend, no change)
+        let vb_1_1 = estimate_vault_spend_vbytes(1, 1);
+        // Expected: ceil((42 + 230 + 172) / 4) + 1 = ceil(444/4) + 1 = 111 + 1 = 112
+        assert_eq!(vb_1_1, 112);
+
+        // 1 input, 2 outputs (send + change)
+        let vb_1_2 = estimate_vault_spend_vbytes(1, 2);
+        // Expected: ceil((42 + 230 + 344) / 4) + 1 = ceil(616/4) + 1 = 154 + 1 = 155
+        assert_eq!(vb_1_2, 155);
+
+        // 2 inputs, 1 output
+        let vb_2_1 = estimate_vault_spend_vbytes(2, 1);
+        // Expected: ceil((42 + 460 + 172) / 4) + 1 = ceil(674/4) + 1 = 169 + 1 = 170
+        assert_eq!(vb_2_1, 170);
+
+        // 3 inputs, 2 outputs
+        let vb_3_2 = estimate_vault_spend_vbytes(3, 2);
+        // Expected: ceil((42 + 690 + 344) / 4) + 1 = ceil(1076/4) + 1 = 269 + 1 = 270
+        assert_eq!(vb_3_2, 270);
+    }
+
+    #[test]
+    fn test_estimate_vbytes_matches_real_signed_tx() {
+        // Create a real signed tx and compare serialized size with estimate
+        let (owner_sk, owner_pk) = test_keypair(1);
+        let (_cosigner_sk, cosigner_pk) = test_keypair(42);
+
+        let chain_code = crate::types::ChainCode([0xCC; 32]);
+        let delegated = crate::register_cosigner_with_chain_code(cosigner_pk, chain_code, "test");
+
+        let (vault, key_agg_ctx) =
+            create_vault_musig2(&owner_pk, &delegated, 0, Network::Testnet).unwrap();
+
+        let utxos = vec![(
+            test_outpoint(0),
+            TxOut {
+                value: Amount::from_sat(10_000),
+                script_pubkey: vault.address.script_pubkey(),
+            },
+        )];
+
+        let fee = Amount::from_sat(300);
+        let (psbt, tweaks) = build_spend_psbt(
+            &vault,
+            &utxos,
+            &[(vault.address.clone(), Amount::from_sat(9_700))],
+            fee,
+            None,
+        )
+        .unwrap();
+
+        let cosigner_child_sk = apply_tweak(&_cosigner_sk, &tweaks[0].tweak).unwrap();
+        let signed_tx =
+            musig2_sign_psbt(&owner_sk, &cosigner_child_sk, &key_agg_ctx, &psbt).unwrap();
+
+        // Get actual serialized size
+        let tx_bytes = bitcoin::consensus::serialize(&signed_tx);
+        let actual_bytes = tx_bytes.len();
+
+        // Get actual weight
+        let weight = signed_tx.weight().to_wu() as usize;
+        let actual_vbytes = (weight + 3) / 4;
+
+        // Our estimate for 1 input, 1 output
+        let estimated_vbytes = estimate_vault_spend_vbytes(1, 1);
+
+        println!(
+            "Actual: {} bytes, {} WU, {} vbytes | Estimated: {} vbytes",
+            actual_bytes, weight, actual_vbytes, estimated_vbytes
+        );
+
+        // Estimate should be >= actual (conservative, with 1 vbyte padding)
+        assert!(
+            estimated_vbytes >= actual_vbytes,
+            "Estimate {} must be >= actual {} vbytes",
+            estimated_vbytes,
+            actual_vbytes
+        );
+
+        // But not too much larger (within 10% margin)
+        let margin = (estimated_vbytes as f64 - actual_vbytes as f64) / actual_vbytes as f64;
+        assert!(
+            margin < 0.10,
+            "Estimate {} is {}% over actual {} — too far off",
+            estimated_vbytes,
+            (margin * 100.0) as u32,
+            actual_vbytes
+        );
     }
 }

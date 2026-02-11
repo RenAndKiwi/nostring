@@ -221,6 +221,49 @@ impl ElectrumClient {
     }
 
     /// Get the confirmation height of a transaction, if confirmed.
+    /// Estimate fee rate in sat/vB for confirmation within `target_blocks`.
+    ///
+    /// Uses the Electrum server's fee estimation. Returns sat/vB (f64).
+    /// Applies safety bounds:
+    /// - Floor: relay fee or 1.0 sat/vB (whichever is higher)
+    /// - Ceiling: 500 sat/vB (protects against malicious server)
+    /// - Fallback: 10.0 sat/vB if estimation fails
+    pub fn estimate_fee_rate(&self, target_blocks: usize) -> Result<f64, Error> {
+        let btc_per_kb = match self.client.estimate_fee(target_blocks) {
+            Ok(rate) if rate > 0.0 => rate,
+            _ => {
+                // Estimation unavailable (returns -1 on some servers), use fallback
+                return Ok(10.0);
+            }
+        };
+
+        // Convert BTC/kB → sat/vB: multiply by 100_000_000 (sats/BTC), divide by 1000 (bytes/kB)
+        let sat_per_vb = btc_per_kb * 100_000.0;
+
+        // Apply floor (relay fee or 1.0)
+        let relay = self
+            .client
+            .relay_fee()
+            .map(|r| r * 100_000.0)
+            .unwrap_or(1.0);
+        let floored = sat_per_vb.max(relay).max(1.0);
+
+        // Apply ceiling (protection against malicious server)
+        let capped = floored.min(500.0);
+
+        Ok(capped)
+    }
+
+    /// Estimate total fee in satoshis for a transaction of given virtual size.
+    ///
+    /// Convenience wrapper: `fee = ceil(vbytes * sat_per_vb)`.
+    pub fn estimate_fee(&self, vbytes: usize, target_blocks: usize) -> Result<Amount, Error> {
+        let rate = self.estimate_fee_rate(target_blocks)?;
+        let fee_sats = (vbytes as f64 * rate).ceil() as u64;
+        // Minimum fee of 1 sat
+        Ok(Amount::from_sat(fee_sats.max(1)))
+    }
+
     pub fn get_confirmation_height(&self, txid: &Txid) -> Result<Option<u32>, Error> {
         let tx = match self.client.transaction_get(txid) {
             Ok(t) => t,
@@ -263,6 +306,47 @@ pub fn default_server(network: Network) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_fee_conversion_math() {
+        // Verify the BTC/kB → sat/vB conversion independently
+        // 0.00001 BTC/kB = 1 sat/vB
+        let btc_per_kb = 0.00001_f64;
+        let sat_per_vb = btc_per_kb * 100_000.0;
+        assert!((sat_per_vb - 1.0).abs() < 0.001);
+
+        // 0.0001 BTC/kB = 10 sat/vB
+        let btc_per_kb = 0.0001_f64;
+        let sat_per_vb = btc_per_kb * 100_000.0;
+        assert!((sat_per_vb - 10.0).abs() < 0.001);
+
+        // 0.001 BTC/kB = 100 sat/vB
+        let btc_per_kb = 0.001_f64;
+        let sat_per_vb = btc_per_kb * 100_000.0;
+        assert!((sat_per_vb - 100.0).abs() < 0.001);
+    }
+
+    #[test]
+    #[ignore = "requires network access"]
+    fn test_fee_estimation_mainnet() {
+        let client =
+            ElectrumClient::new(default_server(Network::Bitcoin), Network::Bitcoin).unwrap();
+
+        let rate = client.estimate_fee_rate(6).unwrap();
+        println!("Estimated fee rate (6 blocks): {:.1} sat/vB", rate);
+
+        // Should be within sane bounds
+        assert!(rate >= 1.0, "Fee rate {} too low", rate);
+        assert!(rate <= 500.0, "Fee rate {} above cap", rate);
+
+        let fee = client.estimate_fee(112, 6).unwrap(); // 1-in 1-out P2TR
+        println!("Estimated fee for 112 vB tx: {} sat", fee.to_sat());
+        assert!(
+            fee.to_sat() >= 112,
+            "Fee {} too low for 112 vB",
+            fee.to_sat()
+        );
+    }
 
     #[test]
     fn test_default_servers() {
