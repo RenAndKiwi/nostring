@@ -4,9 +4,8 @@ use mdk_core::prelude::*;
 use mdk_storage_traits::groups::types::Group as MdkGroup;
 use mdk_storage_traits::messages::types::Message as MdkMessage;
 use mdk_storage_traits::test_utils::crypto_utils::generate_random_bytes;
+use mdk_storage_traits::MdkStorageProvider;
 use nostr::event::builder::EventBuilder;
-#[cfg(test)]
-use nostr::Keys;
 use nostr::{Event, EventId, Kind, PublicKey, RelayUrl, UnsignedEvent};
 
 use crate::{GroupId, MessagingClient, MessagingError};
@@ -64,10 +63,9 @@ pub struct MessageSendResult {
     pub event: Event,
 }
 
-impl MessagingClient {
+// All group operations are generic over storage backend.
+impl<S: MdkStorageProvider> MessagingClient<S> {
     /// Create a new MLS group and invite members.
-    ///
-    /// `member_key_package_events` are Kind::MlsKeyPackage events fetched from relays.
     pub fn create_group(
         &self,
         name: &str,
@@ -162,9 +160,10 @@ impl MessagingClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nostr::Keys;
 
-    fn create_test_client() -> MessagingClient {
-        MessagingClient::new(Keys::generate())
+    fn create_test_client() -> crate::InMemoryClient {
+        crate::InMemoryClient::new(Keys::generate())
     }
 
     #[tokio::test]
@@ -182,7 +181,6 @@ mod tests {
         let bob = create_test_client();
         let relay = RelayUrl::parse("ws://localhost:8080").unwrap();
 
-        // Bob creates a key package
         let (bob_kp_encoded, bob_tags) = bob.create_key_package(vec![relay.clone()]).unwrap();
         let bob_kp_event = EventBuilder::new(Kind::MlsKeyPackage, bob_kp_encoded)
             .tags(bob_tags)
@@ -191,7 +189,6 @@ mod tests {
             .await
             .unwrap();
 
-        // Alice creates a group with Bob
         let result = alice
             .create_group(
                 "test-group",
@@ -205,24 +202,20 @@ mod tests {
         assert_eq!(result.group.name, "test-group");
         assert_eq!(result.welcome_rumors.len(), 1);
 
-        // Alice sends a message
         let msg_result = alice
             .send_message(&result.group.mls_group_id, "Hello Bob!")
             .unwrap();
 
-        // Bob processes the welcome
         bob.process_welcome(&EventId::all_zeros(), &result.welcome_rumors[0])
             .unwrap();
         let bob_group = bob.accept_first_welcome().unwrap();
 
-        // Bob processes the message
         bob.process_message(&msg_result.event).unwrap();
         let messages = bob.get_messages(&bob_group.mls_group_id).unwrap();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].content, "Hello Bob!");
         assert_eq!(messages[0].sender, alice.public_key());
 
-        // Verify members
         let members = alice.get_members(&result.group.mls_group_id).unwrap();
         assert_eq!(members.len(), 2);
     }

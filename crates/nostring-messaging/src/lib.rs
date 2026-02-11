@@ -5,9 +5,17 @@
 //!
 //! Built on [mdk-core](https://github.com/marmot-protocol/mdk) (MIT licensed),
 //! which wraps OpenMLS with Nostr-specific group management.
+//!
+//! # Storage Backends
+//!
+//! `MessagingClient<S>` is generic over storage:
+//! - `InMemoryClient` — ephemeral, for testing and short-lived sessions
+//! - `PersistentClient` — encrypted SQLite, for production use
 
 use mdk_core::prelude::*;
 use mdk_memory_storage::MdkMemoryStorage;
+use mdk_sqlite_storage::MdkSqliteStorage;
+use mdk_storage_traits::MdkStorageProvider;
 use nostr::Keys;
 use thiserror::Error;
 
@@ -27,6 +35,8 @@ pub enum MessagingError {
     GroupNotFound(String),
     #[error("Message processing error: {0}")]
     Processing(String),
+    #[error("Storage initialization failed: {0}")]
+    StorageInit(String),
 }
 
 impl From<mdk_core::Error> for MessagingError {
@@ -35,21 +45,21 @@ impl From<mdk_core::Error> for MessagingError {
     }
 }
 
-/// The main messaging client. Wraps MDK with NoString-specific conveniences.
-pub struct MessagingClient {
+/// Generic messaging client over any MDK storage backend.
+pub struct MessagingClient<S: MdkStorageProvider> {
     keys: Keys,
-    mdk: MDK<MdkMemoryStorage>,
+    mdk: MDK<S>,
 }
 
-impl MessagingClient {
-    /// Create a new messaging client with the given Nostr identity.
-    pub fn new(keys: Keys) -> Self {
-        Self {
-            keys,
-            mdk: MDK::new(MdkMemoryStorage::default()),
-        }
-    }
+/// In-memory messaging client (ephemeral, for testing).
+pub type InMemoryClient = MessagingClient<MdkMemoryStorage>;
 
+/// Persistent messaging client (encrypted SQLite).
+pub type PersistentClient = MessagingClient<MdkSqliteStorage>;
+
+// === Shared methods for all storage backends ===
+
+impl<S: MdkStorageProvider> MessagingClient<S> {
     /// Get the Nostr public key for this client.
     pub fn public_key(&self) -> nostr::PublicKey {
         self.keys.public_key()
@@ -96,7 +106,67 @@ impl MessagingClient {
     }
 
     /// Get the underlying MDK instance (for advanced operations).
-    pub fn mdk(&self) -> &MDK<MdkMemoryStorage> {
+    pub fn mdk(&self) -> &MDK<S> {
         &self.mdk
+    }
+}
+
+// === In-memory constructor ===
+
+impl MessagingClient<MdkMemoryStorage> {
+    /// Create a new in-memory messaging client.
+    pub fn new(keys: Keys) -> Self {
+        Self {
+            keys,
+            mdk: MDK::new(MdkMemoryStorage::default()),
+        }
+    }
+}
+
+// === Persistent constructors ===
+
+impl MessagingClient<MdkSqliteStorage> {
+    /// Open or create a persistent messaging store with platform keyring.
+    pub fn open<P: AsRef<std::path::Path>>(
+        keys: Keys,
+        db_path: P,
+        service_id: &str,
+        db_key_id: &str,
+    ) -> Result<Self, MessagingError> {
+        let storage = MdkSqliteStorage::new(db_path, service_id, db_key_id)
+            .map_err(|e| MessagingError::StorageInit(e.to_string()))?;
+        Ok(Self {
+            keys,
+            mdk: MDK::new(storage),
+        })
+    }
+
+    /// Open with an explicit encryption key (for environments without keyring).
+    pub fn open_with_key<P: AsRef<std::path::Path>>(
+        keys: Keys,
+        db_path: P,
+        encryption_key: [u8; 32],
+    ) -> Result<Self, MessagingError> {
+        let config = mdk_sqlite_storage::EncryptionConfig::new(encryption_key);
+        let storage = MdkSqliteStorage::new_with_key(db_path, config)
+            .map_err(|e| MessagingError::StorageInit(e.to_string()))?;
+        Ok(Self {
+            keys,
+            mdk: MDK::new(storage),
+        })
+    }
+
+    /// Open without encryption (for testing only).
+    #[cfg(test)]
+    pub fn open_unencrypted<P: AsRef<std::path::Path>>(
+        keys: Keys,
+        db_path: P,
+    ) -> Result<Self, MessagingError> {
+        let storage = MdkSqliteStorage::new_unencrypted(db_path)
+            .map_err(|e| MessagingError::StorageInit(e.to_string()))?;
+        Ok(Self {
+            keys,
+            mdk: MDK::new(storage),
+        })
     }
 }

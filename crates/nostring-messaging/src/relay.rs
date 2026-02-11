@@ -12,14 +12,14 @@ use nostr::{Event, EventId, Filter, Kind, PublicKey, RelayUrl, Tag, Timestamp};
 use nostr_sdk::Client;
 
 use crate::groups::{GroupInfo, Message};
-use crate::{GroupId, MessagingClient, MessagingError};
+use crate::{GroupId, InMemoryClient, MessagingError};
 
 /// A relay-connected messaging client.
 ///
-/// Wraps `MessagingClient` with the ability to publish and subscribe
+/// Wraps `InMemoryClient` with the ability to publish and subscribe
 /// to Nostr relays for actual message exchange.
 pub struct RelayMessagingClient {
-    inner: MessagingClient,
+    inner: InMemoryClient,
     client: Client,
 }
 
@@ -41,13 +41,13 @@ impl RelayMessagingClient {
         client.connect().await;
 
         Ok(Self {
-            inner: MessagingClient::new(keys),
+            inner: InMemoryClient::new(keys),
             client,
         })
     }
 
     /// Get a reference to the inner (local) messaging client.
-    pub fn inner(&self) -> &MessagingClient {
+    pub fn inner(&self) -> &InMemoryClient {
         &self.inner
     }
 
@@ -215,10 +215,7 @@ impl RelayMessagingClient {
 
         for gift_wrap in events {
             // Unwrap gift wrap — may fail if not addressed to us or corrupted
-            let unwrapped =
-                nip59::UnwrappedGift::from_gift_wrap(self.inner.keys(), &gift_wrap).await;
-
-            match unwrapped {
+            match nip59::UnwrappedGift::from_gift_wrap(self.inner.keys(), &gift_wrap).await {
                 Ok(unwrapped) => {
                     let rumor = unwrapped.rumor;
                     match self.inner.process_welcome(&gift_wrap.id, &rumor) {
@@ -234,8 +231,8 @@ impl RelayMessagingClient {
                     }
                 }
                 Err(_) => {
-                    // Gift wrap not addressed to us or corrupted — skip silently.
-                    // This is normal when filtering by Kind::GiftWrap broadly.
+                    // Gift wrap not addressed to us or corrupted — skip.
+                    // Normal when filtering by Kind::GiftWrap broadly.
                 }
             }
         }
@@ -256,7 +253,87 @@ mod tests {
 
     #[test]
     fn test_relay_client_types() {
-        // Verify the types compile and are constructable
         let _keys = Keys::generate();
+    }
+
+    /// Requires a running Nostr relay at ws://localhost:8080.
+    /// Run with: cargo test --package nostring-messaging -- --ignored
+    #[tokio::test]
+    #[ignore]
+    async fn test_relay_publish_and_fetch_key_package() {
+        let alice_keys = Keys::generate();
+        let alice = RelayMessagingClient::connect(
+            alice_keys.clone(),
+            vec!["ws://localhost:8080".to_string()],
+        )
+        .await
+        .unwrap();
+
+        // Publish key package
+        let event_id = alice.publish_key_package().await.unwrap();
+        assert_ne!(event_id, EventId::all_zeros());
+
+        // Fetch it back
+        let fetched = alice
+            .fetch_key_package(&alice_keys.public_key())
+            .await
+            .unwrap();
+        assert_eq!(fetched.kind, Kind::MlsKeyPackage);
+        assert_eq!(fetched.pubkey, alice_keys.public_key());
+
+        alice.disconnect().await;
+    }
+
+    /// Requires a running Nostr relay at ws://localhost:8080.
+    #[tokio::test]
+    #[ignore]
+    async fn test_relay_create_group_and_exchange_messages() {
+        let alice_keys = Keys::generate();
+        let bob_keys = Keys::generate();
+
+        let alice =
+            RelayMessagingClient::connect(alice_keys, vec!["ws://localhost:8080".to_string()])
+                .await
+                .unwrap();
+
+        let bob = RelayMessagingClient::connect(
+            bob_keys.clone(),
+            vec!["ws://localhost:8080".to_string()],
+        )
+        .await
+        .unwrap();
+
+        // Bob publishes key package
+        bob.publish_key_package().await.unwrap();
+
+        // Alice creates group, inviting Bob (fetches his key package from relay)
+        let group = alice
+            .create_and_invite(
+                "relay-test-group",
+                "testing relay integration",
+                vec![bob_keys.public_key()],
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(group.name, "relay-test-group");
+
+        // Alice sends a message
+        let msg_id = alice
+            .send(&group.mls_group_id, "Hello over relay!")
+            .await
+            .unwrap();
+        assert_ne!(msg_id, EventId::all_zeros());
+
+        // Bob checks for welcomes (gift-wrapped)
+        let new_groups = bob.check_welcomes(None).await.unwrap();
+        assert!(!new_groups.is_empty(), "Bob should receive welcome");
+
+        // Bob syncs messages
+        let synced = bob.sync(None).await.unwrap();
+        assert!(!synced.is_empty(), "Bob should receive messages");
+
+        alice.disconnect().await;
+        bob.disconnect().await;
     }
 }
