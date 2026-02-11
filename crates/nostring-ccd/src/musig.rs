@@ -418,7 +418,7 @@ mod tests {
         let (owner_sk, owner_pk) = test_keypair(1);
         let (cosigner_sk, cosigner_pk) = test_keypair(42);
 
-        let (key_agg_ctx, agg_xonly) = musig2_key_agg(&owner_pk, &cosigner_pk).unwrap();
+        let (key_agg_ctx, _agg_xonly) = musig2_key_agg(&owner_pk, &cosigner_pk).unwrap();
         let message = [0xABu8; 32];
         let different_message = [0xFFu8; 32];
 

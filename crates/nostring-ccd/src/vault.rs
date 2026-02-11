@@ -288,6 +288,137 @@ pub fn taproot_output_key(
     (XOnlyPublicKey::from(tweaked_pk), parity)
 }
 
+// ─── MuSig2-enabled vault operations ────────────────────────────────────────
+
+/// Create a vault using MuSig2 key aggregation (BIP-327).
+///
+/// Unlike `create_vault` (which uses simple P1+P2), this uses proper MuSig2
+/// key aggregation with rogue-key protection. The resulting address uses the
+/// Taproot-tweaked output key.
+pub fn create_vault_musig2(
+    owner_pubkey: &PublicKey,
+    delegated: &DelegatedKey,
+    address_index: u32,
+    network: Network,
+) -> Result<(CcdVault, musig2::KeyAggContext), CcdError> {
+    use crate::musig::musig2_key_agg_tweaked;
+
+    let disclosure = compute_tweak(delegated, address_index)?;
+    let cosigner_derived = disclosure.derived_pubkey;
+
+    // MuSig2 key aggregation (untweaked = internal key)
+    let (_, untweaked_xonly) =
+        crate::musig::musig2_key_agg(owner_pubkey, &cosigner_derived)?;
+
+    // MuSig2 key aggregation WITH taproot tweak (for signing context)
+    let (key_agg_ctx, _output_xonly) = musig2_key_agg_tweaked(owner_pubkey, &cosigner_derived)?;
+
+    // The address is built from the INTERNAL key — Address::p2tr applies the taptweak itself
+    let secp = Secp256k1::new();
+    let address = Address::p2tr(&secp, untweaked_xonly, None, network);
+
+    let vault = CcdVault {
+        owner_pubkey: *owner_pubkey,
+        delegated: delegated.clone(),
+        address_index,
+        cosigner_derived_pubkey: cosigner_derived,
+        aggregate_xonly: untweaked_xonly, // internal key
+        address,
+        network,
+    };
+
+    Ok((vault, key_agg_ctx))
+}
+
+/// Run the complete MuSig2 signing ceremony for a PSBT.
+///
+/// This simulates both rounds of MuSig2 in a single function (for local use).
+/// In practice, rounds would be split across Nostr messages.
+///
+/// Returns the finalized transaction with valid Taproot key-path signatures.
+pub fn musig2_sign_psbt(
+    owner_sk: &SecretKey,
+    cosigner_child_sk: &SecretKey,
+    key_agg_ctx: &musig2::KeyAggContext,
+    psbt: &bitcoin::psbt::Psbt,
+) -> Result<bitcoin::Transaction, CcdError> {
+    use bitcoin::sighash::{Prevouts, SighashCache};
+    use bitcoin::TapSighashType;
+    use crate::musig;
+
+    let prevouts: Vec<TxOut> = psbt
+        .inputs
+        .iter()
+        .map(|input| {
+            input
+                .witness_utxo
+                .clone()
+                .ok_or_else(|| CcdError::PsbtError("missing witness UTXO".into()))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let tx = psbt.unsigned_tx.clone();
+
+    // First pass: compute all sighashes
+    let mut sighashes = Vec::with_capacity(psbt.inputs.len());
+    {
+        let mut sighash_cache = SighashCache::new(&tx);
+        for idx in 0..psbt.inputs.len() {
+            let sighash = sighash_cache
+                .taproot_key_spend_signature_hash(
+                    idx,
+                    &Prevouts::All(&prevouts),
+                    TapSighashType::Default,
+                )
+                .map_err(|e| CcdError::SigningError(e.to_string()))?;
+            sighashes.push(sighash.to_byte_array());
+        }
+    }
+
+    // Second pass: MuSig2 sign each input and collect witnesses
+    let mut witnesses: Vec<bitcoin::Witness> = Vec::with_capacity(psbt.inputs.len());
+    for message in &sighashes {
+        // Round 1: Both generate nonces
+        let (owner_secnonce, owner_pubnonce) =
+            musig::generate_nonce(owner_sk, key_agg_ctx, Some(message))?;
+        let (cosigner_secnonce, cosigner_pubnonce) =
+            musig::generate_nonce(cosigner_child_sk, key_agg_ctx, Some(message))?;
+
+        // Aggregate nonces
+        let agg_nonce = musig::aggregate_nonces(&[owner_pubnonce, cosigner_pubnonce]);
+
+        // Round 2: Both produce partial signatures
+        let owner_partial =
+            musig::partial_sign(owner_sk, owner_secnonce, key_agg_ctx, &agg_nonce, message)?;
+        let cosigner_partial = musig::partial_sign(
+            cosigner_child_sk,
+            cosigner_secnonce,
+            key_agg_ctx,
+            &agg_nonce,
+            message,
+        )?;
+
+        // Aggregate into final Schnorr signature
+        let final_sig = musig::aggregate_signatures(
+            key_agg_ctx,
+            &agg_nonce,
+            &[owner_partial, cosigner_partial],
+            message,
+        )?;
+
+        // Key-path spend = single 64-byte signature (default sighash omits the byte)
+        witnesses.push(bitcoin::Witness::from_slice(&[final_sig.to_vec()]));
+    }
+
+    // Apply witnesses to transaction
+    let mut signed_tx = tx;
+    for (idx, witness) in witnesses.into_iter().enumerate() {
+        signed_tx.input[idx].witness = witness;
+    }
+
+    Ok(signed_tx)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -788,5 +919,178 @@ mod tests {
         // Change output should go to the change vault address
         let change_output = &psbt.unsigned_tx.output[1];
         assert_eq!(change_output.script_pubkey, change_vault.address.script_pubkey());
+    }
+
+    // ─── MuSig2 vault tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_create_vault_musig2() {
+        let (_owner_sk, owner_pk) = test_keypair(1);
+        let (_cosigner_sk, cosigner_pk) = test_keypair(42);
+        let delegated = register_cosigner(cosigner_pk, "test");
+
+        let (vault, _ctx) = create_vault_musig2(&owner_pk, &delegated, 0, Network::Signet).unwrap();
+
+        // Address should be valid P2TR
+        assert!(vault.address.script_pubkey().is_p2tr());
+
+        // MuSig2 vault address should differ from simple key addition vault
+        let simple_vault = create_vault(&owner_pk, &delegated, 0, Network::Signet).unwrap();
+        assert_ne!(
+            vault.address, simple_vault.address,
+            "MuSig2 aggregation should produce different address than simple addition"
+        );
+    }
+
+    #[test]
+    fn test_musig2_end_to_end_vault_spend() {
+        // THE critical test: create vault → fund → MuSig2 sign → verify signature
+        // This proves the entire CCD + MuSig2 stack produces valid Bitcoin transactions.
+        let (owner_sk, owner_pk) = test_keypair(1);
+        let (cosigner_sk, cosigner_pk) = test_keypair(42);
+        let delegated = register_cosigner(cosigner_pk, "test");
+
+        // Create MuSig2 vault
+        let (vault, key_agg_ctx) =
+            create_vault_musig2(&owner_pk, &delegated, 0, Network::Signet).unwrap();
+
+        // Simulate a UTXO at the vault address
+        let utxos = vec![(
+            test_outpoint(0),
+            TxOut {
+                value: Amount::from_sat(100_000),
+                script_pubkey: vault.address.script_pubkey(),
+            },
+        )];
+
+        // Build PSBT
+        let (psbt, tweaks) = build_spend_psbt(
+            &vault,
+            &utxos,
+            &[(vault.address.clone(), Amount::from_sat(90_000))],
+            Amount::from_sat(1_000),
+            None,
+        )
+        .unwrap();
+
+        // Co-signer derives child key via CCD tweak
+        let cosigner_child_sk = apply_tweak(&cosigner_sk, &tweaks[0].tweak).unwrap();
+
+        // MuSig2 signing ceremony
+        let signed_tx = musig2_sign_psbt(&owner_sk, &cosigner_child_sk, &key_agg_ctx, &psbt)
+            .unwrap();
+
+        // Verify the signature against the vault's output key
+        let secp = Secp256k1::new();
+        let witness = &signed_tx.input[0].witness;
+        assert_eq!(witness.len(), 1, "Key-path spend should have exactly 1 witness element");
+
+        // Parse the Schnorr signature from witness
+        let sig_bytes = witness.nth(0).unwrap();
+        assert_eq!(sig_bytes.len(), 64, "Schnorr signature should be 64 bytes (default sighash)");
+
+        let sig = bitcoin::secp256k1::schnorr::Signature::from_slice(sig_bytes).unwrap();
+
+        // Compute the sighash
+        use bitcoin::sighash::{Prevouts, SighashCache};
+        use bitcoin::TapSighashType;
+        let prevouts = vec![utxos[0].1.clone()];
+        let mut cache = SighashCache::new(&signed_tx);
+        let sighash = cache
+            .taproot_key_spend_signature_hash(
+                0,
+                &Prevouts::All(&prevouts),
+                TapSighashType::Default,
+            )
+            .unwrap();
+        let msg = bitcoin::secp256k1::Message::from_digest(sighash.to_byte_array());
+
+        // Extract the output key from the vault's P2TR address
+        let script = vault.address.script_pubkey();
+        let script_bytes = script.as_bytes();
+        let output_key =
+            bitcoin::secp256k1::XOnlyPublicKey::from_slice(&script_bytes[2..34]).unwrap();
+
+        // THIS IS THE MOMENT: does the signature verify against the output key?
+        assert!(
+            secp.verify_schnorr(&sig, &msg, &output_key).is_ok(),
+            "MuSig2 aggregate signature must verify against the vault's Taproot output key"
+        );
+    }
+
+    #[test]
+    fn test_musig2_multi_input_vault_spend() {
+        let (owner_sk, owner_pk) = test_keypair(1);
+        let (cosigner_sk, cosigner_pk) = test_keypair(42);
+        let delegated = register_cosigner(cosigner_pk, "test");
+
+        let (vault, key_agg_ctx) =
+            create_vault_musig2(&owner_pk, &delegated, 0, Network::Signet).unwrap();
+
+        // Two UTXOs
+        let utxos = vec![
+            (
+                test_outpoint(0),
+                TxOut {
+                    value: Amount::from_sat(50_000),
+                    script_pubkey: vault.address.script_pubkey(),
+                },
+            ),
+            (
+                test_outpoint(1),
+                TxOut {
+                    value: Amount::from_sat(60_000),
+                    script_pubkey: vault.address.script_pubkey(),
+                },
+            ),
+        ];
+
+        let (psbt, tweaks) = build_spend_psbt(
+            &vault,
+            &utxos,
+            &[(vault.address.clone(), Amount::from_sat(100_000))],
+            Amount::from_sat(1_000),
+            None,
+        )
+        .unwrap();
+
+        let cosigner_child_sk = apply_tweak(&cosigner_sk, &tweaks[0].tweak).unwrap();
+
+        let signed_tx = musig2_sign_psbt(&owner_sk, &cosigner_child_sk, &key_agg_ctx, &psbt)
+            .unwrap();
+
+        // Both inputs should have valid witnesses
+        assert_eq!(signed_tx.input[0].witness.len(), 1);
+        assert_eq!(signed_tx.input[1].witness.len(), 1);
+
+        // Verify both signatures
+        let secp = Secp256k1::new();
+        let script = vault.address.script_pubkey();
+        let output_key =
+            bitcoin::secp256k1::XOnlyPublicKey::from_slice(&script.as_bytes()[2..34]).unwrap();
+
+        use bitcoin::sighash::{Prevouts, SighashCache};
+        use bitcoin::TapSighashType;
+        let prevouts: Vec<TxOut> = utxos.iter().map(|(_, txout)| txout.clone()).collect();
+
+        for idx in 0..2 {
+            let sig_bytes = signed_tx.input[idx].witness.nth(0).unwrap();
+            let sig = bitcoin::secp256k1::schnorr::Signature::from_slice(sig_bytes).unwrap();
+
+            let mut cache = SighashCache::new(&signed_tx);
+            let sighash = cache
+                .taproot_key_spend_signature_hash(
+                    idx,
+                    &Prevouts::All(&prevouts),
+                    TapSighashType::Default,
+                )
+                .unwrap();
+            let msg = bitcoin::secp256k1::Message::from_digest(sighash.to_byte_array());
+
+            assert!(
+                secp.verify_schnorr(&sig, &msg, &output_key).is_ok(),
+                "Input {} signature must verify", idx
+            );
+        }
     }
 }
