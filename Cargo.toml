@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/nostring-ccd",
+"crates/nostring-messaging",
     "crates/nostring-core",
     "crates/nostring-email",
     "crates/nostring-electrum",

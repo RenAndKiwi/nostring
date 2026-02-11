@@ -1,0 +1,22 @@
+[package]
+name = "nostring-messaging"
+description = "MLS encrypted group messaging for NoString via Marmot/MDK"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+nostr-sdk.workspace = true
+nostr = "0.44"
+serde.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+hex = "0.4"
+
+# MLS via Marmot Development Kit
+mdk-core = { git = "https://github.com/marmot-protocol/mdk.git", rev = "3db914a" }
+mdk-memory-storage = { git = "https://github.com/marmot-protocol/mdk.git", rev = "3db914a" }
+mdk-storage-traits = { git = "https://github.com/marmot-protocol/mdk.git", rev = "3db914a", features = ["test-utils"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
