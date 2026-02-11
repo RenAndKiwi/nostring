@@ -9,6 +9,7 @@
 //! Based on: Jurvis Tan & Jesse Posner, "Chain Code Delegation: Private Access Control
 //! for Bitcoin Keys" (Delving Bitcoin, 2025).
 
+mod fund_vault;
 mod integration;
 pub mod musig;
 pub mod transport;
@@ -26,6 +27,20 @@ pub fn generate_chain_code() -> ChainCode {
     let mut bytes = [0u8; 32];
     rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut bytes);
     ChainCode(bytes)
+}
+
+/// Register a co-signer with a specific chain code.
+/// Use this for deterministic vault addresses (e.g., tests, recovery).
+pub fn register_cosigner_with_chain_code(
+    cosigner_pubkey: PublicKey,
+    chain_code: ChainCode,
+    label: &str,
+) -> DelegatedKey {
+    DelegatedKey {
+        cosigner_pubkey,
+        chain_code,
+        label: label.to_string(),
+    }
 }
 
 /// Register a co-signer with an owner-generated chain code.
