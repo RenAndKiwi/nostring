@@ -12,6 +12,7 @@ use nostr::Keys;
 use thiserror::Error;
 
 pub mod groups;
+pub mod persistent;
 pub mod relay;
 
 // Re-export key types for consumers

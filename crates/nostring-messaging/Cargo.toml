@@ -16,7 +16,9 @@ hex = "0.4"
 # MLS via Marmot Development Kit
 mdk-core = { git = "https://github.com/marmot-protocol/mdk.git", rev = "3db914a" }
 mdk-memory-storage = { git = "https://github.com/marmot-protocol/mdk.git", rev = "3db914a" }
+mdk-sqlite-storage = { git = "https://github.com/marmot-protocol/mdk.git", rev = "3db914a" }
 mdk-storage-traits = { git = "https://github.com/marmot-protocol/mdk.git", rev = "3db914a", features = ["test-utils"] }
 
 [dev-dependencies]
+tempfile = "3"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
