@@ -133,7 +133,7 @@ pub async fn publish_shares_to_relays(
             .sign_with_keys(&keys)
             .map_err(|e| NotifyError::NostrFailed(format!("Failed to build event: {}", e)))?;
 
-        match client.send_event(event).await {
+        match client.send_event(&event).await {
             Ok(output) => {
                 let eid = output.id().to_hex();
                 log::info!(

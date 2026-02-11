@@ -255,7 +255,7 @@ async fn test2_nostr_dm_real() {
     let event_id = event.id;
     println!("  Event ID: {}", event_id.to_hex());
 
-    let send_result = client.send_event(event).await;
+    let send_result = client.send_event(&event).await;
     match &send_result {
         Ok(output) => {
             println!("  ✓ Event sent! ID: {}", output.id().to_hex());

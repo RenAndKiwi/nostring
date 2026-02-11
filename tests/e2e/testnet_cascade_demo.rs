@@ -497,7 +497,7 @@ Keep this message safe. DO NOT share with anyone.
 
     let event_id = event.id.to_hex();
 
-    match client.send_event(event).await {
+    match client.send_event(&event).await {
         Ok(output) => {
             println!(
                 "    📨 {} share DM sent to {} (event: {})",

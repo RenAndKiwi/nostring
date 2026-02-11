@@ -57,7 +57,7 @@ pub async fn send_dm(
 
     // Send to relays
     let output = client
-        .send_event(event)
+        .send_event(&event)
         .await
         .map_err(|e| NotifyError::NostrFailed(format!("Failed to send event: {}", e)))?;
 
@@ -115,7 +115,7 @@ pub async fn send_dm_to_recipient(
         .map_err(|e| NotifyError::NostrFailed(format!("Failed to build event: {}", e)))?;
 
     let output = client
-        .send_event(event)
+        .send_event(&event)
         .await
         .map_err(|e| NotifyError::NostrFailed(format!("Failed to send event: {}", e)))?;
 
