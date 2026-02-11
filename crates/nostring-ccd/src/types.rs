@@ -30,7 +30,7 @@ pub struct DelegatedKey {
 
 /// A tweak disclosure — sent to the co-signer at signing time.
 /// This is the ONLY information the co-signer receives about the key tree.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TweakDisclosure {
     /// The scalar tweak: co-signer adds this to their secret key
     pub tweak: Scalar,

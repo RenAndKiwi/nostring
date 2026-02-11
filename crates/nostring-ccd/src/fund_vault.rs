@@ -6,9 +6,9 @@ mod tests {
     use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
     use bitcoin::{Amount, Network};
 
-    use crate::vault::create_vault_musig2;
-    use crate::types::ChainCode;
     use crate::register_cosigner_with_chain_code;
+    use crate::types::ChainCode;
+    use crate::vault::create_vault_musig2;
 
     fn deterministic_keypair(seed_byte: u8) -> (SecretKey, PublicKey) {
         let secp = Secp256k1::new();
@@ -39,7 +39,9 @@ mod tests {
         let seed = nostring_core::seed::derive_seed(&mnemonic, "");
 
         // BIP-84 testnet: m/84'/1'/0'
-        let master = nostring_core::keys::derive_bitcoin_master_for_network(&seed, Network::Testnet).unwrap();
+        let master =
+            nostring_core::keys::derive_bitcoin_master_for_network(&seed, Network::Testnet)
+                .unwrap();
         // Derive the signing key at m/0/0 (first receive, non-hardened from account xpriv)
         let path: DerivationPath = "m/0/0".parse().unwrap();
         let derived = master.derive_priv(&secp, &path).unwrap();
@@ -58,7 +60,11 @@ mod tests {
         // ─── Destination: CCD vault ───
         let (_owner_sk, owner_pk) = deterministic_keypair(1);
         let (_cosigner_sk, cosigner_pk) = deterministic_keypair(42);
-        let delegated = register_cosigner_with_chain_code(cosigner_pk, ChainCode::from_bytes([0xCC; 32]), "testnet-ccd");
+        let delegated = register_cosigner_with_chain_code(
+            cosigner_pk,
+            ChainCode::from_bytes([0xCC; 32]),
+            "testnet-ccd",
+        );
         let (vault, _ctx) =
             create_vault_musig2(&owner_pk, &delegated, 0, Network::Testnet).unwrap();
 
@@ -68,9 +74,7 @@ mod tests {
         let client = ElectrumClient::new(default_server(Network::Testnet), Network::Testnet)
             .expect("Failed to connect");
 
-        let utxos = client
-            .get_utxos(&source_addr)
-            .expect("Failed to get UTXOs");
+        let utxos = client.get_utxos(&source_addr).expect("Failed to get UTXOs");
 
         if utxos.is_empty() {
             panic!("No UTXOs at source address");
@@ -79,7 +83,12 @@ mod tests {
         println!("Source UTXOs:");
         let mut total = Amount::ZERO;
         for u in &utxos {
-            println!("  {}:{} = {} sat", u.outpoint.txid, u.outpoint.vout, u.value.to_sat());
+            println!(
+                "  {}:{} = {} sat",
+                u.outpoint.txid,
+                u.outpoint.vout,
+                u.value.to_sat()
+            );
             total += u.value;
         }
         println!("Total: {} sat", total.to_sat());
@@ -125,9 +134,7 @@ mod tests {
             let sighash = sighash_cache
                 .p2wpkh_signature_hash(
                     idx,
-                    &ScriptBuf::new_p2wpkh(
-                        &source_compressed.wpubkey_hash(),
-                    ),
+                    &ScriptBuf::new_p2wpkh(&source_compressed.wpubkey_hash()),
                     prevouts[idx].value,
                     EcdsaSighashType::All,
                 )
@@ -140,10 +147,8 @@ mod tests {
             let mut sig_bytes = sig.serialize_der().to_vec();
             sig_bytes.push(EcdsaSighashType::All as u8);
 
-            tx.input[idx].witness = Witness::from_slice(&[
-                sig_bytes,
-                source_pk.serialize().to_vec(),
-            ]);
+            tx.input[idx].witness =
+                Witness::from_slice(&[sig_bytes, source_pk.serialize().to_vec()]);
         }
 
         let tx_bytes = bitcoin::consensus::serialize(&tx);
@@ -156,7 +161,11 @@ mod tests {
                 println!("✅ Vault funded!");
                 println!("Txid: {}", txid);
                 println!("View: https://mempool.space/testnet/tx/{}", txid);
-                println!("Sent {} sat to vault {}", send_amount.to_sat(), vault.address);
+                println!(
+                    "Sent {} sat to vault {}",
+                    send_amount.to_sat(),
+                    vault.address
+                );
                 println!("\nWait for confirmation, then run:");
                 println!("  cargo test -p nostring-ccd test_testnet_vault_spend -- --ignored --nocapture");
             }

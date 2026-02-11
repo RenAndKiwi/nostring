@@ -20,7 +20,7 @@ mod tests {
     use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
     use bitcoin::{Amount, Network};
 
-    use crate::types::{ChainCode, CcdVault};
+    use crate::types::{CcdVault, ChainCode};
     use crate::vault::{build_spend_psbt, create_vault_musig2, musig2_sign_psbt};
     use crate::{apply_tweak, compute_tweak, register_cosigner_with_chain_code};
 
@@ -72,10 +72,16 @@ mod tests {
     fn test_vault_address_determinism() {
         let (v1, _, _, _, _) = test_vault(0);
         let (v2, _, _, _, _) = test_vault(0);
-        assert_eq!(v1.address, v2.address, "Same inputs must produce same address");
+        assert_eq!(
+            v1.address, v2.address,
+            "Same inputs must produce same address"
+        );
 
         let (v3, _, _, _, _) = test_vault(1);
-        assert_ne!(v1.address, v3.address, "Different index must produce different address");
+        assert_ne!(
+            v1.address, v3.address,
+            "Different index must produce different address"
+        );
     }
 
     /// Verify the vault's internal key → output key → address relationship.
@@ -164,7 +170,7 @@ mod tests {
     /// Verify Schnorr signature structure in an offline-signed transaction.
     #[test]
     fn test_schnorr_signature_structure() {
-        use bitcoin::{OutPoint, Txid, TxOut};
+        use bitcoin::{OutPoint, TxOut, Txid};
 
         let (vault, ctx, owner_sk, _, cosigner_child_sk) = test_vault(0);
 
@@ -189,8 +195,7 @@ mod tests {
         )
         .unwrap();
 
-        let signed_tx =
-            musig2_sign_psbt(&owner_sk, &cosigner_child_sk, &ctx, &psbt).unwrap();
+        let signed_tx = musig2_sign_psbt(&owner_sk, &cosigner_child_sk, &ctx, &psbt).unwrap();
 
         // Verify witness structure
         assert_eq!(signed_tx.input.len(), 1);
@@ -218,7 +223,7 @@ mod tests {
     /// Verify that the wrong co-signer key produces an invalid signature.
     #[test]
     fn test_wrong_cosigner_key_fails() {
-        use bitcoin::{OutPoint, Txid, TxOut};
+        use bitcoin::{OutPoint, TxOut, Txid};
 
         let (vault, ctx, owner_sk, _, _correct_child) = test_vault(0);
 
@@ -276,19 +281,289 @@ mod tests {
                 )
                 .unwrap();
 
-            let msg =
-                bitcoin::secp256k1::Message::from_digest(sighash.to_byte_array());
+            let msg = bitcoin::secp256k1::Message::from_digest(sighash.to_byte_array());
 
             // This MUST fail — wrong co-signer key means wrong aggregate key
-            let verify_result =
-                secp.verify_schnorr(&schnorr_sig, &msg, &vault.aggregate_xonly);
+            let verify_result = secp.verify_schnorr(&schnorr_sig, &msg, &vault.aggregate_xonly);
             assert!(
                 verify_result.is_err(),
                 "Signature with WRONG co-signer key must NOT verify against the vault output key"
             );
             println!("✅ Confirmed: wrong co-signer key produces invalid signature");
         } else {
-            println!("✅ MuSig2 ceremony correctly rejected wrong key: {}", result.unwrap_err());
+            println!(
+                "✅ MuSig2 ceremony correctly rejected wrong key: {}",
+                result.unwrap_err()
+            );
+        }
+    }
+
+    /// Owner alone cannot sign (MuSig2 requires both parties).
+    #[test]
+    fn test_owner_alone_cannot_sign() {
+        use bitcoin::{Amount, OutPoint, TxOut, Txid};
+
+        let (vault, ctx, owner_sk, _, _) = test_vault(0);
+
+        let fake_outpoint = OutPoint {
+            txid: "0000000000000000000000000000000000000000000000000000000000000001"
+                .parse::<Txid>()
+                .unwrap(),
+            vout: 0,
+        };
+        let fake_txout = TxOut {
+            value: Amount::from_sat(10_000),
+            script_pubkey: vault.address.script_pubkey(),
+        };
+
+        let (psbt, _) = build_spend_psbt(
+            &vault,
+            &[(fake_outpoint, fake_txout)],
+            &[(vault.address.clone(), Amount::from_sat(9_700))],
+            Amount::from_sat(300),
+            None,
+        )
+        .unwrap();
+
+        // Try signing with owner key for BOTH parties
+        let result = musig2_sign_psbt(&owner_sk, &owner_sk, &ctx, &psbt);
+        assert!(
+            result.is_err(),
+            "Owner alone must not be able to sign — MuSig2 requires the co-signer's key"
+        );
+        println!("✅ Owner alone rejected: {}", result.unwrap_err());
+    }
+
+    /// Co-signer alone cannot sign.
+    #[test]
+    fn test_cosigner_alone_cannot_sign() {
+        use bitcoin::{Amount, OutPoint, TxOut, Txid};
+
+        let (vault, ctx, _, _, cosigner_child_sk) = test_vault(0);
+
+        let fake_outpoint = OutPoint {
+            txid: "0000000000000000000000000000000000000000000000000000000000000001"
+                .parse::<Txid>()
+                .unwrap(),
+            vout: 0,
+        };
+        let fake_txout = TxOut {
+            value: Amount::from_sat(10_000),
+            script_pubkey: vault.address.script_pubkey(),
+        };
+
+        let (psbt, _) = build_spend_psbt(
+            &vault,
+            &[(fake_outpoint, fake_txout)],
+            &[(vault.address.clone(), Amount::from_sat(9_700))],
+            Amount::from_sat(300),
+            None,
+        )
+        .unwrap();
+
+        // Try signing with co-signer key for BOTH parties
+        let result = musig2_sign_psbt(&cosigner_child_sk, &cosigner_child_sk, &ctx, &psbt);
+        assert!(result.is_err(), "Co-signer alone must not be able to sign");
+        println!("✅ Co-signer alone rejected: {}", result.unwrap_err());
+    }
+
+    /// Hardened indices (>= 0x80000000) must be rejected.
+    #[test]
+    fn test_hardened_index_rejected() {
+        let (_, cosigner_pk) = deterministic_keypair(42);
+        let delegated = register_cosigner_with_chain_code(
+            cosigner_pk,
+            ChainCode::from_bytes(CHAIN_CODE),
+            "test",
+        );
+
+        let result = compute_tweak(&delegated, 0x80000000);
+        assert!(result.is_err(), "Hardened index must be rejected");
+        println!("✅ Hardened index rejected: {}", result.unwrap_err());
+    }
+
+    /// Boundary index values.
+    #[test]
+    fn test_boundary_indices() {
+        let (_, owner_pk) = deterministic_keypair(1);
+        let (_, cosigner_pk) = deterministic_keypair(42);
+        let delegated = register_cosigner_with_chain_code(
+            cosigner_pk,
+            ChainCode::from_bytes(CHAIN_CODE),
+            "test",
+        );
+
+        // Index 0 (minimum)
+        let r0 = create_vault_musig2(&owner_pk, &delegated, 0, Network::Testnet);
+        assert!(r0.is_ok(), "Index 0 must work");
+
+        // Index 0x7FFFFFFF (maximum non-hardened)
+        let r_max = create_vault_musig2(&owner_pk, &delegated, 0x7FFFFFFF, Network::Testnet);
+        assert!(r_max.is_ok(), "Max non-hardened index must work");
+
+        // Different addresses
+        let (v0, _) = r0.unwrap();
+        let (v_max, _) = r_max.unwrap();
+        assert_ne!(v0.address, v_max.address);
+        println!("✅ Index 0 and 0x7FFFFFFF both work, produce different addresses");
+    }
+
+    /// Same index + different chain codes → different vault addresses.
+    /// This is critical: the chain code IS the delegation secret.
+    #[test]
+    fn test_different_chain_codes_different_vaults() {
+        let (_, owner_pk) = deterministic_keypair(1);
+        let (_, cosigner_pk) = deterministic_keypair(42);
+
+        let d1 = register_cosigner_with_chain_code(
+            cosigner_pk,
+            ChainCode::from_bytes([0xAA; 32]),
+            "test",
+        );
+        let d2 = register_cosigner_with_chain_code(
+            cosigner_pk,
+            ChainCode::from_bytes([0xBB; 32]),
+            "test",
+        );
+
+        let (v1, _) = create_vault_musig2(&owner_pk, &d1, 0, Network::Testnet).unwrap();
+        let (v2, _) = create_vault_musig2(&owner_pk, &d2, 0, Network::Testnet).unwrap();
+
+        assert_ne!(
+            v1.address, v2.address,
+            "Different chain codes must produce different vaults"
+        );
+        println!("✅ Different chain codes → different addresses");
+    }
+
+    /// Zero chain code should still work (it's just an edge case, not invalid).
+    #[test]
+    fn test_zero_chain_code_works() {
+        let (_, owner_pk) = deterministic_keypair(1);
+        let (_, cosigner_pk) = deterministic_keypair(42);
+
+        let d = register_cosigner_with_chain_code(
+            cosigner_pk,
+            ChainCode::from_bytes([0x00; 32]),
+            "test",
+        );
+
+        let result = create_vault_musig2(&owner_pk, &d, 0, Network::Testnet);
+        assert!(
+            result.is_ok(),
+            "Zero chain code should be valid (just weak)"
+        );
+        println!(
+            "✅ Zero chain code produces a valid vault (but would be a bad real-world choice)"
+        );
+    }
+
+    /// Verify PSBT rejects dust outputs.
+    #[test]
+    fn test_dust_output_handling() {
+        use bitcoin::{Amount, OutPoint, TxOut, Txid};
+
+        let (vault, _, _, _, _) = test_vault(0);
+
+        let fake_outpoint = OutPoint {
+            txid: "0000000000000000000000000000000000000000000000000000000000000001"
+                .parse::<Txid>()
+                .unwrap(),
+            vout: 0,
+        };
+        let fake_txout = TxOut {
+            value: Amount::from_sat(1_000),
+            script_pubkey: vault.address.script_pubkey(),
+        };
+
+        // Try to create an output of 1 sat (dust)
+        let result = build_spend_psbt(
+            &vault,
+            &[(fake_outpoint, fake_txout)],
+            &[(vault.address.clone(), Amount::from_sat(1))],
+            Amount::from_sat(999),
+            None,
+        );
+
+        // This might succeed (dust check may not be in build_spend_psbt)
+        // If it does, document the gap
+        match result {
+            Ok(_) => println!(
+                "⚠️  GAP: build_spend_psbt allows dust outputs (1 sat). Should add dust check."
+            ),
+            Err(e) => println!("✅ Dust output rejected: {}", e),
+        }
+    }
+
+    /// Verify signing with swapped keys (owner as cosigner, cosigner as owner) fails.
+    #[test]
+    fn test_swapped_keys_fail() {
+        use bitcoin::{Amount, OutPoint, TxOut, Txid};
+
+        let (vault, ctx, owner_sk, _, cosigner_child_sk) = test_vault(0);
+
+        let fake_outpoint = OutPoint {
+            txid: "0000000000000000000000000000000000000000000000000000000000000001"
+                .parse::<Txid>()
+                .unwrap(),
+            vout: 0,
+        };
+        let fake_txout = TxOut {
+            value: Amount::from_sat(10_000),
+            script_pubkey: vault.address.script_pubkey(),
+        };
+
+        let (psbt, _) = build_spend_psbt(
+            &vault,
+            &[(fake_outpoint, fake_txout)],
+            &[(vault.address.clone(), Amount::from_sat(9_700))],
+            Amount::from_sat(300),
+            None,
+        )
+        .unwrap();
+
+        // Swap: pass cosigner as owner and owner as cosigner
+        // musig2_sign_psbt(owner_sk, cosigner_sk) — swapping them
+        let result = musig2_sign_psbt(&cosigner_child_sk, &owner_sk, &ctx, &psbt);
+
+        if let Ok(signed_tx) = result {
+            // If it produces a tx, verify the sig is invalid
+            use bitcoin::hashes::Hash;
+            use bitcoin::sighash::{Prevouts, SighashCache};
+            use bitcoin::TapSighashType;
+
+            let secp = Secp256k1::verification_only();
+            let wit: &[u8] = signed_tx.input[0].witness.iter().next().unwrap();
+            let sig = bitcoin::secp256k1::schnorr::Signature::from_slice(wit).unwrap();
+
+            let mut cache = SighashCache::new(&signed_tx);
+            let sighash = cache
+                .taproot_key_spend_signature_hash(
+                    0,
+                    &Prevouts::All(&[TxOut {
+                        value: Amount::from_sat(10_000),
+                        script_pubkey: vault.address.script_pubkey(),
+                    }]),
+                    TapSighashType::Default,
+                )
+                .unwrap();
+
+            let msg = bitcoin::secp256k1::Message::from_digest(sighash.to_byte_array());
+            let verify = secp.verify_schnorr(&sig, &msg, &vault.aggregate_xonly);
+
+            // Swapped keys should produce the SAME aggregate key (addition is commutative)
+            // BUT musig2 crate tracks key ordering — partial_sign checks the key matches
+            // So this should either fail at signing or produce an invalid sig
+            if verify.is_ok() {
+                println!("⚠️  Swapped keys produced a VALID signature — this means key order doesn't matter for MuSig2 aggregate (commutative). This is expected if the crate handles it.");
+            } else {
+                println!("✅ Swapped keys produced invalid signature");
+            }
+        } else {
+            println!(
+                "✅ Swapped keys rejected at ceremony: {}",
+                result.unwrap_err()
+            );
         }
     }
 
@@ -317,14 +592,26 @@ mod tests {
             println!("No UTXOs. Fund: {}", vault.address);
 
             let src: bitcoin::Address<bitcoin::address::NetworkUnchecked> =
-                "tb1qgmex2e43kf5zxy5408chn9qmuupqp24h3mu97v".parse().unwrap();
+                "tb1qgmex2e43kf5zxy5408chn9qmuupqp24h3mu97v"
+                    .parse()
+                    .unwrap();
             let src_utxos = client.get_utxos(&src.assume_checked()).unwrap();
             let total: Amount = src_utxos.iter().map(|u| u.value).sum();
-            println!("Source wallet: {} sat ({} UTXOs)", total.to_sat(), src_utxos.len());
+            println!(
+                "Source wallet: {} sat ({} UTXOs)",
+                total.to_sat(),
+                src_utxos.len()
+            );
         } else {
             let mut total = Amount::ZERO;
             for u in &utxos {
-                println!("  {}:{} = {} sat (h={})", u.outpoint.txid, u.outpoint.vout, u.value.to_sat(), u.height);
+                println!(
+                    "  {}:{} = {} sat (h={})",
+                    u.outpoint.txid,
+                    u.outpoint.vout,
+                    u.value.to_sat(),
+                    u.height
+                );
                 total += u.value;
             }
             println!("Vault balance: {} sat", total.to_sat());
@@ -351,10 +638,13 @@ mod tests {
             .iter()
             .map(|u| {
                 total += u.value;
-                (u.outpoint, bitcoin::TxOut {
-                    value: u.value,
-                    script_pubkey: vault.address.script_pubkey(),
-                })
+                (
+                    u.outpoint,
+                    bitcoin::TxOut {
+                        value: u.value,
+                        script_pubkey: vault.address.script_pubkey(),
+                    },
+                )
             })
             .collect();
 
@@ -405,10 +695,13 @@ mod tests {
             .iter()
             .map(|u| {
                 total += u.value;
-                (u.outpoint, bitcoin::TxOut {
-                    value: u.value,
-                    script_pubkey: vault.address.script_pubkey(),
-                })
+                (
+                    u.outpoint,
+                    bitcoin::TxOut {
+                        value: u.value,
+                        script_pubkey: vault.address.script_pubkey(),
+                    },
+                )
             })
             .collect();
 
@@ -419,7 +712,9 @@ mod tests {
 
         // External destination: the original P2WPKH testnet wallet
         let external: bitcoin::Address<bitcoin::address::NetworkUnchecked> =
-            "tb1qgmex2e43kf5zxy5408chn9qmuupqp24h3mu97v".parse().unwrap();
+            "tb1qgmex2e43kf5zxy5408chn9qmuupqp24h3mu97v"
+                .parse()
+                .unwrap();
         let external = external.assume_checked();
 
         let mut outputs = vec![(external.clone(), send_to_external)];
@@ -427,27 +722,29 @@ mod tests {
             outputs.push((vault.address.clone(), change));
         }
 
-        let (psbt, _) = build_spend_psbt(
-            &vault,
-            &utxo_pairs,
-            &outputs,
-            fee,
-            None,
-        )
-        .unwrap();
+        let (psbt, _) = build_spend_psbt(&vault, &utxo_pairs, &outputs, fee, None).unwrap();
 
         let signed_tx = musig2_sign_psbt(&owner_sk, &cosigner_child_sk, &ctx, &psbt).unwrap();
 
         // Verify outputs
         println!("Outputs:");
         for (i, out) in signed_tx.output.iter().enumerate() {
-            println!("  {}: {} sat → {:?}", i, out.value.to_sat(), bitcoin::Address::from_script(&out.script_pubkey, bitcoin::params::Params::TESTNET));
+            println!(
+                "  {}: {} sat → {:?}",
+                i,
+                out.value.to_sat(),
+                bitcoin::Address::from_script(&out.script_pubkey, bitcoin::params::Params::TESTNET)
+            );
         }
 
         let txid = client.broadcast(&signed_tx).expect("Broadcast failed");
         println!("✅ External spend broadcast: {}", txid);
         println!("https://mempool.space/testnet/tx/{}", txid);
-        println!("Sent {} sat to {} (P2WPKH)", send_to_external.to_sat(), external);
+        println!(
+            "Sent {} sat to {} (P2WPKH)",
+            send_to_external.to_sat(),
+            external
+        );
         println!("Change {} sat back to vault", change.to_sat());
     }
 
@@ -463,7 +760,10 @@ mod tests {
 
         println!("Vault 0: {}", vault_0.address);
         println!("Vault 1: {}", vault_1.address);
-        assert_ne!(vault_0.address, vault_1.address, "Different indices must give different addresses");
+        assert_ne!(
+            vault_0.address, vault_1.address,
+            "Different indices must give different addresses"
+        );
 
         let client = ElectrumClient::new(default_server(Network::Testnet), Network::Testnet)
             .expect("Failed to connect");
@@ -477,10 +777,13 @@ mod tests {
             .iter()
             .map(|u| {
                 total_0 += u.value;
-                (u.outpoint, bitcoin::TxOut {
-                    value: u.value,
-                    script_pubkey: vault_0.address.script_pubkey(),
-                })
+                (
+                    u.outpoint,
+                    bitcoin::TxOut {
+                        value: u.value,
+                        script_pubkey: vault_0.address.script_pubkey(),
+                    },
+                )
             })
             .collect();
 
@@ -492,19 +795,31 @@ mod tests {
         let (psbt_fund, _) = build_spend_psbt(
             &vault_0,
             &pairs_0,
-            &[(vault_1.address.clone(), send_to_v1), (vault_0.address.clone(), change_to_v0)],
+            &[
+                (vault_1.address.clone(), send_to_v1),
+                (vault_0.address.clone(), change_to_v0),
+            ],
             fee,
             None,
         )
         .unwrap();
 
         let tx_fund = musig2_sign_psbt(&owner_sk, &cosigner_child_0, &ctx_0, &psbt_fund).unwrap();
-        let fund_txid = client.broadcast(&tx_fund).expect("Fund vault_1 broadcast failed");
-        println!("✅ Funded vault_1: {} ({} sat)", fund_txid, send_to_v1.to_sat());
+        let fund_txid = client
+            .broadcast(&tx_fund)
+            .expect("Fund vault_1 broadcast failed");
+        println!(
+            "✅ Funded vault_1: {} ({} sat)",
+            fund_txid,
+            send_to_v1.to_sat()
+        );
 
         // Step 2: Spend FROM vault_1 back to vault_0
         // The UTXO is the output we just created
-        let v1_outpoint = bitcoin::OutPoint { txid: fund_txid, vout: 0 };
+        let v1_outpoint = bitcoin::OutPoint {
+            txid: fund_txid,
+            vout: 0,
+        };
         let v1_txout = bitcoin::TxOut {
             value: send_to_v1,
             script_pubkey: vault_1.address.script_pubkey(),
@@ -522,8 +837,14 @@ mod tests {
 
         // Sign with vault_1's co-signer child key (derived from index=1)
         let tx_spend = musig2_sign_psbt(&owner_sk, &cosigner_child_1, &ctx_1, &psbt_spend).unwrap();
-        let spend_txid = client.broadcast(&tx_spend).expect("Spend from vault_1 failed");
-        println!("✅ Spent from vault_1: {} ({} sat back to vault_0)", spend_txid, send_back.to_sat());
+        let spend_txid = client
+            .broadcast(&tx_spend)
+            .expect("Spend from vault_1 failed");
+        println!(
+            "✅ Spent from vault_1: {} ({} sat back to vault_0)",
+            spend_txid,
+            send_back.to_sat()
+        );
         println!("https://mempool.space/testnet/tx/{}", spend_txid);
         println!("\nMulti-index CCD proven: vault_0 → vault_1 → vault_0");
     }

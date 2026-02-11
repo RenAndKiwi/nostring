@@ -252,11 +252,19 @@ mod tests {
         let disclosure = compute_tweak(&delegated, 0).unwrap();
 
         // Correct verification
-        assert!(verify_tweak(&pk, &disclosure.tweak, &disclosure.derived_pubkey));
+        assert!(verify_tweak(
+            &pk,
+            &disclosure.tweak,
+            &disclosure.derived_pubkey
+        ));
 
         // Wrong parent pubkey
         let (_sk2, pk2) = test_keypair(99);
-        assert!(!verify_tweak(&pk2, &disclosure.tweak, &disclosure.derived_pubkey));
+        assert!(!verify_tweak(
+            &pk2,
+            &disclosure.tweak,
+            &disclosure.derived_pubkey
+        ));
     }
 
     #[test]
@@ -425,29 +433,36 @@ mod tests {
         // an out-of-range scalar. We can't easily force this, so instead test
         // that Scalar::from_be_bytes rejects the curve order itself.
         let curve_order: [u8; 32] = [
-            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE,
-            0xBA, 0xAE, 0xDC, 0xE6, 0xAF, 0x48, 0xA0, 0x3B,
-            0xBF, 0xD2, 0x5E, 0x8C, 0xD0, 0x36, 0x41, 0x41,
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+            0xFF, 0xFE, 0xBA, 0xAE, 0xDC, 0xE6, 0xAF, 0x48, 0xA0, 0x3B, 0xBF, 0xD2, 0x5E, 0x8C,
+            0xD0, 0x36, 0x41, 0x41,
         ];
-        assert!(Scalar::from_be_bytes(curve_order).is_err(),
-            "curve order itself should be rejected as a scalar");
+        assert!(
+            Scalar::from_be_bytes(curve_order).is_err(),
+            "curve order itself should be rejected as a scalar"
+        );
 
         // One above curve order
         let mut above_order = curve_order;
         above_order[31] = 0x42;
-        assert!(Scalar::from_be_bytes(above_order).is_err(),
-            "value above curve order should be rejected");
+        assert!(
+            Scalar::from_be_bytes(above_order).is_err(),
+            "value above curve order should be rejected"
+        );
 
         // All 0xFF should be rejected (way above curve order)
         let max_bytes = [0xFF; 32];
-        assert!(Scalar::from_be_bytes(max_bytes).is_err(),
-            "all-0xFF should be rejected");
+        assert!(
+            Scalar::from_be_bytes(max_bytes).is_err(),
+            "all-0xFF should be rejected"
+        );
 
         // Zero is valid (edge case)
         let zero_bytes = [0u8; 32];
-        assert!(Scalar::from_be_bytes(zero_bytes).is_ok(),
-            "zero should be a valid scalar");
+        assert!(
+            Scalar::from_be_bytes(zero_bytes).is_ok(),
+            "zero should be a valid scalar"
+        );
     }
 
     #[test]
@@ -459,15 +474,13 @@ mod tests {
         let secp = Secp256k1::new();
 
         // Test with multiple seeds
-        let seeds: Vec<[u8; 64]> = vec![
-            [0xAB; 64],
-            [0x01; 64],
-            {
-                let mut s = [0u8; 64];
-                for (i, b) in s.iter_mut().enumerate() { *b = i as u8; }
-                s
-            },
-        ];
+        let seeds: Vec<[u8; 64]> = vec![[0xAB; 64], [0x01; 64], {
+            let mut s = [0u8; 64];
+            for (i, b) in s.iter_mut().enumerate() {
+                *b = i as u8;
+            }
+            s
+        }];
 
         for (seed_idx, seed) in seeds.iter().enumerate() {
             let master = Xpriv::new_master(Network::Bitcoin, seed).unwrap();
@@ -497,9 +510,11 @@ mod tests {
                 // Also verify via private key tweak application
                 let child_sk = apply_tweak(&master.private_key, &disclosure.tweak).unwrap();
                 assert_eq!(
-                    child_sk.public_key(&secp), standard_pk,
+                    child_sk.public_key(&secp),
+                    standard_pk,
                     "Privkey tweak mismatch for seed {} index {}",
-                    seed_idx, index
+                    seed_idx,
+                    index
                 );
             }
         }
@@ -543,9 +558,13 @@ mod tests {
 
         // Also test a deeper path: /1/2/3
         let tweaks_deep = compute_tweak_path(&delegated, &[1, 2, 3]).unwrap();
-        let c1 = master_xpub.ckd_pub(&secp, ChildNumber::Normal { index: 1 }).unwrap();
+        let c1 = master_xpub
+            .ckd_pub(&secp, ChildNumber::Normal { index: 1 })
+            .unwrap();
         let c1_2 = c1.ckd_pub(&secp, ChildNumber::Normal { index: 2 }).unwrap();
-        let c1_2_3 = c1_2.ckd_pub(&secp, ChildNumber::Normal { index: 3 }).unwrap();
+        let c1_2_3 = c1_2
+            .ckd_pub(&secp, ChildNumber::Normal { index: 3 })
+            .unwrap();
         let deep_pk: PublicKey = c1_2_3.public_key.into();
         assert_eq!(
             tweaks_deep[2].derived_pubkey, deep_pk,

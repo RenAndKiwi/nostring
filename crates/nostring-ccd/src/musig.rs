@@ -294,11 +294,22 @@ mod tests {
         let agg_nonce = aggregate_nonces(&[owner_pubnonce.clone(), cosigner_pubnonce.clone()]);
 
         // Round 2: Both produce partial signatures
-        let owner_partial =
-            partial_sign(&owner_sk, owner_secnonce, &key_agg_ctx, &agg_nonce, &message).unwrap();
-        let cosigner_partial =
-            partial_sign(&cosigner_sk, cosigner_secnonce, &key_agg_ctx, &agg_nonce, &message)
-                .unwrap();
+        let owner_partial = partial_sign(
+            &owner_sk,
+            owner_secnonce,
+            &key_agg_ctx,
+            &agg_nonce,
+            &message,
+        )
+        .unwrap();
+        let cosigner_partial = partial_sign(
+            &cosigner_sk,
+            cosigner_secnonce,
+            &key_agg_ctx,
+            &agg_nonce,
+            &message,
+        )
+        .unwrap();
 
         // Verify partial signatures
         assert!(verify_partial_signature(
@@ -328,7 +339,9 @@ mod tests {
         .unwrap();
 
         // Verify final signature against aggregate key
-        assert!(verify_aggregated_signature(&agg_xonly, &final_sig, &message));
+        assert!(verify_aggregated_signature(
+            &agg_xonly, &final_sig, &message
+        ));
     }
 
     #[test]
@@ -337,8 +350,7 @@ mod tests {
         let (cosigner_sk, cosigner_pk) = test_keypair(42);
 
         // Taproot-tweaked key aggregation
-        let (tweaked_ctx, tweaked_xonly) =
-            musig2_key_agg_tweaked(&owner_pk, &cosigner_pk).unwrap();
+        let (tweaked_ctx, tweaked_xonly) = musig2_key_agg_tweaked(&owner_pk, &cosigner_pk).unwrap();
 
         // Untweaked aggregation for comparison
         let (_untweaked_ctx, untweaked_xonly) = musig2_key_agg(&owner_pk, &cosigner_pk).unwrap();
@@ -356,11 +368,22 @@ mod tests {
 
         let agg_nonce = aggregate_nonces(&[owner_pubnonce, cosigner_pubnonce]);
 
-        let owner_partial =
-            partial_sign(&owner_sk, owner_secnonce, &tweaked_ctx, &agg_nonce, &message).unwrap();
-        let cosigner_partial =
-            partial_sign(&cosigner_sk, cosigner_secnonce, &tweaked_ctx, &agg_nonce, &message)
-                .unwrap();
+        let owner_partial = partial_sign(
+            &owner_sk,
+            owner_secnonce,
+            &tweaked_ctx,
+            &agg_nonce,
+            &message,
+        )
+        .unwrap();
+        let cosigner_partial = partial_sign(
+            &cosigner_sk,
+            cosigner_secnonce,
+            &tweaked_ctx,
+            &agg_nonce,
+            &message,
+        )
+        .unwrap();
 
         let final_sig = aggregate_signatures(
             &tweaked_ctx,
@@ -371,10 +394,18 @@ mod tests {
         .unwrap();
 
         // Verify against the TWEAKED key (this is what Bitcoin nodes check)
-        assert!(verify_aggregated_signature(&tweaked_xonly, &final_sig, &message));
+        assert!(verify_aggregated_signature(
+            &tweaked_xonly,
+            &final_sig,
+            &message
+        ));
 
         // Should NOT verify against the untweaked key
-        assert!(!verify_aggregated_signature(&untweaked_xonly, &final_sig, &message));
+        assert!(!verify_aggregated_signature(
+            &untweaked_xonly,
+            &final_sig,
+            &message
+        ));
     }
 
     #[test]
@@ -394,8 +425,13 @@ mod tests {
         let agg_nonce = aggregate_nonces(&[owner_pubnonce, wrong_pubnonce.clone()]);
 
         // Wrong key signs as co-signer
-        let wrong_partial =
-            partial_sign(&wrong_sk, wrong_secnonce, &key_agg_ctx, &agg_nonce, &message);
+        let wrong_partial = partial_sign(
+            &wrong_sk,
+            wrong_secnonce,
+            &key_agg_ctx,
+            &agg_nonce,
+            &message,
+        );
 
         // Partial sign may succeed, but verification against cosigner_pk should fail
         if let Ok(partial) = wrong_partial {
@@ -404,7 +440,7 @@ mod tests {
                     &key_agg_ctx,
                     &partial,
                     &agg_nonce,
-                    &cosigner_pk,  // expected signer
+                    &cosigner_pk, // expected signer
                     &wrong_pubnonce,
                     &message,
                 ),
@@ -429,8 +465,14 @@ mod tests {
 
         let agg_nonce = aggregate_nonces(&[owner_pubnonce, cosigner_pubnonce]);
 
-        let owner_partial =
-            partial_sign(&owner_sk, owner_secnonce, &key_agg_ctx, &agg_nonce, &message).unwrap();
+        let owner_partial = partial_sign(
+            &owner_sk,
+            owner_secnonce,
+            &key_agg_ctx,
+            &agg_nonce,
+            &message,
+        )
+        .unwrap();
 
         // Co-signer signs a DIFFERENT message
         let cosigner_partial = partial_sign(
@@ -484,8 +526,14 @@ mod tests {
 
         let agg_nonce = aggregate_nonces(&[owner_pubnonce, cosigner_pubnonce]);
 
-        let partial =
-            partial_sign(&owner_sk, owner_secnonce, &key_agg_ctx, &agg_nonce, &message).unwrap();
+        let partial = partial_sign(
+            &owner_sk,
+            owner_secnonce,
+            &key_agg_ctx,
+            &agg_nonce,
+            &message,
+        )
+        .unwrap();
 
         let bytes = partial_sig_to_bytes(&partial);
         let recovered = partial_sig_from_bytes(&bytes).unwrap();
@@ -507,8 +555,7 @@ mod tests {
         let cosigner_derived_pk = disclosure.derived_pubkey;
 
         // MuSig2 key aggregation with the DERIVED co-signer key
-        let (key_agg_ctx, agg_xonly) =
-            musig2_key_agg(&owner_pk, &cosigner_derived_pk).unwrap();
+        let (key_agg_ctx, agg_xonly) = musig2_key_agg(&owner_pk, &cosigner_derived_pk).unwrap();
 
         let message = [0xABu8; 32];
 
@@ -524,8 +571,14 @@ mod tests {
         let agg_nonce = aggregate_nonces(&[owner_pubnonce, cosigner_pubnonce]);
 
         // Both sign (co-signer uses DERIVED key)
-        let owner_partial =
-            partial_sign(&owner_sk, owner_secnonce, &key_agg_ctx, &agg_nonce, &message).unwrap();
+        let owner_partial = partial_sign(
+            &owner_sk,
+            owner_secnonce,
+            &key_agg_ctx,
+            &agg_nonce,
+            &message,
+        )
+        .unwrap();
         let cosigner_partial = partial_sign(
             &cosigner_child_sk,
             cosigner_secnonce,

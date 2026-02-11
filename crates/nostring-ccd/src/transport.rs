@@ -50,7 +50,9 @@ pub fn decode_tweak_request(request: &TweakRequest) -> Result<TweakDisclosure, C
     let tweak_bytes = hex::decode(&request.tweak)
         .map_err(|e| CcdError::SerializationError(format!("invalid tweak hex: {}", e)))?;
     if tweak_bytes.len() != 32 {
-        return Err(CcdError::SerializationError("tweak must be 32 bytes".into()));
+        return Err(CcdError::SerializationError(
+            "tweak must be 32 bytes".into(),
+        ));
     }
     let mut tweak_arr = [0u8; 32];
     tweak_arr.copy_from_slice(&tweak_bytes);
@@ -116,8 +118,7 @@ mod hex {
 mod tests {
     use super::*;
     use crate::types::{
-        SerializedInputTweak, SerializedPartialSig, SigningResponseMessage,
-        SigningSessionMessage,
+        SerializedInputTweak, SerializedPartialSig, SigningResponseMessage, SigningSessionMessage,
     };
     use crate::{compute_tweak, register_cosigner};
     use bitcoin::secp256k1::{Secp256k1, SecretKey};
@@ -204,7 +205,9 @@ mod tests {
         assert!(result.is_err());
 
         // Wrong type for field
-        let result = deserialize_request(r#"{"version": "one", "type": "tweak_request", "tweak": "aa", "derived_pubkey": "bb", "child_index": 0}"#);
+        let result = deserialize_request(
+            r#"{"version": "one", "type": "tweak_request", "tweak": "aa", "derived_pubkey": "bb", "child_index": 0}"#,
+        );
         assert!(result.is_err());
     }
 

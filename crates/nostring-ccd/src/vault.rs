@@ -64,16 +64,10 @@ pub fn build_spend_psbt(
     }
 
     // Calculate total input value
-    let total_in: Amount = utxo_outpoints
-        .iter()
-        .map(|(_, txout)| txout.value)
-        .sum();
+    let total_in: Amount = utxo_outpoints.iter().map(|(_, txout)| txout.value).sum();
 
     // Calculate total output value
-    let total_out: Amount = destinations
-        .iter()
-        .map(|(_, amount)| *amount)
-        .sum();
+    let total_out: Amount = destinations.iter().map(|(_, amount)| *amount).sum();
 
     let total_out_with_fee = total_out
         .checked_add(fee)
@@ -85,6 +79,21 @@ pub fn build_spend_psbt(
             total_in.to_sat(),
             total_out_with_fee.to_sat()
         )));
+    }
+
+    // Dust check: reject outputs below 546 sat (conservative; Bitcoin Core uses
+    // 330 for P2TR, 294 for P2WPKH, but 546 is the legacy P2PKH dust limit
+    // and a safe floor for all output types)
+    const DUST_LIMIT_SAT: u64 = 546;
+    for (addr, amount) in destinations {
+        if amount.to_sat() < DUST_LIMIT_SAT {
+            return Err(CcdError::PsbtError(format!(
+                "output of {} sat to {} is below dust limit ({} sat)",
+                amount.to_sat(),
+                addr,
+                DUST_LIMIT_SAT
+            )));
+        }
     }
 
     // Build outputs
@@ -127,8 +136,7 @@ pub fn build_spend_psbt(
     };
 
     // Create PSBT
-    let mut psbt =
-        Psbt::from_unsigned_tx(tx).map_err(|e| CcdError::PsbtError(e.to_string()))?;
+    let mut psbt = Psbt::from_unsigned_tx(tx).map_err(|e| CcdError::PsbtError(e.to_string()))?;
 
     // Populate witness UTXO for each input (required for Taproot signing)
     for (i, (_, txout)) in utxo_outpoints.iter().enumerate() {
@@ -280,9 +288,7 @@ pub fn owner_sign(
 ///
 /// This is what Bitcoin Core uses to tweak the internal key for the actual
 /// on-chain output. Both parties must apply this tweak when signing.
-pub fn taproot_output_key(
-    internal_key: &XOnlyPublicKey,
-) -> (XOnlyPublicKey, bitcoin::key::Parity) {
+pub fn taproot_output_key(internal_key: &XOnlyPublicKey) -> (XOnlyPublicKey, bitcoin::key::Parity) {
     let secp = Secp256k1::new();
     let (tweaked_pk, parity) = internal_key.tap_tweak(&secp, None);
     (XOnlyPublicKey::from(tweaked_pk), parity)
@@ -307,8 +313,7 @@ pub fn create_vault_musig2(
     let cosigner_derived = disclosure.derived_pubkey;
 
     // MuSig2 key aggregation (untweaked = internal key)
-    let (_, untweaked_xonly) =
-        crate::musig::musig2_key_agg(owner_pubkey, &cosigner_derived)?;
+    let (_, untweaked_xonly) = crate::musig::musig2_key_agg(owner_pubkey, &cosigner_derived)?;
 
     // MuSig2 key aggregation WITH taproot tweak (for signing context)
     let (key_agg_ctx, _output_xonly) = musig2_key_agg_tweaked(owner_pubkey, &cosigner_derived)?;
@@ -342,9 +347,9 @@ pub fn musig2_sign_psbt(
     key_agg_ctx: &musig2::KeyAggContext,
     psbt: &bitcoin::psbt::Psbt,
 ) -> Result<bitcoin::Transaction, CcdError> {
+    use crate::musig;
     use bitcoin::sighash::{Prevouts, SighashCache};
     use bitcoin::TapSighashType;
-    use crate::musig;
 
     let prevouts: Vec<TxOut> = psbt
         .inputs
@@ -714,7 +719,9 @@ mod tests {
                 .unwrap()
         };
         let msg = bitcoin::secp256k1::Message::from_digest(msg_bytes.to_byte_array());
-        assert!(secp.verify_schnorr(&sigs[0].1.signature, &msg, &owner_xonly).is_ok());
+        assert!(secp
+            .verify_schnorr(&sigs[0].1.signature, &msg, &owner_xonly)
+            .is_ok());
     }
 
     #[test]
@@ -805,8 +812,7 @@ mod tests {
         .unwrap();
 
         // Both parties sign
-        let cosigner_sigs =
-            cosigner_sign(&cosigner_sk, &psbt, &tweaks, &cosigner_pk).unwrap();
+        let cosigner_sigs = cosigner_sign(&cosigner_sk, &psbt, &tweaks, &cosigner_pk).unwrap();
         let owner_sigs = owner_sign(&owner_kp, &psbt).unwrap();
 
         // Both should produce valid Schnorr signatures
@@ -819,22 +825,22 @@ mod tests {
         let prevouts = vec![utxos[0].1.clone()];
         let mut cache = SighashCache::new(&psbt.unsigned_tx);
         let sighash = cache
-            .taproot_key_spend_signature_hash(
-                0,
-                &Prevouts::All(&prevouts),
-                TapSighashType::Default,
-            )
+            .taproot_key_spend_signature_hash(0, &Prevouts::All(&prevouts), TapSighashType::Default)
             .unwrap();
         let msg = bitcoin::secp256k1::Message::from_digest(sighash.to_byte_array());
 
         // Verify co-signer's sig against derived key
         let child_sk = apply_tweak(&cosigner_sk, &tweaks[0].tweak).unwrap();
         let (child_xonly, _) = Keypair::from_secret_key(&secp, &child_sk).x_only_public_key();
-        assert!(secp.verify_schnorr(&cosigner_sigs[0].1.signature, &msg, &child_xonly).is_ok());
+        assert!(secp
+            .verify_schnorr(&cosigner_sigs[0].1.signature, &msg, &child_xonly)
+            .is_ok());
 
         // Verify owner's sig against owner key
         let (owner_xonly, _) = owner_kp.x_only_public_key();
-        assert!(secp.verify_schnorr(&owner_sigs[0].1.signature, &msg, &owner_xonly).is_ok());
+        assert!(secp
+            .verify_schnorr(&owner_sigs[0].1.signature, &msg, &owner_xonly)
+            .is_ok());
     }
 
     #[test]
@@ -918,7 +924,10 @@ mod tests {
 
         // Change output should go to the change vault address
         let change_output = &psbt.unsigned_tx.output[1];
-        assert_eq!(change_output.script_pubkey, change_vault.address.script_pubkey());
+        assert_eq!(
+            change_output.script_pubkey,
+            change_vault.address.script_pubkey()
+        );
     }
 
     // ─── MuSig2 vault tests ────────────────────────────────────────────────
@@ -977,17 +986,25 @@ mod tests {
         let cosigner_child_sk = apply_tweak(&cosigner_sk, &tweaks[0].tweak).unwrap();
 
         // MuSig2 signing ceremony
-        let signed_tx = musig2_sign_psbt(&owner_sk, &cosigner_child_sk, &key_agg_ctx, &psbt)
-            .unwrap();
+        let signed_tx =
+            musig2_sign_psbt(&owner_sk, &cosigner_child_sk, &key_agg_ctx, &psbt).unwrap();
 
         // Verify the signature against the vault's output key
         let secp = Secp256k1::new();
         let witness = &signed_tx.input[0].witness;
-        assert_eq!(witness.len(), 1, "Key-path spend should have exactly 1 witness element");
+        assert_eq!(
+            witness.len(),
+            1,
+            "Key-path spend should have exactly 1 witness element"
+        );
 
         // Parse the Schnorr signature from witness
         let sig_bytes = witness.nth(0).unwrap();
-        assert_eq!(sig_bytes.len(), 64, "Schnorr signature should be 64 bytes (default sighash)");
+        assert_eq!(
+            sig_bytes.len(),
+            64,
+            "Schnorr signature should be 64 bytes (default sighash)"
+        );
 
         let sig = bitcoin::secp256k1::schnorr::Signature::from_slice(sig_bytes).unwrap();
 
@@ -997,11 +1014,7 @@ mod tests {
         let prevouts = vec![utxos[0].1.clone()];
         let mut cache = SighashCache::new(&signed_tx);
         let sighash = cache
-            .taproot_key_spend_signature_hash(
-                0,
-                &Prevouts::All(&prevouts),
-                TapSighashType::Default,
-            )
+            .taproot_key_spend_signature_hash(0, &Prevouts::All(&prevouts), TapSighashType::Default)
             .unwrap();
         let msg = bitcoin::secp256k1::Message::from_digest(sighash.to_byte_array());
 
@@ -1056,8 +1069,8 @@ mod tests {
 
         let cosigner_child_sk = apply_tweak(&cosigner_sk, &tweaks[0].tweak).unwrap();
 
-        let signed_tx = musig2_sign_psbt(&owner_sk, &cosigner_child_sk, &key_agg_ctx, &psbt)
-            .unwrap();
+        let signed_tx =
+            musig2_sign_psbt(&owner_sk, &cosigner_child_sk, &key_agg_ctx, &psbt).unwrap();
 
         // Both inputs should have valid witnesses
         assert_eq!(signed_tx.input[0].witness.len(), 1);
@@ -1089,7 +1102,8 @@ mod tests {
 
             assert!(
                 secp.verify_schnorr(&sig, &msg, &output_key).is_ok(),
-                "Input {} signature must verify", idx
+                "Input {} signature must verify",
+                idx
             );
         }
     }
