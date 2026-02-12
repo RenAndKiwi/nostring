@@ -849,6 +849,172 @@ pub async fn export_vault_backup(state: State<'_, AppState>) -> Result<CcdResult
 }
 
 // ============================================================================
+// NIP-17 Descriptor Delivery
+// ============================================================================
+
+/// Result of delivering vault backup to heirs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeliveryReport {
+    /// Heirs who received the backup successfully
+    pub delivered: Vec<String>,
+    /// Heirs skipped (no npub configured)
+    pub skipped: Vec<String>,
+    /// Heirs where delivery failed
+    pub failed: Vec<DeliveryFailure>,
+}
+
+/// A failed delivery attempt.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeliveryFailure {
+    pub heir_label: String,
+    pub error: String,
+}
+
+/// Deliver the vault backup to all heirs with Nostr npubs via NIP-17.
+///
+/// Requires the owner's Nostr secret key (nsec or hex) and relay list.
+/// Heirs without npubs are skipped (use manual export for those).
+///
+/// Returns a report showing which heirs received the backup, which were
+/// skipped, and which failed.
+#[tauri::command]
+pub async fn deliver_descriptor_to_heirs(
+    owner_nsec: String,
+    relays: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<CcdResult<DeliveryReport>, ()> {
+    {
+        let unlocked = state.unlocked.lock().unwrap();
+        if !*unlocked {
+            return Ok(CcdResult::err("Wallet is locked"));
+        }
+    }
+
+    if relays.is_empty() {
+        return Ok(CcdResult::err("No relays configured"));
+    }
+
+    // Build the VaultBackup from current state (all locks released before async)
+    let backup = {
+        let ccd = state.ccd.lock().unwrap();
+        let vault = match &ccd.vault {
+            Some(v) => v.clone(),
+            None => return Ok(CcdResult::err("No vault created")),
+        };
+        let cosigner = match &ccd.cosigner {
+            Some(c) => c.clone(),
+            None => return Ok(CcdResult::err("No co-signer registered")),
+        };
+        let heirs = state.heir_registry.lock().unwrap().clone();
+        let network = *state.network.lock().unwrap();
+        drop(ccd);
+        match build_vault_backup(&vault, &cosigner, &heirs, network) {
+            Ok(b) => b,
+            Err(()) => return Ok(CcdResult::err("Failed to build vault backup")),
+        }
+    };
+
+    let backup_json = match serde_json::to_string_pretty(&backup) {
+        Ok(j) => j,
+        Err(e) => return Ok(CcdResult::err(format!("Failed to serialize backup: {}", e))),
+    };
+
+    let mut report = DeliveryReport {
+        delivered: Vec::new(),
+        skipped: Vec::new(),
+        failed: Vec::new(),
+    };
+
+    // Deliver to each heir with an npub
+    for heir_entry in &backup.heirs {
+        let npub = match &heir_entry.npub {
+            Some(n) if !n.is_empty() => n,
+            _ => {
+                report.skipped.push(heir_entry.label.clone());
+                continue;
+            }
+        };
+
+        match nostring_notify::nostr_dm::deliver_vault_backup(
+            &owner_nsec,
+            npub,
+            &relays,
+            &backup_json,
+        )
+        .await
+        {
+            Ok(event_id) => {
+                log::info!(
+                    "Vault backup delivered to {} (event: {})",
+                    heir_entry.label,
+                    event_id
+                );
+                report.delivered.push(heir_entry.label.clone());
+            }
+            Err(e) => {
+                log::warn!("Failed to deliver to {}: {}", heir_entry.label, e);
+                report.failed.push(DeliveryFailure {
+                    heir_label: heir_entry.label.clone(),
+                    error: e.to_string(),
+                });
+            }
+        }
+    }
+
+    Ok(CcdResult::ok(report))
+}
+
+/// Build a VaultBackup from current app state.
+fn build_vault_backup(
+    vault: &nostring_inherit::taproot::InheritableVault,
+    cosigner: &nostring_ccd::types::DelegatedKey,
+    heirs: &nostring_inherit::heir::HeirRegistry,
+    network: bitcoin::Network,
+) -> Result<VaultBackup, ()> {
+    let heir_entries: Vec<HeirBackupEntry> = heirs
+        .heirs
+        .iter()
+        .enumerate()
+        .map(|(i, heir)| HeirBackupEntry {
+            label: heir.label.clone(),
+            xpub: heir.xpub.to_string(),
+            fingerprint: heir.fingerprint.to_string(),
+            derivation_path: heir.derivation_path.to_string(),
+            recovery_index: i,
+            npub: heir.npub.clone(),
+        })
+        .collect();
+
+    let network_str = match network {
+        bitcoin::Network::Bitcoin => "mainnet",
+        bitcoin::Network::Testnet => "testnet",
+        bitcoin::Network::Signet => "signet",
+        bitcoin::Network::Regtest => "regtest",
+        _ => "unknown",
+    };
+
+    Ok(VaultBackup {
+        version: 1,
+        network: network_str.to_string(),
+        owner_pubkey: hex::encode(vault.owner_pubkey.serialize()),
+        cosigner_pubkey: hex::encode(cosigner.cosigner_pubkey.serialize()),
+        chain_code: hex::encode(cosigner.chain_code.0),
+        address_index: vault.address_index,
+        timelock_blocks: vault.timelock.blocks(),
+        threshold: heir_entries.len().max(1),
+        heirs: heir_entries,
+        vault_address: vault.address.to_string(),
+        created_at: Some({
+            let secs = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            format!("{}", secs)
+        }),
+    })
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -1009,5 +1175,90 @@ mod tests {
         assert_eq!(restored.heirs.len(), 3);
         // All share recovery_index 0 (single timelock, multi_a leaf)
         assert!(restored.heirs.iter().all(|h| h.recovery_index == 0));
+    }
+
+    #[test]
+    fn test_delivery_report_serialization() {
+        let report = DeliveryReport {
+            delivered: vec!["Alice".into()],
+            skipped: vec!["Bob".into()],
+            failed: vec![DeliveryFailure {
+                heir_label: "Charlie".into(),
+                error: "Connection timeout".into(),
+            }],
+        };
+        let json = serde_json::to_string(&report).unwrap();
+        let restored: DeliveryReport = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.delivered.len(), 1);
+        assert_eq!(restored.skipped.len(), 1);
+        assert_eq!(restored.failed.len(), 1);
+        assert_eq!(restored.delivered[0], "Alice");
+        assert_eq!(restored.skipped[0], "Bob");
+        assert_eq!(restored.failed[0].heir_label, "Charlie");
+        assert_eq!(restored.failed[0].error, "Connection timeout");
+    }
+
+    #[test]
+    fn test_build_vault_backup() {
+        use bitcoin::secp256k1::{Secp256k1, SecretKey};
+        use bitcoin::Network;
+        use nostring_ccd::types::ChainCode;
+        use nostring_inherit::heir::{HeirKey, HeirRegistry};
+        use nostring_inherit::taproot::create_inheritable_vault;
+
+        let secp = Secp256k1::new();
+        let owner_sk = SecretKey::from_slice(&[0x01; 32]).unwrap();
+        let cosigner_sk = SecretKey::from_slice(&[0x02; 32]).unwrap();
+        let owner_pk = owner_sk.public_key(&secp);
+        let cosigner_pk = cosigner_sk.public_key(&secp);
+
+        let chain_code = ChainCode([0xCC; 32]);
+        let delegated =
+            nostring_ccd::register_cosigner_with_chain_code(cosigner_pk, chain_code, "cosigner");
+
+        // Create heir
+        let heir_sk = SecretKey::from_slice(&[0x03; 32]).unwrap();
+        let heir_pk = heir_sk.public_key(&secp);
+        let heir_xpub = bitcoin::bip32::Xpub {
+            network: bitcoin::NetworkKind::Test,
+            depth: 0,
+            parent_fingerprint: bitcoin::bip32::Fingerprint::from([0; 4]),
+            child_number: bitcoin::bip32::ChildNumber::from_normal_idx(0).unwrap(),
+            public_key: heir_pk,
+            chain_code: bitcoin::bip32::ChainCode::from([0xAA; 32]),
+        };
+        let mut registry = HeirRegistry::new();
+        registry.add(HeirKey {
+            label: "Alice".into(),
+            fingerprint: bitcoin::bip32::Fingerprint::from([0xAA, 0xBB, 0xCC, 0xDD]),
+            xpub: heir_xpub,
+            derivation_path: "m/86'/1'/0'".parse().unwrap(),
+            npub: Some("npub1abc".into()),
+        });
+
+        let timelock = nostring_inherit::policy::Timelock::from_blocks(26280).unwrap();
+        let path_info = crate::state::CcdState::heirs_to_path_info(&registry.heirs).unwrap();
+        let vault = create_inheritable_vault(
+            &owner_pk,
+            &delegated,
+            0,
+            path_info,
+            timelock,
+            0,
+            Network::Testnet,
+        )
+        .unwrap();
+
+        let backup = build_vault_backup(&vault, &delegated, &registry, Network::Testnet).unwrap();
+
+        assert_eq!(backup.version, 1);
+        assert_eq!(backup.network, "testnet");
+        assert_eq!(backup.address_index, 0);
+        assert_eq!(backup.heirs.len(), 1);
+        assert_eq!(backup.heirs[0].label, "Alice");
+        assert_eq!(backup.heirs[0].npub, Some("npub1abc".into()));
+        assert_eq!(backup.threshold, 1);
+        assert!(!backup.vault_address.is_empty());
+        assert!(backup.created_at.is_some());
     }
 }
