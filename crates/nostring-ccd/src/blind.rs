@@ -363,6 +363,7 @@ pub fn orchestrator_start_session(
 /// This is identical to [`owner_create_challenges`] — it was already keyless.
 /// Re-exported here for API clarity: orchestrator code should call
 /// `orchestrator_create_challenges` to make the keyless intent explicit.
+#[allow(clippy::type_complexity)]
 pub fn orchestrator_create_challenges(
     owner_pubnonces: &[PubNonce],
     cosigner_response: &NonceResponse,
