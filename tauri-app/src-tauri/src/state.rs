@@ -6,7 +6,11 @@
 use crate::db::{self, HeirRow};
 use bitcoin::bip32::{DerivationPath, Xpub};
 use bitcoin::Network;
+use miniscript::descriptor::DescriptorPublicKey;
+use nostring_ccd::types::DelegatedKey;
 use nostring_inherit::heir::{HeirKey, HeirRegistry};
+use nostring_inherit::policy::{PathInfo, Timelock};
+use nostring_inherit::taproot::{create_inheritable_vault, InheritableVault};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -30,6 +34,209 @@ pub struct InheritanceConfig {
     pub descriptor: String,
     pub timelock_blocks: u16,
     pub network: String,
+}
+
+/// CCD (Chain Code Delegation) state.
+///
+/// Encapsulates all collaborative custody state: co-signer registration,
+/// vault creation, and vault reconstruction from persisted data.
+#[derive(Default)]
+pub struct CcdState {
+    /// Registered co-signer's delegated key info
+    pub cosigner: Option<DelegatedKey>,
+    /// Active inheritable vault (reconstructed from DB on startup)
+    pub vault: Option<InheritableVault>,
+    /// If vault reconstruction failed, the error message.
+    /// The UI should surface this as a warning on startup.
+    pub load_error: Option<String>,
+}
+
+impl CcdState {
+    /// Reconstruct CCD state from database.
+    ///
+    /// Loads cosigner registration, then attempts to reconstruct the vault
+    /// from stored parameters + the current heir registry.
+    pub fn from_db(
+        conn: &Connection,
+        owner_xpub: Option<&str>,
+        registry: &HeirRegistry,
+        network: Network,
+    ) -> Self {
+        let cosigner = Self::load_cosigner(conn);
+        let (vault, load_error) = match (&cosigner, owner_xpub) {
+            (Some(delegated), Some(xpub_str)) => {
+                match Self::reconstruct_vault(conn, delegated, xpub_str, registry, network) {
+                    Ok(v) => (v, None),
+                    Err(e) => {
+                        log::error!("CCD vault reconstruction failed: {}", e);
+                        (None, Some(e))
+                    }
+                }
+            }
+            _ => (None, None),
+        };
+        Self {
+            cosigner,
+            vault,
+            load_error,
+        }
+    }
+
+    fn load_cosigner(conn: &Connection) -> Option<DelegatedKey> {
+        let pk_str = match db::config_get(conn, "cosigner_pubkey") {
+            Ok(Some(s)) => s,
+            _ => return None, // No cosigner registered — not an error
+        };
+        let cc_str = match db::config_get(conn, "cosigner_chain_code") {
+            Ok(Some(s)) => s,
+            Ok(None) => {
+                log::warn!("CCD: cosigner pubkey found but chain code missing");
+                return None;
+            }
+            Err(e) => {
+                log::error!("CCD: failed to read cosigner_chain_code: {}", e);
+                return None;
+            }
+        };
+        let label = db::config_get(conn, "cosigner_label")
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "cosigner".to_string());
+
+        let pubkey = match bitcoin::secp256k1::PublicKey::from_str(&pk_str) {
+            Ok(pk) => pk,
+            Err(e) => {
+                log::error!("CCD: invalid stored cosigner pubkey '{}': {}", pk_str, e);
+                return None;
+            }
+        };
+        let cc_bytes = match hex::decode(&cc_str) {
+            Ok(b) if b.len() == 32 => b,
+            Ok(b) => {
+                log::error!(
+                    "CCD: stored chain code wrong length ({} bytes, expected 32)",
+                    b.len()
+                );
+                return None;
+            }
+            Err(e) => {
+                log::error!("CCD: invalid stored chain code hex: {}", e);
+                return None;
+            }
+        };
+        let mut arr = [0u8; 32];
+        arr.copy_from_slice(&cc_bytes);
+        let chain_code = nostring_ccd::types::ChainCode(arr);
+
+        log::info!("CCD: loaded cosigner '{}' from database", label);
+        Some(nostring_ccd::register_cosigner_with_chain_code(
+            pubkey, chain_code, &label,
+        ))
+    }
+
+    /// Reconstruct vault from persisted parameters.
+    ///
+    /// Returns:
+    /// - `Ok(None)` — no vault was ever configured (clean state)
+    /// - `Ok(Some(vault))` — vault reconstructed successfully
+    /// - `Err(msg)` — vault data exists in DB but is corrupt/inconsistent
+    fn reconstruct_vault(
+        conn: &Connection,
+        delegated: &DelegatedKey,
+        owner_xpub_str: &str,
+        registry: &HeirRegistry,
+        network: Network,
+    ) -> Result<Option<InheritableVault>, String> {
+        // Check if vault was ever configured
+        let index_str = match db::config_get(conn, "ccd_vault_index") {
+            Ok(Some(s)) => s,
+            Ok(None) => return Ok(None), // No vault created yet — clean state
+            Err(e) => return Err(format!("Failed to read vault index from DB: {}", e)),
+        };
+
+        // From here on, vault data EXISTS — any failure is corrupt state
+        let timelock_str = match db::config_get(conn, "ccd_vault_timelock") {
+            Ok(Some(s)) => s,
+            Ok(None) => return Err("Vault index found but timelock missing from database".into()),
+            Err(e) => return Err(format!("Failed to read vault timelock from DB: {}", e)),
+        };
+
+        let address_index: u32 = index_str.parse().map_err(|e| {
+            format!(
+                "Stored vault index \'{}\' is not a valid number: {}",
+                index_str, e
+            )
+        })?;
+        let timelock_blocks: u16 = timelock_str.parse().map_err(|e| {
+            format!(
+                "Stored timelock \'{}\' is not a valid number: {}",
+                timelock_str, e
+            )
+        })?;
+
+        let owner_xpub =
+            Xpub::from_str(owner_xpub_str).map_err(|e| format!("Owner xpub is invalid: {}", e))?;
+        let owner_pubkey = owner_xpub.public_key;
+
+        let heirs = registry.list();
+        if heirs.is_empty() {
+            return Err(
+                "Vault was configured but all heirs have been removed.                  Add heirs to restore your vault."
+                    .into(),
+            );
+        }
+
+        let timelock = Timelock::from_blocks(timelock_blocks).map_err(|e| {
+            format!(
+                "Stored timelock ({} blocks) is invalid: {}",
+                timelock_blocks, e
+            )
+        })?;
+        let path_info = Self::heirs_to_path_info(heirs)
+            .ok_or_else(|| "Failed to convert stored heir keys to descriptor keys".to_string())?;
+
+        let vault = create_inheritable_vault(
+            &owner_pubkey,
+            delegated,
+            address_index,
+            path_info,
+            timelock,
+            0,
+            network,
+        )
+        .map_err(|e| format!("Vault reconstruction failed: {}", e))?;
+
+        log::info!(
+            "CCD: reconstructed vault at {} (index {}, timelock {} blocks)",
+            vault.address,
+            address_index,
+            timelock_blocks
+        );
+        Ok(Some(vault))
+    }
+
+    /// Convert heir list to PathInfo for vault creation.
+    pub fn heirs_to_path_info(heirs: &[HeirKey]) -> Option<PathInfo> {
+        if heirs.is_empty() {
+            return None;
+        }
+        if heirs.len() == 1 {
+            let xonly = heirs[0].xpub.public_key.x_only_public_key().0;
+            let desc = DescriptorPublicKey::from_str(&format!("{}", xonly)).ok()?;
+            Some(PathInfo::Single(desc))
+        } else {
+            let descs: Option<Vec<DescriptorPublicKey>> = heirs
+                .iter()
+                .map(|h| {
+                    let xonly = h.xpub.public_key.x_only_public_key().0;
+                    DescriptorPublicKey::from_str(&format!("{}", xonly)).ok()
+                })
+                .collect();
+            let descs = descs?;
+            let threshold = descs.len();
+            Some(PathInfo::Multi(threshold, descs))
+        }
+    }
 }
 
 /// Application state (thread-safe, SQLite-backed)
@@ -56,6 +263,9 @@ pub struct AppState {
     pub electrum_url: Mutex<String>,
     /// Bitcoin network
     pub network: Mutex<Network>,
+
+    // --- CCD (Chain Code Delegation) ---
+    pub ccd: Mutex<CcdState>,
 
     // --- Ephemeral (not persisted) ---
     /// Whether user is "unlocked" (seed decrypted in session)
@@ -143,6 +353,9 @@ impl AppState {
             last_checkin: Some(ts),
         });
 
+        // Load CCD state (cosigner + vault reconstruction)
+        let ccd = CcdState::from_db(&conn, owner_xpub.as_deref(), &registry, network);
+
         // Determine if auto-unlock makes sense (watch-only doesn't need password)
         let unlocked = watch_only && owner_xpub.is_some();
 
@@ -157,6 +370,7 @@ impl AppState {
             service_npub: Mutex::new(service_npub),
             electrum_url: Mutex::new(electrum_url),
             network: Mutex::new(network),
+            ccd: Mutex::new(ccd),
             unlocked: Mutex::new(unlocked),
             policy_status: Mutex::new(policy_status),
         }

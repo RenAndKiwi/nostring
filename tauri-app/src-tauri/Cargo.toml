@@ -9,6 +9,7 @@ license.workspace = true
 tauri-build = { version = "2.0", features = [] }
 
 [dependencies]
+nostring-ccd = { path = "../../crates/nostring-ccd" }
 nostring-core = { path = "../../crates/nostring-core" }
 nostring-electrum = { path = "../../crates/nostring-electrum" }
 nostring-inherit = { path = "../../crates/nostring-inherit" }

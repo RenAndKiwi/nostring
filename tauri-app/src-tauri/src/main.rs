@@ -4,6 +4,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod ccd_commands;
 mod commands;
 mod db;
 mod state;
@@ -107,6 +108,12 @@ fn main() {
             commands::set_network,
             commands::get_electrum_url,
             commands::set_electrum_url,
+            // CCD (Chain Code Delegation)
+            ccd_commands::get_ccd_load_error,
+            ccd_commands::register_cosigner,
+            ccd_commands::create_ccd_vault,
+            ccd_commands::build_checkin_psbt,
+            ccd_commands::get_heartbeat_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
