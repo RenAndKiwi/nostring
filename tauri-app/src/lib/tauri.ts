@@ -44,6 +44,16 @@ export interface ChallengeData {
   owner_challenges: OwnerChallenge[];
 }
 
+// ─── General Commands ───────────────────────────────────────────────────────
+
+export async function getNetwork(): Promise<string> {
+  return invoke('get_network');
+}
+
+export async function validateXpub(xpub: string): Promise<CcdResult<boolean>> {
+  return invoke('validate_xpub', { xpub });
+}
+
 // ─── CCD Commands ───────────────────────────────────────────────────────────
 
 export async function registerCosigner(
