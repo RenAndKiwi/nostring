@@ -86,6 +86,40 @@ export async function cancelSigningSession(): Promise<CcdResult<boolean>> {
 
 // ─── Heir Commands ──────────────────────────────────────────────────────────
 
+// ─── Heir Management ────────────────────────────────────────────────────────
+
+export interface HeirInfo {
+  label: string;
+  fingerprint: string;
+  xpub: string;
+  derivation_path: string;
+  npub: string | null;
+  email: string | null;
+  timelock_months: number | null;
+}
+
+export async function addHeir(
+  label: string,
+  xpubOrDescriptor: string,
+  timelockMonths?: number,
+  npub?: string
+): Promise<CcdResult<HeirInfo>> {
+  return invoke('add_heir', {
+    label,
+    xpub_or_descriptor: xpubOrDescriptor,
+    timelock_months: timelockMonths ?? null,
+    npub: npub || null,
+  });
+}
+
+export async function listHeirs(): Promise<HeirInfo[]> {
+  return invoke('list_heirs');
+}
+
+export async function removeHeir(fingerprint: string): Promise<CcdResult<boolean>> {
+  return invoke('remove_heir', { fingerprint });
+}
+
 export async function exportVaultBackup(): Promise<CcdResult<string>> {
   return invoke('export_vault_backup');
 }

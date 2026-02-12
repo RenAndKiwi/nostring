@@ -1,23 +1,67 @@
 <script lang="ts">
-  import { heirLabels, navigate, appError } from '../lib/stores';
+  import { navigate, appError } from '../lib/stores';
+  import { addHeir, listHeirs, removeHeir } from '../lib/tauri';
+  import type { HeirInfo } from '../lib/tauri';
 
+  let heirs = $state<HeirInfo[]>([]);
   let labelInput = $state('');
   let xpubInput = $state('');
   let npubInput = $state('');
   let loading = $state(false);
 
-  async function addHeir() {
+  async function refresh() {
+    try {
+      heirs = await listHeirs();
+    } catch (e: any) {
+      appError.set(e.message || 'Failed to load heirs');
+    }
+  }
+
+  // Load on mount
+  $effect(() => { refresh(); });
+
+  async function handleAdd() {
     if (!labelInput.trim() || !xpubInput.trim()) {
       appError.set('Label and xpub are required');
       return;
     }
 
-    // TODO: invoke add_heir Tauri command (not yet implemented)
-    // For now, track locally
-    heirLabels.update(list => [...list, labelInput.trim()]);
-    labelInput = '';
-    xpubInput = '';
-    npubInput = '';
+    loading = true;
+    try {
+      const result = await addHeir(
+        labelInput.trim(),
+        xpubInput.trim(),
+        undefined,
+        npubInput.trim() || undefined,
+      );
+      if (result.success && result.data) {
+        // Update npub if provided
+        // TODO: update_heir_contact call for npub
+        appError.set(null);
+        labelInput = '';
+        xpubInput = '';
+        npubInput = '';
+        await refresh();
+      } else {
+        appError.set(result.error || 'Failed to add heir');
+      }
+    } catch (e: any) {
+      appError.set(e.message || 'Unexpected error');
+    }
+    loading = false;
+  }
+
+  async function handleRemove(fingerprint: string) {
+    try {
+      const result = await removeHeir(fingerprint);
+      if (result.success) {
+        await refresh();
+      } else {
+        appError.set(result.error || 'Failed to remove heir');
+      }
+    } catch (e: any) {
+      appError.set(e.message || 'Unexpected error');
+    }
   }
 </script>
 
@@ -25,40 +69,53 @@
   <h1>Heirs</h1>
   <p class="subtitle">Add the people who will inherit your Bitcoin.</p>
 
-  {#if $heirLabels.length > 0}
+  {#if heirs.length > 0}
     <div class="heir-list">
-      {#each $heirLabels as heir, i}
+      {#each heirs as heir}
         <div class="heir-card">
-          <span class="heir-icon">👤</span>
-          <span class="heir-name">{heir}</span>
+          <div class="heir-info">
+            <span class="heir-icon">👤</span>
+            <div>
+              <span class="heir-name">{heir.label}</span>
+              <span class="heir-fp">{heir.fingerprint}</span>
+              {#if heir.npub}
+                <span class="heir-npub">📨 {heir.npub.substring(0, 20)}...</span>
+              {/if}
+            </div>
+          </div>
+          <button class="btn-remove" onclick={() => handleRemove(heir.fingerprint)}>✕</button>
         </div>
       {/each}
     </div>
   {/if}
 
   <div class="form">
+    <h2>Add Heir</h2>
+
     <label>
-      <span>Heir Name</span>
+      <span>Name</span>
       <input type="text" bind:value={labelInput} placeholder="e.g., Alice" maxlength="64" />
     </label>
 
     <label>
-      <span>Heir xpub</span>
-      <textarea bind:value={xpubInput} placeholder="tpubD6Nz..." rows="3"></textarea>
+      <span>xpub or descriptor</span>
+      <textarea bind:value={xpubInput} placeholder="tpubD6Nz... or [fingerprint/path]xpub..." rows="3"></textarea>
     </label>
 
     <label>
-      <span>Nostr npub (optional, for DM delivery)</span>
+      <span>Nostr npub (optional, for NIP-17 backup delivery)</span>
       <input type="text" bind:value={npubInput} placeholder="npub1..." />
     </label>
 
     <div class="actions">
-      <button class="btn secondary" onclick={addHeir} disabled={loading}>
-        + Add Heir
+      <button class="btn secondary" onclick={handleAdd} disabled={loading}>
+        {loading ? 'Adding...' : '+ Add Heir'}
       </button>
-      <button class="btn primary" onclick={() => navigate('vault')}>
-        Next: Create Vault →
-      </button>
+      {#if heirs.length > 0}
+        <button class="btn primary" onclick={() => navigate('vault')}>
+          Next: Create Vault →
+        </button>
+      {/if}
     </div>
   </div>
 </div>
@@ -66,6 +123,7 @@
 <style>
   .screen { max-width: 600px; }
   h1 { font-size: 1.8rem; margin-bottom: 0.25rem; }
+  h2 { font-size: 1.2rem; margin-top: 1.5rem; }
   .subtitle { color: #888; margin-bottom: 2rem; }
 
   .form {
@@ -105,21 +163,48 @@
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
-    margin-bottom: 1.5rem;
+    margin-bottom: 1rem;
   }
 
   .heir-card {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    justify-content: space-between;
     background: #1a1a1a;
     border: 1px solid #333;
     border-radius: 6px;
     padding: 0.75rem 1rem;
   }
 
+  .heir-info {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
   .heir-icon { font-size: 1.2rem; }
-  .heir-name { font-weight: 500; }
+  .heir-name { font-weight: 500; display: block; }
+  .heir-fp {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 0.75rem;
+    color: #666;
+  }
+  .heir-npub {
+    font-size: 0.75rem;
+    color: #888;
+    display: block;
+  }
+
+  .btn-remove {
+    background: none;
+    border: none;
+    color: #666;
+    cursor: pointer;
+    font-size: 1.1rem;
+    padding: 0.25rem;
+  }
+
+  .btn-remove:hover { color: #ff4444; }
 
   .actions {
     display: flex;

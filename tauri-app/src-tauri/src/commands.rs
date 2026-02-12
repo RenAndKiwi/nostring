@@ -772,6 +772,7 @@ pub async fn add_heir(
     label: String,
     xpub_or_descriptor: String,
     timelock_months: Option<u32>,
+    npub: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<CommandResult<HeirInfo>, ()> {
     let unlocked = state.unlocked.lock().unwrap();
@@ -802,8 +803,18 @@ pub async fn add_heir(
 
     // Write-through: memory + SQLite
     state.persist_heir(&heir, timelock_months);
+    let fp = heir.fingerprint.to_string();
     let mut registry = state.heir_registry.lock().unwrap();
     registry.add(heir);
+    drop(registry);
+
+    // Persist npub if provided
+    if let Some(ref n) = npub {
+        if !n.is_empty() {
+            state.update_heir_contact(&fp, Some(n), None);
+            heir_info.npub = Some(n.clone());
+        }
+    }
 
     Ok(CommandResult::ok(heir_info))
 }
