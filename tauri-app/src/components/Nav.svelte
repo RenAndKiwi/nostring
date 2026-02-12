@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { currentScreen, navigate, appPhase } from '../lib/stores';
+  import { currentScreen, navigate, appPhase, currentNetwork } from '../lib/stores';
   import { lockWallet } from '../lib/tauri';
   import type { Screen } from '../lib/stores';
 
@@ -10,6 +10,7 @@
     { id: 'dashboard', label: 'Status', icon: '📊' },
     { id: 'checkin', label: 'Check-in', icon: '✅' },
     { id: 'deliver', label: 'Deliver', icon: '📨' },
+    { id: 'settings', label: 'Settings', icon: '🛠️' },
   ];
 
   async function handleLock() {
@@ -22,6 +23,9 @@
   <div class="logo">
     <span class="logo-icon">🔑</span>
     <span class="logo-text">NoString</span>
+    {#if $currentNetwork !== 'bitcoin'}
+      <span class="network-badge">{$currentNetwork}</span>
+    {/if}
   </div>
   <div class="tabs">
     {#each tabs as tab}
@@ -53,6 +57,16 @@
   .logo { display: flex; align-items: center; gap: 0.5rem; }
   .logo-icon { font-size: 1.5rem; }
   .logo-text { font-size: 1.2rem; font-weight: 700; color: #f7931a; }
+  .network-badge {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    background: #f7931a33;
+    color: #f7931a;
+    padding: 0.15rem 0.4rem;
+    border-radius: 3px;
+    letter-spacing: 0.05em;
+  }
 
   .tabs { display: flex; gap: 0.25rem; flex-wrap: wrap; flex: 1; }
 

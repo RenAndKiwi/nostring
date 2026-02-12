@@ -8,8 +8,11 @@ export type AppPhase = 'loading' | 'onboarding' | 'unlock' | 'ready';
 export const appPhase = writable<AppPhase>('loading');
 
 /** Current screen/route (only relevant when appPhase === 'ready') */
-export type Screen = 'setup' | 'heirs' | 'vault' | 'dashboard' | 'checkin' | 'deliver';
+export type Screen = 'setup' | 'heirs' | 'vault' | 'dashboard' | 'checkin' | 'deliver' | 'settings';
 export const currentScreen = writable<Screen>('setup');
+
+/** Network state */
+export const currentNetwork = writable<string>('bitcoin');
 
 /** Co-signer registration state */
 export const cosignerRegistered = writable(false);

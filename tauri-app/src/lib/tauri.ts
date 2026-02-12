@@ -84,6 +84,23 @@ export async function getNetwork(): Promise<string> {
   return invoke('get_network');
 }
 
+export async function setNetwork(network: string): Promise<void> {
+  return invoke('set_network', { network });
+}
+
+export async function getElectrumUrl(): Promise<string> {
+  return invoke('get_electrum_url');
+}
+
+export async function setElectrumUrl(url: string): Promise<void> {
+  return invoke('set_electrum_url', { url });
+}
+
+export async function refreshPolicyStatus(): Promise<CcdResult<any>> {
+  return invoke('refresh_policy_status');
+}
+
+
 export async function validateXpub(xpub: string): Promise<CcdResult<boolean>> {
   return invoke('validate_xpub', { xpub });
 }

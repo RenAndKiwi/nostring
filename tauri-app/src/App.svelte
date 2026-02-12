@@ -10,6 +10,7 @@
   import Dashboard from './screens/Dashboard.svelte';
   import CheckIn from './screens/CheckIn.svelte';
   import Deliver from './screens/Deliver.svelte';
+  import Settings from './screens/Settings.svelte';
   import Nav from './components/Nav.svelte';
 
   onMount(async () => {
@@ -71,6 +72,8 @@
         <CheckIn />
       {:else if $currentScreen === 'deliver'}
         <Deliver />
+      {:else if $currentScreen === 'settings'}
+        <Settings />
       {/if}
     </div>
   {/if}
