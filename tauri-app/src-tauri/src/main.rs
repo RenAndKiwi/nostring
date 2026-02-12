@@ -7,6 +7,7 @@
 mod ccd_commands;
 mod commands;
 mod db;
+mod heir_commands;
 mod state;
 
 use state::AppState;
@@ -114,6 +115,14 @@ fn main() {
             ccd_commands::create_ccd_vault,
             ccd_commands::build_checkin_psbt,
             ccd_commands::get_heartbeat_status,
+            // Heir claim
+            heir_commands::import_vault_backup,
+            heir_commands::verify_heir_identity,
+            heir_commands::check_claim_eligibility,
+            heir_commands::build_heir_claim,
+            heir_commands::broadcast_heir_claim,
+            heir_commands::merge_heir_signatures,
+            heir_commands::export_vault_backup,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
