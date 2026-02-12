@@ -37,6 +37,10 @@ pub struct HeirKey {
     /// Derivation path from master (as string)
     #[serde(with = "derivation_path_serde")]
     pub derivation_path: DerivationPath,
+    /// Optional Nostr public key (npub or hex) for encrypted notifications.
+    /// When present, the notification system can send encrypted DMs to the heir.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub npub: Option<String>,
 }
 
 /// Macro for creating serde modules that use FromStr/ToString
@@ -69,7 +73,7 @@ string_serde!(xpub_serde, Xpub);
 string_serde!(derivation_path_serde, DerivationPath);
 
 impl HeirKey {
-    /// Create a new heir key from components
+    /// Create a new heir key from components.
     pub fn new(
         label: impl Into<String>,
         fingerprint: Fingerprint,
@@ -82,7 +86,21 @@ impl HeirKey {
             xpub,
             derivation_path: derivation_path
                 .unwrap_or_else(|| DerivationPath::from_str("m/84'/0'/0'").unwrap()),
+            npub: None,
         }
+    }
+
+    /// Create a new heir key with a Nostr public key for notifications.
+    pub fn with_npub(
+        label: impl Into<String>,
+        fingerprint: Fingerprint,
+        xpub: Xpub,
+        derivation_path: Option<DerivationPath>,
+        npub: impl Into<String>,
+    ) -> Self {
+        let mut key = Self::new(label, fingerprint, xpub, derivation_path);
+        key.npub = Some(npub.into());
+        key
     }
 
     /// Parse from a descriptor key string like "[fingerprint/path]xpub"
@@ -108,6 +126,7 @@ impl HeirKey {
             fingerprint,
             xpub,
             derivation_path,
+            npub: None,
         })
     }
 
@@ -238,6 +257,48 @@ mod tests {
         let removed = registry.remove(&fg1);
         assert!(removed.is_some());
         assert_eq!(registry.len(), 1);
+    }
+
+    #[test]
+    fn test_heir_with_npub() {
+        let xpub = Xpub::from_str(test_xpub_str()).unwrap();
+        let fg = Fingerprint::from_str("00000001").unwrap();
+        let npub = "npub1sg6plzptd64u62a878hep2kev88swjh3tw00gjsfl8f237lmu63q0uf63m";
+
+        let heir = HeirKey::with_npub("Alice", fg, xpub, None, npub);
+        assert_eq!(heir.npub.as_deref(), Some(npub));
+    }
+
+    #[test]
+    fn test_heir_without_npub() {
+        let xpub = Xpub::from_str(test_xpub_str()).unwrap();
+        let fg = Fingerprint::from_str("00000001").unwrap();
+
+        let heir = HeirKey::new("Alice", fg, xpub, None);
+        assert!(heir.npub.is_none());
+    }
+
+    #[test]
+    fn test_heir_serde_with_npub() {
+        let xpub = Xpub::from_str(test_xpub_str()).unwrap();
+        let fg = Fingerprint::from_str("00000001").unwrap();
+        let npub = "npub1sg6plzptd64u62a878hep2kev88swjh3tw00gjsfl8f237lmu63q0uf63m";
+
+        let heir = HeirKey::with_npub("Alice", fg, xpub, None, npub);
+        let json = serde_json::to_string(&heir).unwrap();
+        assert!(json.contains("npub"));
+
+        let restored: HeirKey = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.npub.as_deref(), Some(npub));
+    }
+
+    #[test]
+    fn test_heir_serde_backward_compatible() {
+        // JSON without npub field should deserialize with npub: None
+        let json = r#"{"label":"Alice","fingerprint":"00000001","xpub":"xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8NqtwybGhePY2gZ29ESFjqJoCu1Rupje8YtGqsefD265TMg7usUDFdp6W1EGMcet8","derivation_path":"m/84'/0'/0'"}"#;
+        let heir: HeirKey = serde_json::from_str(json).unwrap();
+        assert!(heir.npub.is_none());
+        assert_eq!(heir.label, "Alice");
     }
 
     #[test]

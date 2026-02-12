@@ -117,8 +117,8 @@ impl NotificationService {
         if let Some(ref nostr_config) = self.config.nostr {
             if nostr_config.enabled {
                 match nostr_dm::send_dm(nostr_config, &message).await {
-                    Ok(_) => {
-                        log::info!("Nostr DM sent for level {:?}", level);
+                    Ok(event_id) => {
+                        log::info!("Nostr DM sent for level {:?} (event: {})", level, event_id);
                         sent_any = true;
                     }
                     Err(e) => {

@@ -53,6 +53,7 @@ pub enum InheritError {
 }
 
 /// An inheritable CCD vault with both key-path and script-path spending.
+#[derive(Clone)]
 pub struct InheritableVault {
     // CCD fields
     /// Owner's public key
@@ -67,6 +68,8 @@ pub struct InheritableVault {
     pub aggregate_xonly: XOnlyPublicKey,
 
     // Inheritance fields
+    /// The primary (earliest) timelock for this vault
+    pub timelock: Timelock,
     /// Compiled recovery tapscript leaves (timelock, script) pairs
     pub recovery_scripts: Vec<(Timelock, ScriptBuf)>,
     /// Taproot spend info (internal key + script tree)
@@ -136,6 +139,7 @@ pub fn create_inheritable_vault(
         address_index,
         cosigner_derived_pubkey: cosigner_derived,
         aggregate_xonly,
+        timelock,
         recovery_scripts,
         taproot_spend_info,
         address,
@@ -274,6 +278,13 @@ pub fn create_cascade_vault(
 
     let taproot_spend_info = build_taproot_tree(&secp, aggregate_xonly, &recovery_scripts)?;
 
+    // Primary timelock is the earliest (most likely to be used)
+    let primary_timelock = recovery_scripts
+        .iter()
+        .map(|(tl, _)| *tl)
+        .min_by_key(|tl| tl.blocks())
+        .expect("non-empty recovery_paths");
+
     let address = Address::p2tr(
         &secp,
         aggregate_xonly,
@@ -287,6 +298,7 @@ pub fn create_cascade_vault(
         address_index,
         cosigner_derived_pubkey: cosigner_derived,
         aggregate_xonly,
+        timelock: primary_timelock,
         recovery_scripts,
         taproot_spend_info,
         address,
@@ -571,30 +583,12 @@ fn compile_recovery_to_tapscript(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bitcoin::secp256k1::{Secp256k1, SecretKey};
+    use crate::test_utils::{test_keypair, test_chain_code, test_xpub_str};
+    use bitcoin::secp256k1::Secp256k1;
     use bitcoin::hashes::Hash as _; // needed for Txid::from_byte_array
     use miniscript::descriptor::DescriptorPublicKey;
     use nostring_ccd::register_cosigner_with_chain_code;
-    use nostring_ccd::types::ChainCode;
     use std::str::FromStr;
-
-    fn test_keypair(seed_byte: u8) -> (SecretKey, PublicKey) {
-        let secp = Secp256k1::new();
-        let mut secret_bytes = [0u8; 32];
-        secret_bytes[31] = seed_byte;
-        secret_bytes[0] = 0x01;
-        let sk = SecretKey::from_slice(&secret_bytes).unwrap();
-        let pk = sk.public_key(&secp);
-        (sk, pk)
-    }
-
-    fn test_chain_code() -> ChainCode {
-        ChainCode([0xAB; 32])
-    }
-
-    fn test_xpub_str() -> &'static str {
-        "xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8NqtwybGhePY2gZ29ESFjqJoCu1Rupje8YtGqsefD265TMg7usUDFdp6W1EGMcet8"
-    }
 
     fn single_heir_path() -> PathInfo {
         let heir_key = DescriptorPublicKey::from_str(&format!(
@@ -1026,7 +1020,7 @@ mod tests {
         // Uses a concrete x-only key (not xpub) so we can actually sign.
         use bitcoin::secp256k1::Keypair;
         use bitcoin::sighash::{Prevouts, SighashCache};
-        use bitcoin::taproot::{self, LeafVersion, Signature, TapLeafHash};
+        use bitcoin::taproot::{LeafVersion, Signature, TapLeafHash};
 
         let (_owner_sk, owner_pk) = test_keypair(1);
         let (_cosigner_sk, cosigner_pk) = test_keypair(2);

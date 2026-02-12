@@ -21,6 +21,11 @@
 //! ```
 
 pub mod checkin;
+pub mod heartbeat;
 pub mod heir;
 pub mod policy;
 pub mod taproot;
+pub mod taproot_checkin;
+
+#[cfg(test)]
+pub(crate) mod test_utils;
