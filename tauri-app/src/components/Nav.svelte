@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { currentScreen, navigate, vaultCreated, cosignerRegistered } from '../lib/stores';
+  import { currentScreen, navigate, appPhase } from '../lib/stores';
+  import { lockWallet } from '../lib/tauri';
   import type { Screen } from '../lib/stores';
 
   const tabs: { id: Screen; label: string; icon: string }[] = [
@@ -10,6 +11,11 @@
     { id: 'checkin', label: 'Check-in', icon: '✅' },
     { id: 'deliver', label: 'Deliver', icon: '📨' },
   ];
+
+  async function handleLock() {
+    await lockWallet();
+    appPhase.set('unlock');
+  }
 </script>
 
 <nav>
@@ -29,6 +35,9 @@
       </button>
     {/each}
   </div>
+  <button class="lock-btn" onclick={handleLock} title="Lock wallet">
+    🔒
+  </button>
 </nav>
 
 <style>
@@ -41,27 +50,11 @@
     margin-bottom: 1rem;
   }
 
-  .logo {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
+  .logo { display: flex; align-items: center; gap: 0.5rem; }
+  .logo-icon { font-size: 1.5rem; }
+  .logo-text { font-size: 1.2rem; font-weight: 700; color: #f7931a; }
 
-  .logo-icon {
-    font-size: 1.5rem;
-  }
-
-  .logo-text {
-    font-size: 1.2rem;
-    font-weight: 700;
-    color: #f7931a;
-  }
-
-  .tabs {
-    display: flex;
-    gap: 0.25rem;
-    flex-wrap: wrap;
-  }
+  .tabs { display: flex; gap: 0.25rem; flex-wrap: wrap; flex: 1; }
 
   .tab {
     display: flex;
@@ -77,18 +70,19 @@
     transition: all 0.15s;
   }
 
-  .tab:hover {
-    color: #ccc;
-    background: #1a1a1a;
-  }
+  .tab:hover { color: #ccc; background: #1a1a1a; }
+  .tab.active { color: #f7931a; border-color: #f7931a33; background: #f7931a11; }
+  .tab-icon { font-size: 1rem; }
 
-  .tab.active {
-    color: #f7931a;
-    border-color: #f7931a33;
-    background: #f7931a11;
-  }
-
-  .tab-icon {
+  .lock-btn {
+    background: none;
+    border: 1px solid #333;
+    border-radius: 6px;
+    padding: 0.4rem 0.6rem;
+    cursor: pointer;
     font-size: 1rem;
+    transition: all 0.15s;
   }
+
+  .lock-btn:hover { border-color: #f7931a; background: #1a1a1a; }
 </style>

@@ -44,6 +44,40 @@ export interface ChallengeData {
   owner_challenges: OwnerChallenge[];
 }
 
+// ─── Wallet Commands ────────────────────────────────────────────────────────
+
+export async function hasSeed(): Promise<boolean> {
+  return invoke('has_seed');
+}
+
+export async function createSeed(wordCount?: number): Promise<CcdResult<string>> {
+  return invoke('create_seed', { word_count: wordCount ?? 24 });
+}
+
+export async function importSeed(mnemonic: string, password: string): Promise<CcdResult<boolean>> {
+  return invoke('import_seed', { mnemonic, password });
+}
+
+export async function unlockSeed(password: string): Promise<CcdResult<boolean>> {
+  return invoke('unlock_seed', { password });
+}
+
+export async function lockWallet(): Promise<void> {
+  return invoke('lock_wallet');
+}
+
+export interface PasswordStrength {
+  entropy_bits: number;
+  strength: string;
+  description: string;
+  meets_minimum: boolean;
+  warnings: string[];
+}
+
+export async function checkPasswordStrength(password: string): Promise<CcdResult<PasswordStrength>> {
+  return invoke('check_password_strength', { password });
+}
+
 // ─── General Commands ───────────────────────────────────────────────────────
 
 export async function getNetwork(): Promise<string> {

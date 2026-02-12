@@ -3,7 +3,11 @@
  */
 import { writable } from 'svelte/store';
 
-/** Current screen/route */
+/** Wallet initialization state */
+export type AppPhase = 'loading' | 'onboarding' | 'unlock' | 'ready';
+export const appPhase = writable<AppPhase>('loading');
+
+/** Current screen/route (only relevant when appPhase === 'ready') */
 export type Screen = 'setup' | 'heirs' | 'vault' | 'dashboard' | 'checkin' | 'deliver';
 export const currentScreen = writable<Screen>('setup');
 
