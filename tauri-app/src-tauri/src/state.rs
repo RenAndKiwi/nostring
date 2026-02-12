@@ -40,7 +40,6 @@ pub struct InheritanceConfig {
 ///
 /// Encapsulates all collaborative custody state: co-signer registration,
 /// vault creation, and vault reconstruction from persisted data.
-#[derive(Default)]
 pub struct CcdState {
     /// Registered co-signer's delegated key info
     pub cosigner: Option<DelegatedKey>,
@@ -49,6 +48,40 @@ pub struct CcdState {
     /// If vault reconstruction failed, the error message.
     /// The UI should surface this as a warning on startup.
     pub load_error: Option<String>,
+    /// Active MuSig2 signing session (keyless orchestrator).
+    /// Contains only public data — no secrets.
+    pub signing_session: Option<SigningSession>,
+}
+
+/// MuSig2 signing session state for the keyless orchestrator.
+///
+/// All fields are public values — no secret keys or nonces.
+/// The owner's SecNonce stays on their signing device.
+pub struct SigningSession {
+    pub session_id: String,
+    pub psbt: bitcoin::psbt::Psbt,
+    /// Owner's public nonces (hex-encoded, from signing device)
+    pub owner_pubnonces_hex: Option<Vec<String>>,
+    /// Aggregate nonces (hex-encoded, computed by orchestrator)
+    pub agg_nonces_hex: Option<Vec<String>>,
+    /// Sighashes (hex-encoded, computed by orchestrator)
+    pub sighashes_hex: Option<Vec<String>>,
+    /// When the session was created (unix timestamp)
+    pub created_at: u64,
+}
+
+impl SigningSession {
+    /// Session timeout: 1 hour
+    const TIMEOUT_SECS: u64 = 3600;
+
+    /// Check if this session has expired.
+    pub fn is_expired(&self) -> bool {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        now.saturating_sub(self.created_at) > Self::TIMEOUT_SECS
+    }
 }
 
 impl CcdState {
@@ -79,6 +112,7 @@ impl CcdState {
             cosigner,
             vault,
             load_error,
+            signing_session: None,
         }
     }
 

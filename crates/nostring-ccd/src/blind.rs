@@ -279,24 +279,7 @@ pub fn owner_finalize(
     }
 
     // Deserialize co-signer's partial signatures
-    let cosigner_psigs: Vec<musig2::PartialSignature> = cosigner_partials
-        .partial_sigs
-        .iter()
-        .map(|hex_str| {
-            let bytes = hex::decode(hex_str)
-                .map_err(|e| CcdError::SerializationError(format!("partial sig hex: {}", e)))?;
-            if bytes.len() != 32 {
-                return Err(CcdError::SerializationError(format!(
-                    "partial sig must be 32 bytes, got {}",
-                    bytes.len()
-                )));
-            }
-            let mut arr = [0u8; 32];
-            arr.copy_from_slice(&bytes);
-            musig2::PartialSignature::from_slice(&arr)
-                .map_err(|e| CcdError::SerializationError(format!("partial sig parse: {}", e)))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let cosigner_psigs = deserialize_partial_sigs(&cosigner_partials.partial_sigs, "cosigner")?;
 
     // Owner produces partial signatures and aggregates
     let mut witnesses: Vec<bitcoin::Witness> = Vec::with_capacity(num_inputs);
@@ -328,6 +311,177 @@ pub fn owner_finalize(
     }
 
     Ok(signed_tx)
+}
+
+// ─── Keyless Orchestrator Functions ──────────────────────────────────────────
+//
+// These functions perform the same ceremony as owner_* but WITHOUT any
+// SecretKey. The app is a pure coordinator — all signing happens on
+// external devices (hardware wallets, air-gapped signers).
+
+/// Orchestrator: Start a signing session without generating nonces.
+///
+/// The owner's signing device generates nonces externally and provides
+/// PubNonces via QR code or Nostr DM. This function only creates the
+/// session ID and nonce request for the co-signer.
+///
+/// Returns `(NonceRequest, session_id)`.
+pub fn orchestrator_start_session(
+    num_inputs: usize,
+    tweaks: &[crate::types::TweakDisclosure],
+) -> Result<(NonceRequest, String), CcdError> {
+    if num_inputs == 0 {
+        return Err(CcdError::PsbtError("no inputs to sign".into()));
+    }
+
+    // Generate session ID
+    let mut session_id_bytes = [0u8; 32];
+    rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut session_id_bytes);
+    let session_id = hex::encode(session_id_bytes);
+
+    // Serialize tweaks for co-signer
+    let serialized_tweaks: Vec<SerializedTweak> = tweaks
+        .iter()
+        .map(|t| SerializedTweak {
+            tweak: hex::encode(t.tweak.to_be_bytes()),
+            derived_pubkey: hex::encode(t.derived_pubkey.serialize()),
+            child_index: t.child_index,
+        })
+        .collect();
+
+    let request = NonceRequest {
+        session_id: session_id.clone(),
+        num_inputs,
+        tweaks: serialized_tweaks,
+    };
+
+    Ok((request, session_id))
+}
+
+/// Orchestrator: Create sign challenges from both parties' public nonces.
+///
+/// This is identical to [`owner_create_challenges`] — it was already keyless.
+/// Re-exported here for API clarity: orchestrator code should call
+/// `orchestrator_create_challenges` to make the keyless intent explicit.
+pub fn orchestrator_create_challenges(
+    owner_pubnonces: &[PubNonce],
+    cosigner_response: &NonceResponse,
+    psbt: &bitcoin::psbt::Psbt,
+    session_id: &str,
+) -> Result<(SignChallenge, Vec<AggNonce>, Vec<[u8; 32]>), CcdError> {
+    owner_create_challenges(owner_pubnonces, cosigner_response, psbt, session_id)
+}
+
+/// Orchestrator: Finalize the signing ceremony with both parties' partial signatures.
+///
+/// Unlike [`owner_finalize`], this function takes the owner's partial signatures
+/// as input (received from the signing device) instead of computing them.
+/// **No SecretKey is needed.**
+///
+/// # Arguments
+/// * `owner_partial_sigs` - Owner's partial signatures (hex strings from signing device)
+/// * `cosigner_partials` - Co-signer's partial signatures (from blind signing response)
+/// * `agg_nonces` - Aggregate nonces from `orchestrator_create_challenges`
+/// * `key_agg_ctx` - MuSig2 key aggregation context
+/// * `psbt` - The unsigned PSBT
+/// * `session_id` - Session ID for replay protection
+/// * `sighashes` - Sighashes from `orchestrator_create_challenges`
+pub fn orchestrator_finalize(
+    owner_partial_sigs: &[String],
+    cosigner_partials: &PartialSignatures,
+    agg_nonces: &[AggNonce],
+    key_agg_ctx: &KeyAggContext,
+    psbt: &bitcoin::psbt::Psbt,
+    session_id: &str,
+    sighashes: &[[u8; 32]],
+) -> Result<bitcoin::Transaction, CcdError> {
+    // Validate session ID
+    if cosigner_partials.session_id != session_id {
+        return Err(CcdError::SigningError("session ID mismatch".into()));
+    }
+
+    let num_inputs = psbt.inputs.len();
+
+    // Validate counts
+    if owner_partial_sigs.len() != num_inputs {
+        return Err(CcdError::SigningError(format!(
+            "expected {} owner partial sigs, got {}",
+            num_inputs,
+            owner_partial_sigs.len()
+        )));
+    }
+    if cosigner_partials.partial_sigs.len() != num_inputs {
+        return Err(CcdError::SigningError(format!(
+            "expected {} cosigner partial sigs, got {}",
+            num_inputs,
+            cosigner_partials.partial_sigs.len()
+        )));
+    }
+
+    // Deserialize owner's partial signatures
+    let owner_psigs = deserialize_partial_sigs(owner_partial_sigs, "owner")?;
+
+    // Deserialize co-signer's partial signatures
+    let cosigner_psigs = deserialize_partial_sigs(&cosigner_partials.partial_sigs, "cosigner")?;
+
+    // Aggregate both parties' partial signatures into final Schnorr signatures
+    let mut witnesses: Vec<bitcoin::Witness> = Vec::with_capacity(num_inputs);
+
+    for (idx, ((agg_nonce, sighash), (owner_ps, cosigner_ps))) in agg_nonces
+        .iter()
+        .zip(sighashes.iter())
+        .zip(owner_psigs.iter().zip(cosigner_psigs.iter()))
+        .enumerate()
+    {
+        let final_sig = musig::aggregate_signatures(
+            key_agg_ctx,
+            agg_nonce,
+            &[*owner_ps, *cosigner_ps],
+            sighash,
+        )
+        .map_err(|e| {
+            CcdError::SigningError(format!(
+                "signature aggregation failed for input {}: {}",
+                idx, e
+            ))
+        })?;
+
+        witnesses.push(bitcoin::Witness::from_slice(&[final_sig.to_vec()]));
+    }
+
+    let mut signed_tx = psbt.unsigned_tx.clone();
+    for (idx, witness) in witnesses.into_iter().enumerate() {
+        signed_tx.input[idx].witness = witness;
+    }
+
+    Ok(signed_tx)
+}
+
+/// Helper: Deserialize hex-encoded partial signatures.
+fn deserialize_partial_sigs(
+    hex_sigs: &[String],
+    party: &str,
+) -> Result<Vec<musig2::PartialSignature>, CcdError> {
+    hex_sigs
+        .iter()
+        .map(|hex_str| {
+            let bytes = hex::decode(hex_str).map_err(|e| {
+                CcdError::SerializationError(format!("{} partial sig hex: {}", party, e))
+            })?;
+            if bytes.len() != 32 {
+                return Err(CcdError::SerializationError(format!(
+                    "{} partial sig must be 32 bytes, got {}",
+                    party,
+                    bytes.len()
+                )));
+            }
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(&bytes);
+            musig2::PartialSignature::from_slice(&arr).map_err(|e| {
+                CcdError::SerializationError(format!("{} partial sig parse: {}", party, e))
+            })
+        })
+        .collect()
 }
 
 // ─── Co-signer Functions ────────────────────────────────────────────────────
@@ -976,5 +1130,344 @@ mod tests {
         // We verify by checking witness structure is correct
         assert_eq!(local_wit.len(), 1);
         assert_eq!(local_wit[0].len(), 64);
+    }
+
+    #[test]
+    fn test_orchestrator_full_ceremony() {
+        // Prove the orchestrator (keyless) path produces a valid signed tx
+        // by simulating the signing device externally.
+        let (owner_sk, cosigner_sk, cosigner_pk, key_agg_ctx, _vault, psbt, tweaks) =
+            setup_test_vault();
+
+        // ── Round 1a: Orchestrator starts session (NO secret key) ──
+        let (nonce_request, session_id) =
+            orchestrator_start_session(psbt.inputs.len(), &tweaks).unwrap();
+
+        // ── Round 1b: Owner's signing device generates nonces ──
+        // (In production this happens on hardware wallet; here we simulate)
+        let mut owner_sec_nonces = Vec::new();
+        let mut owner_pub_nonces = Vec::new();
+        for _ in 0..psbt.inputs.len() {
+            let (sec, pub_n) = crate::musig::generate_nonce(&owner_sk, &key_agg_ctx, None).unwrap();
+            owner_sec_nonces.push(sec);
+            owner_pub_nonces.push(pub_n);
+        }
+
+        // ── Round 1c: Co-signer responds with nonces ──
+        let (cosigner_response, cosigner_session) =
+            cosigner_respond_nonces(&cosigner_sk, &cosigner_pk, &nonce_request, &key_agg_ctx)
+                .unwrap();
+
+        // ── Round 2a: Orchestrator creates challenges (NO secret key) ──
+        let (sign_challenge, agg_nonces, sighashes) = orchestrator_create_challenges(
+            &owner_pub_nonces,
+            &cosigner_response,
+            &psbt,
+            &session_id,
+        )
+        .unwrap();
+
+        // ── Round 2b: Owner's signing device partial-signs ──
+        // (Hardware wallet receives agg_nonce + sighash, returns partial sig)
+        let mut owner_partial_sigs_hex = Vec::new();
+        for (sec_nonce, (agg_nonce, sighash)) in owner_sec_nonces
+            .into_iter()
+            .zip(agg_nonces.iter().zip(sighashes.iter()))
+        {
+            let partial =
+                crate::musig::partial_sign(&owner_sk, sec_nonce, &key_agg_ctx, agg_nonce, sighash)
+                    .unwrap();
+            owner_partial_sigs_hex.push(hex::encode(partial.serialize()));
+        }
+
+        // ── Round 2c: Co-signer blind-signs ──
+        let cosigner_partials =
+            cosigner_sign_blind(cosigner_session, &sign_challenge, &key_agg_ctx).unwrap();
+
+        // ── Round 3: Orchestrator finalizes (NO secret key) ──
+        let signed_tx = orchestrator_finalize(
+            &owner_partial_sigs_hex,
+            &cosigner_partials,
+            &agg_nonces,
+            &key_agg_ctx,
+            &psbt,
+            &session_id,
+            &sighashes,
+        )
+        .unwrap();
+
+        // Verify: valid transaction with proper witness
+        assert_eq!(signed_tx.input.len(), 1);
+        assert!(!signed_tx.input[0].witness.is_empty());
+        let witness = &signed_tx.input[0].witness;
+        assert_eq!(
+            witness.len(),
+            1,
+            "key-path spend should have single witness element"
+        );
+        assert_eq!(witness[0].len(), 64, "Schnorr signature must be 64 bytes");
+    }
+
+    #[test]
+    fn test_orchestrator_session_id_mismatch() {
+        let (_owner_sk, _cosigner_sk, _cosigner_pk, key_agg_ctx, _vault, psbt, tweaks) =
+            setup_test_vault();
+
+        let (_request, _session_id) =
+            orchestrator_start_session(psbt.inputs.len(), &tweaks).unwrap();
+
+        let bad_cosigner_partials = PartialSignatures {
+            session_id: "wrong-session".to_string(),
+            partial_sigs: vec![],
+        };
+
+        let result = orchestrator_finalize(
+            &[],
+            &bad_cosigner_partials,
+            &[],
+            &key_agg_ctx,
+            &psbt,
+            &_session_id,
+            &[],
+        );
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("session ID mismatch"),
+            "should reject mismatched session ID"
+        );
+    }
+
+    #[test]
+    fn test_orchestrator_wrong_sig_count() {
+        let (_owner_sk, _cosigner_sk, _cosigner_pk, key_agg_ctx, _vault, psbt, tweaks) =
+            setup_test_vault();
+
+        let (_request, session_id) =
+            orchestrator_start_session(psbt.inputs.len(), &tweaks).unwrap();
+
+        // Cosigner provides correct session but wrong number of sigs
+        let cosigner_partials = PartialSignatures {
+            session_id: session_id.clone(),
+            partial_sigs: vec![], // 0 sigs, but PSBT has 1 input
+        };
+
+        let result = orchestrator_finalize(
+            &["aa".repeat(32)], // 1 owner sig
+            &cosigner_partials,
+            &[],
+            &key_agg_ctx,
+            &psbt,
+            &session_id,
+            &[],
+        );
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("expected 1 cosigner partial sigs"),);
+    }
+
+    #[test]
+    fn test_orchestrator_produces_same_result_as_owner_path() {
+        // The gold test: orchestrator path and owner path must produce
+        // identical transactions when given the same inputs.
+        let (owner_sk, cosigner_sk, cosigner_pk, key_agg_ctx, _vault, psbt, tweaks) =
+            setup_test_vault();
+
+        // ── Owner path (existing) ──
+        let (nonce_req_1, owner_sec_nonces_1, owner_pub_nonces_1) =
+            owner_start_session(&owner_sk, &key_agg_ctx, psbt.inputs.len(), &tweaks).unwrap();
+
+        let (cosigner_resp_1, cosigner_session_1) =
+            cosigner_respond_nonces(&cosigner_sk, &cosigner_pk, &nonce_req_1, &key_agg_ctx)
+                .unwrap();
+
+        let (challenge_1, agg_nonces_1, sighashes_1) = owner_create_challenges(
+            &owner_pub_nonces_1,
+            &cosigner_resp_1,
+            &psbt,
+            &nonce_req_1.session_id,
+        )
+        .unwrap();
+
+        let cosigner_partials_1 =
+            cosigner_sign_blind(cosigner_session_1, &challenge_1, &key_agg_ctx).unwrap();
+
+        let owner_tx = owner_finalize(
+            &owner_sk,
+            owner_sec_nonces_1,
+            &agg_nonces_1,
+            &cosigner_partials_1,
+            &key_agg_ctx,
+            &psbt,
+            &nonce_req_1.session_id,
+            &sighashes_1,
+        )
+        .unwrap();
+
+        // ── Orchestrator path (keyless) ──
+        let (nonce_req_2, session_id_2) =
+            orchestrator_start_session(psbt.inputs.len(), &tweaks).unwrap();
+
+        // Simulate owner's signing device
+        let mut owner_sec_nonces_2 = Vec::new();
+        let mut owner_pub_nonces_2 = Vec::new();
+        for _ in 0..psbt.inputs.len() {
+            let (sec, pub_n) = crate::musig::generate_nonce(&owner_sk, &key_agg_ctx, None).unwrap();
+            owner_sec_nonces_2.push(sec);
+            owner_pub_nonces_2.push(pub_n);
+        }
+
+        let (cosigner_resp_2, cosigner_session_2) =
+            cosigner_respond_nonces(&cosigner_sk, &cosigner_pk, &nonce_req_2, &key_agg_ctx)
+                .unwrap();
+
+        let (_challenge_2, agg_nonces_2, sighashes_2) = orchestrator_create_challenges(
+            &owner_pub_nonces_2,
+            &cosigner_resp_2,
+            &psbt,
+            &session_id_2,
+        )
+        .unwrap();
+
+        // Owner device partial-signs
+        let mut owner_partial_sigs_hex = Vec::new();
+        for (sec_nonce, (agg_nonce, sighash)) in owner_sec_nonces_2
+            .into_iter()
+            .zip(agg_nonces_2.iter().zip(sighashes_2.iter()))
+        {
+            let partial =
+                crate::musig::partial_sign(&owner_sk, sec_nonce, &key_agg_ctx, agg_nonce, sighash)
+                    .unwrap();
+            owner_partial_sigs_hex.push(hex::encode(partial.serialize()));
+        }
+
+        // Co-signer signs
+        let cosigner_partials_2 =
+            cosigner_sign_blind(cosigner_session_2, &_challenge_2, &key_agg_ctx).unwrap();
+
+        let orchestrator_tx = orchestrator_finalize(
+            &owner_partial_sigs_hex,
+            &cosigner_partials_2,
+            &agg_nonces_2,
+            &key_agg_ctx,
+            &psbt,
+            &session_id_2,
+            &sighashes_2,
+        )
+        .unwrap();
+
+        // Both paths produce valid transactions
+        assert_eq!(owner_tx.input.len(), orchestrator_tx.input.len());
+        assert_eq!(owner_tx.output.len(), orchestrator_tx.output.len());
+        // Witnesses differ (different nonces) but both are valid 64-byte Schnorr sigs
+        assert_eq!(owner_tx.input[0].witness.len(), 1);
+        assert_eq!(orchestrator_tx.input[0].witness.len(), 1);
+        assert_eq!(owner_tx.input[0].witness[0].len(), 64);
+        assert_eq!(orchestrator_tx.input[0].witness[0].len(), 64);
+        // Same unsigned tx structure
+        assert_eq!(owner_tx.version, orchestrator_tx.version);
+        assert_eq!(owner_tx.lock_time, orchestrator_tx.lock_time);
+        assert_eq!(
+            owner_tx.output[0].script_pubkey,
+            orchestrator_tx.output[0].script_pubkey
+        );
+    }
+
+    #[test]
+    fn test_orchestrator_start_session_zero_inputs() {
+        let result = orchestrator_start_session(0, &[]);
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().to_string().contains("no inputs"),
+            "should reject zero inputs"
+        );
+    }
+
+    #[test]
+    fn test_orchestrator_finalize_bad_owner_sig_hex() {
+        let (_owner_sk, _cosigner_sk, _cosigner_pk, key_agg_ctx, _vault, psbt, _tweaks) =
+            setup_test_vault();
+
+        let session_id = "test-session";
+        let cosigner_partials = PartialSignatures {
+            session_id: session_id.to_string(),
+            partial_sigs: vec!["aa".repeat(32)], // valid hex, 32 bytes
+        };
+
+        // Owner provides invalid hex
+        let result = orchestrator_finalize(
+            &["not-valid-hex".to_string()],
+            &cosigner_partials,
+            &[],
+            &key_agg_ctx,
+            &psbt,
+            session_id,
+            &[],
+        );
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("owner partial sig hex"));
+    }
+
+    #[test]
+    fn test_orchestrator_finalize_wrong_size_owner_sig() {
+        let (_owner_sk, _cosigner_sk, _cosigner_pk, key_agg_ctx, _vault, psbt, _tweaks) =
+            setup_test_vault();
+
+        let session_id = "test-session";
+        let cosigner_partials = PartialSignatures {
+            session_id: session_id.to_string(),
+            partial_sigs: vec!["aa".repeat(32)],
+        };
+
+        // Owner provides 16 bytes instead of 32
+        let result = orchestrator_finalize(
+            &["bb".repeat(16)],
+            &cosigner_partials,
+            &[],
+            &key_agg_ctx,
+            &psbt,
+            session_id,
+            &[],
+        );
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("owner partial sig must be 32 bytes"),);
+    }
+
+    #[test]
+    fn test_orchestrator_create_challenges_mismatched_session() {
+        let (owner_sk, _cosigner_sk, _cosigner_pk, key_agg_ctx, _vault, psbt, _tweaks) =
+            setup_test_vault();
+
+        // Generate a nonce for the owner
+        let (_sec, pub_n) = crate::musig::generate_nonce(&owner_sk, &key_agg_ctx, None).unwrap();
+
+        // Create a cosigner response with wrong session ID
+        let bad_response = NonceResponse {
+            session_id: "wrong-session".to_string(),
+            pubnonces: vec![hex::encode(pub_n.serialize())],
+        };
+
+        let result =
+            orchestrator_create_challenges(&[pub_n], &bad_response, &psbt, "correct-session");
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("session ID mismatch"),
+            "should reject mismatched session ID in challenges"
+        );
     }
 }

@@ -468,6 +468,371 @@ pub async fn get_heartbeat_status(
 }
 
 // ============================================================================
+// Keyless MuSig2 Signing Ceremony
+// ============================================================================
+
+/// Start a keyless MuSig2 signing session.
+///
+/// Creates a session ID and nonce request for the co-signer.
+/// The owner's signing device generates nonces externally (not in this app).
+///
+/// Returns JSON containing the NonceRequest (to send to co-signer) and session_id.
+#[tauri::command]
+pub async fn start_signing_session(
+    state: State<'_, AppState>,
+) -> Result<CcdResult<serde_json::Value>, ()> {
+    let unlocked = state.unlocked.lock().unwrap();
+    if !*unlocked {
+        return Ok(CcdResult::err("Wallet is locked"));
+    }
+    drop(unlocked);
+
+    let vault = {
+        let ccd = state.ccd.lock().unwrap();
+        match &ccd.vault {
+            Some(v) => v.clone(),
+            None => return Ok(CcdResult::err("No CCD vault created")),
+        }
+    };
+
+    // Get cosigner delegated key for tweak computation
+    let delegated = {
+        let ccd = state.ccd.lock().unwrap();
+        match &ccd.cosigner {
+            Some(d) => d.clone(),
+            None => return Ok(CcdResult::err("No co-signer registered")),
+        }
+    };
+
+    // Compute tweaks for the vault's address index
+    let tweak_disclosure = match nostring_ccd::compute_tweak(&delegated, vault.address_index) {
+        Ok(t) => t,
+        Err(e) => return Ok(CcdResult::err(format!("Tweak computation failed: {}", e))),
+    };
+
+    let electrum_url = state.electrum_url.lock().unwrap().clone();
+    let network = *state.network.lock().unwrap();
+
+    // Find vault UTXOs to determine num_inputs
+    let client = match nostring_electrum::ElectrumClient::new(&electrum_url, network) {
+        Ok(c) => c,
+        Err(e) => return Ok(CcdResult::err(format!("Electrum connection failed: {}", e))),
+    };
+
+    let script = vault.address.script_pubkey();
+    let utxos = match client.get_utxos_for_script(&script) {
+        Ok(u) => u,
+        Err(e) => return Ok(CcdResult::err(format!("Failed to get UTXOs: {}", e))),
+    };
+
+    if utxos.is_empty() {
+        return Ok(CcdResult::err("No UTXOs found at vault address"));
+    }
+
+    let num_inputs = utxos.len();
+
+    // Build the check-in PSBT (needed for sighash computation later)
+    let fee_rate = client
+        .estimate_fee_rate(6)
+        .unwrap_or(10.0)
+        .clamp(1.0, 500.0);
+
+    let utxo_pairs: Vec<(bitcoin::OutPoint, bitcoin::TxOut)> = utxos
+        .iter()
+        .map(|u| {
+            (
+                u.outpoint,
+                bitcoin::TxOut {
+                    value: u.value,
+                    script_pubkey: script.clone(),
+                },
+            )
+        })
+        .collect();
+
+    let config = TaprootCheckinConfig {
+        vault: vault.clone(),
+        utxos: utxo_pairs,
+        fee_rate,
+        extra_outputs: vec![],
+    };
+
+    let checkin = match build_taproot_checkin_psbt(&config) {
+        Ok(c) => c,
+        Err(e) => return Ok(CcdResult::err(format!("Failed to build PSBT: {}", e))),
+    };
+
+    // Start orchestrator session (NO secret key)
+    let tweaks = vec![tweak_disclosure];
+    let (nonce_request, session_id) =
+        match nostring_ccd::blind::orchestrator_start_session(num_inputs, &tweaks) {
+            Ok(r) => r,
+            Err(e) => return Ok(CcdResult::err(format!("Session start failed: {}", e))),
+        };
+
+    // Store session state
+    {
+        let mut ccd = state.ccd.lock().unwrap();
+        ccd.signing_session = Some(crate::state::SigningSession {
+            session_id: session_id.clone(),
+            psbt: checkin.psbt,
+            owner_pubnonces_hex: None,
+            agg_nonces_hex: None,
+            sighashes_hex: None,
+            created_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        });
+    }
+
+    // Return nonce request + session ID for the frontend
+    let result = serde_json::json!({
+        "session_id": session_id,
+        "nonce_request": nonce_request,
+    });
+
+    Ok(CcdResult::ok(result))
+}
+
+/// Submit nonces from owner's signing device and co-signer.
+///
+/// The owner's device provides PubNonces (via QR/Nostr).
+/// The co-signer provides a NonceResponse (via Nostr DM).
+/// The orchestrator computes aggregate nonces and sighashes,
+/// then returns sign challenges for both parties.
+#[tauri::command]
+pub async fn submit_nonces(
+    owner_pubnonces_hex: Vec<String>,
+    cosigner_response_json: String,
+    state: State<'_, AppState>,
+) -> Result<CcdResult<serde_json::Value>, ()> {
+    use nostring_ccd::blind::{orchestrator_create_challenges, NonceResponse};
+    use nostring_ccd::PubNonce;
+
+    // Get session (with expiry check)
+    let (session_id, psbt) = {
+        let mut ccd = state.ccd.lock().unwrap();
+        match &ccd.signing_session {
+            Some(s) if s.is_expired() => {
+                ccd.signing_session = None;
+                return Ok(CcdResult::err(
+                    "Signing session expired (1 hour timeout). Start a new session.",
+                ));
+            }
+            Some(s) => (s.session_id.clone(), s.psbt.clone()),
+            None => return Ok(CcdResult::err("No active signing session")),
+        }
+    };
+
+    // Parse owner's PubNonces
+    let owner_pubnonces: Vec<PubNonce> = match owner_pubnonces_hex
+        .iter()
+        .map(|h| {
+            let bytes = hex::decode(h).map_err(|e| format!("Invalid nonce hex: {}", e))?;
+            PubNonce::from_bytes(&bytes).map_err(|e| format!("Invalid nonce: {}", e))
+        })
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(n) => n,
+        Err(e) => return Ok(CcdResult::err(e)),
+    };
+
+    // Parse cosigner response
+    let cosigner_response: NonceResponse = match serde_json::from_str(&cosigner_response_json) {
+        Ok(r) => r,
+        Err(e) => return Ok(CcdResult::err(format!("Invalid cosigner response: {}", e))),
+    };
+
+    // Create challenges (NO secret key)
+    let (sign_challenge, agg_nonces, sighashes) = match orchestrator_create_challenges(
+        &owner_pubnonces,
+        &cosigner_response,
+        &psbt,
+        &session_id,
+    ) {
+        Ok(r) => r,
+        Err(e) => return Ok(CcdResult::err(format!("Challenge creation failed: {}", e))),
+    };
+
+    // Store intermediate state
+    let agg_nonces_hex: Vec<String> = agg_nonces
+        .iter()
+        .map(|n| hex::encode(n.serialize()))
+        .collect();
+    let sighashes_hex: Vec<String> = sighashes.iter().map(hex::encode).collect();
+
+    {
+        let mut ccd = state.ccd.lock().unwrap();
+        if let Some(session) = &mut ccd.signing_session {
+            session.owner_pubnonces_hex = Some(owner_pubnonces_hex);
+            session.agg_nonces_hex = Some(agg_nonces_hex);
+            session.sighashes_hex = Some(sighashes_hex);
+        }
+    }
+
+    // Return challenges for both signing devices
+    let result = serde_json::json!({
+        "sign_challenge": sign_challenge,
+        "owner_challenges": sighashes.iter().zip(agg_nonces.iter()).map(|(sh, an)| {
+            serde_json::json!({
+                "sighash": hex::encode(sh),
+                "agg_nonce": hex::encode(an.serialize()),
+            })
+        }).collect::<Vec<_>>(),
+    });
+
+    Ok(CcdResult::ok(result))
+}
+
+/// Finalize the signing ceremony and broadcast.
+///
+/// Takes partial signatures from both the owner's signing device and
+/// the co-signer. Aggregates them into final Schnorr signatures.
+/// **No secret key is used.** Then broadcasts the signed transaction.
+#[tauri::command]
+pub async fn finalize_and_broadcast(
+    owner_partial_sigs_hex: Vec<String>,
+    cosigner_partials_json: String,
+    state: State<'_, AppState>,
+) -> Result<CcdResult<String>, ()> {
+    use nostring_ccd::blind::{orchestrator_finalize, PartialSignatures};
+
+    // Get session state (with expiry check)
+    let (session_id, psbt, agg_nonces_hex, sighashes_hex) = {
+        let mut ccd = state.ccd.lock().unwrap();
+        match &ccd.signing_session {
+            Some(s) if s.is_expired() => {
+                ccd.signing_session = None;
+                return Ok(CcdResult::err(
+                    "Signing session expired (1 hour timeout). Start a new session.",
+                ));
+            }
+            Some(s) => {
+                let an = match &s.agg_nonces_hex {
+                    Some(v) => v.clone(),
+                    None => {
+                        return Ok(CcdResult::err(
+                            "Nonces not yet submitted. Call submit_nonces first.",
+                        ))
+                    }
+                };
+                let sh = match &s.sighashes_hex {
+                    Some(v) => v.clone(),
+                    None => {
+                        return Ok(CcdResult::err(
+                            "Sighashes not computed. Call submit_nonces first.",
+                        ))
+                    }
+                };
+                (s.session_id.clone(), s.psbt.clone(), an, sh)
+            }
+            None => return Ok(CcdResult::err("No active signing session")),
+        }
+    };
+
+    // Reconstruct AggNonces
+    let agg_nonces: Vec<nostring_ccd::AggNonce> = match agg_nonces_hex
+        .iter()
+        .map(|h| {
+            let bytes = hex::decode(h).map_err(|e| format!("Invalid agg nonce: {}", e))?;
+            nostring_ccd::AggNonce::from_bytes(&bytes)
+                .map_err(|e| format!("Parse agg nonce: {}", e))
+        })
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(n) => n,
+        Err(e) => return Ok(CcdResult::err(e)),
+    };
+
+    // Reconstruct sighashes
+    let sighashes: Vec<[u8; 32]> = match sighashes_hex
+        .iter()
+        .map(|h| {
+            let bytes = hex::decode(h).map_err(|e| format!("Invalid sighash: {}", e))?;
+            if bytes.len() != 32 {
+                return Err(format!("Sighash must be 32 bytes, got {}", bytes.len()));
+            }
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(&bytes);
+            Ok(arr)
+        })
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(s) => s,
+        Err(e) => return Ok(CcdResult::err(e)),
+    };
+
+    // Parse cosigner partials
+    let cosigner_partials: PartialSignatures = match serde_json::from_str(&cosigner_partials_json) {
+        Ok(p) => p,
+        Err(e) => return Ok(CcdResult::err(format!("Invalid cosigner partials: {}", e))),
+    };
+
+    // Get KeyAggContext from vault
+    let key_agg_ctx = {
+        let ccd = state.ccd.lock().unwrap();
+        match &ccd.vault {
+            Some(v) => match v.key_agg_context() {
+                Ok((ctx, _)) => ctx,
+                Err(e) => return Ok(CcdResult::err(format!("Key context error: {}", e))),
+            },
+            None => return Ok(CcdResult::err("No vault available")),
+        }
+    };
+
+    // Finalize (NO secret key)
+    let signed_tx = match orchestrator_finalize(
+        &owner_partial_sigs_hex,
+        &cosigner_partials,
+        &agg_nonces,
+        &key_agg_ctx,
+        &psbt,
+        &session_id,
+        &sighashes,
+    ) {
+        Ok(tx) => tx,
+        Err(e) => return Ok(CcdResult::err(format!("Finalization failed: {}", e))),
+    };
+
+    // Broadcast
+    let electrum_url = state.electrum_url.lock().unwrap().clone();
+    let network = *state.network.lock().unwrap();
+
+    let client = match nostring_electrum::ElectrumClient::new(&electrum_url, network) {
+        Ok(c) => c,
+        Err(e) => return Ok(CcdResult::err(format!("Electrum connection failed: {}", e))),
+    };
+
+    let txid = match client.broadcast(&signed_tx) {
+        Ok(id) => id,
+        Err(e) => return Ok(CcdResult::err(format!("Broadcast failed: {}", e))),
+    };
+
+    // Clear signing session
+    {
+        let mut ccd = state.ccd.lock().unwrap();
+        ccd.signing_session = None;
+    }
+
+    // Log the check-in
+    state.log_checkin(&txid.to_string());
+
+    log::info!("MuSig2 check-in broadcast: {}", txid);
+
+    Ok(CcdResult::ok(txid.to_string()))
+}
+
+/// Clear/abandon an active signing session.
+#[tauri::command]
+pub async fn cancel_signing_session(state: State<'_, AppState>) -> Result<CcdResult<bool>, ()> {
+    let mut ccd = state.ccd.lock().unwrap();
+    let had_session = ccd.signing_session.is_some();
+    ccd.signing_session = None;
+    Ok(CcdResult::ok(had_session))
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -519,5 +884,90 @@ mod tests {
         assert!(!r.success);
         assert!(r.data.is_none());
         assert_eq!(r.error.unwrap(), "bad input");
+    }
+
+    #[test]
+    fn test_signing_session_not_expired() {
+        use crate::state::SigningSession;
+        let session = SigningSession {
+            session_id: "test".to_string(),
+            psbt: bitcoin::psbt::Psbt::deserialize(&[
+                0x70, 0x73, 0x62, 0x74, 0xff, // "psbt" + separator
+                // Minimal valid PSBT: global unsigned tx
+                0x00, // global separator
+            ])
+            .unwrap_or_else(|_| {
+                // Build a minimal PSBT from a transaction
+                let tx = bitcoin::Transaction {
+                    version: bitcoin::transaction::Version(2),
+                    lock_time: bitcoin::locktime::absolute::LockTime::ZERO,
+                    input: vec![],
+                    output: vec![],
+                };
+                bitcoin::psbt::Psbt::from_unsigned_tx(tx).unwrap()
+            }),
+            owner_pubnonces_hex: None,
+            agg_nonces_hex: None,
+            sighashes_hex: None,
+            created_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        };
+        assert!(!session.is_expired());
+    }
+
+    #[test]
+    fn test_signing_session_boundary() {
+        use crate::state::SigningSession;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let make = |offset: u64| {
+            let tx = bitcoin::Transaction {
+                version: bitcoin::transaction::Version(2),
+                lock_time: bitcoin::locktime::absolute::LockTime::ZERO,
+                input: vec![],
+                output: vec![],
+            };
+            SigningSession {
+                session_id: "test".to_string(),
+                psbt: bitcoin::psbt::Psbt::from_unsigned_tx(tx).unwrap(),
+                owner_pubnonces_hex: None,
+                agg_nonces_hex: None,
+                sighashes_hex: None,
+                created_at: offset,
+            }
+        };
+        // 3599 seconds ago = not expired (within 1 hour)
+        let recent = make(now - 3599);
+        assert!(!recent.is_expired());
+        // 3601 seconds ago = expired (past 1 hour)
+        let old = make(now - 3601);
+        assert!(old.is_expired());
+        // Exactly 3600 = not expired (boundary is >)
+        let exact = make(now - 3600);
+        assert!(!exact.is_expired());
+    }
+
+    #[test]
+    fn test_signing_session_expired() {
+        use crate::state::SigningSession;
+        let tx = bitcoin::Transaction {
+            version: bitcoin::transaction::Version(2),
+            lock_time: bitcoin::locktime::absolute::LockTime::ZERO,
+            input: vec![],
+            output: vec![],
+        };
+        let session = SigningSession {
+            session_id: "test".to_string(),
+            psbt: bitcoin::psbt::Psbt::from_unsigned_tx(tx).unwrap(),
+            owner_pubnonces_hex: None,
+            agg_nonces_hex: None,
+            sighashes_hex: None,
+            created_at: 0, // epoch = definitely expired
+        };
+        assert!(session.is_expired());
     }
 }

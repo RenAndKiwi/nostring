@@ -115,6 +115,10 @@ fn main() {
             ccd_commands::create_ccd_vault,
             ccd_commands::build_checkin_psbt,
             ccd_commands::get_heartbeat_status,
+            ccd_commands::start_signing_session,
+            ccd_commands::submit_nonces,
+            ccd_commands::finalize_and_broadcast,
+            ccd_commands::cancel_signing_session,
             // Heir claim
             heir_commands::import_vault_backup,
             heir_commands::verify_heir_identity,
