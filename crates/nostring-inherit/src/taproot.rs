@@ -28,8 +28,9 @@ use thiserror::Error;
 
 use crate::heir::HeirKey;
 use crate::policy::{PathInfo, Timelock};
+use nostring_ccd::compute_tweak;
+use nostring_ccd::musig::musig2_key_agg;
 use nostring_ccd::types::{CcdError, DelegatedKey};
-use nostring_ccd::{aggregate_taproot_key, compute_tweak};
 
 #[derive(Error, Debug)]
 pub enum InheritError {
@@ -53,6 +54,9 @@ pub enum InheritError {
 }
 
 /// An inheritable CCD vault with both key-path and script-path spending.
+///
+/// To sign a key-path spend (check-in), call [`InheritableVault::key_agg_context`]
+/// to get the MuSig2 `KeyAggContext` with the correct taproot tweak applied.
 #[derive(Clone)]
 pub struct InheritableVault {
     // CCD fields
@@ -78,6 +82,45 @@ pub struct InheritableVault {
     /// The final P2TR address (with script commitment)
     pub address: Address,
     pub network: Network,
+}
+
+impl InheritableVault {
+    /// Reconstruct the MuSig2 `KeyAggContext` with the correct taproot tweak.
+    ///
+    /// The returned context is ready for signing key-path spends (check-ins).
+    /// It includes the taproot tweak that commits to the script tree merkle root,
+    /// so signatures produced with this context are valid for the vault's output key.
+    ///
+    /// # Returns
+    /// `(KeyAggContext, XOnlyPublicKey)` — the tweaked context and output key.
+    /// The output key should match `self.taproot_spend_info.output_key()`.
+    pub fn key_agg_context(
+        &self,
+    ) -> Result<(nostring_ccd::KeyAggContext, XOnlyPublicKey), InheritError> {
+        use nostring_ccd::musig::musig2_key_agg_with_merkle_root;
+
+        use bitcoin::hashes::Hash as _;
+        let merkle_root = self.taproot_spend_info.merkle_root().ok_or_else(|| {
+            InheritError::Taproot("vault has no script tree (no merkle root)".into())
+        })?;
+
+        let merkle_bytes = merkle_root.to_byte_array();
+        let (ctx, xonly) = musig2_key_agg_with_merkle_root(
+            &self.owner_pubkey,
+            &self.cosigner_derived_pubkey,
+            &merkle_bytes,
+        )?;
+
+        // Sanity check: the tweaked key must match the vault's output key
+        let output_key = self.taproot_spend_info.output_key().to_x_only_public_key();
+        if xonly.serialize() != output_key.serialize() {
+            return Err(InheritError::Taproot(
+                "MuSig2 tweaked key does not match vault output key".into(),
+            ));
+        }
+
+        Ok((ctx, xonly))
+    }
 }
 
 /// Create an inheritable CCD vault.
@@ -121,7 +164,7 @@ pub fn create_inheritable_vault(
     let cosigner_derived = disclosure.derived_pubkey;
 
     // Internal key = MuSig2 aggregate
-    let aggregate_xonly = aggregate_taproot_key(owner_pubkey, &cosigner_derived)?;
+    let (_key_agg_ctx, aggregate_xonly) = musig2_key_agg(owner_pubkey, &cosigner_derived)?;
 
     // Build Taproot tree from recovery scripts
     let taproot_spend_info = build_taproot_tree(&secp, aggregate_xonly, &recovery_scripts)?;
@@ -277,7 +320,7 @@ pub fn create_cascade_vault(
 
     let disclosure = compute_tweak(delegated, address_index)?;
     let cosigner_derived = disclosure.derived_pubkey;
-    let aggregate_xonly = aggregate_taproot_key(owner_pubkey, &cosigner_derived)?;
+    let (_key_agg_ctx, aggregate_xonly) = musig2_key_agg(owner_pubkey, &cosigner_derived)?;
 
     let taproot_spend_info = build_taproot_tree(&secp, aggregate_xonly, &recovery_scripts)?;
 

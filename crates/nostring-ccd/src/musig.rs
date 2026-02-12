@@ -86,6 +86,37 @@ pub fn musig2_key_agg_tweaked(
     Ok((tweaked_ctx, our_tweaked_xonly))
 }
 
+/// Apply BIP-341 Taproot tweak with a script tree merkle root.
+///
+/// For inheritable vaults: the key-path is MuSig2(owner, cosigner),
+/// and the script tree contains heir recovery paths. The taptweak
+/// commits to both the internal key AND the merkle root:
+///   t = H("TapTweak" || P || merkle_root)
+///   Q = P + t*G
+pub fn musig2_key_agg_with_merkle_root(
+    owner_pubkey: &PublicKey,
+    cosigner_pubkey: &PublicKey,
+    merkle_root: &[u8; 32],
+) -> Result<(KeyAggContext, bitcoin::key::XOnlyPublicKey), CcdError> {
+    let owner_m = pubkey_to_musig(owner_pubkey)?;
+    let cosigner_m = pubkey_to_musig(cosigner_pubkey)?;
+
+    let key_agg_ctx = KeyAggContext::new(vec![owner_m, cosigner_m])
+        .map_err(|e| CcdError::DerivationFailed(format!("key aggregation: {}", e)))?;
+
+    let tweaked_ctx = key_agg_ctx.with_taproot_tweak(merkle_root).map_err(|e| {
+        CcdError::DerivationFailed(format!("taproot tweak with merkle root: {}", e))
+    })?;
+
+    let tweaked_pk: musig2::secp256k1::PublicKey = tweaked_ctx.aggregated_pubkey();
+    let (tweaked_xonly, _) = tweaked_pk.x_only_public_key();
+
+    let our_tweaked_xonly = bitcoin::key::XOnlyPublicKey::from_slice(&tweaked_xonly.serialize())
+        .map_err(|e| CcdError::DerivationFailed(format!("xonly conversion: {}", e)))?;
+
+    Ok((tweaked_ctx, our_tweaked_xonly))
+}
+
 // ─── Nonce Generation ───────────────────────────────────────────────────────
 
 /// Generate a nonce pair (secret + public) for a MuSig2 signing session.

@@ -17,6 +17,9 @@ pub mod transport;
 pub mod types;
 pub mod vault;
 
+// Re-export musig2 types needed by downstream crates (nostring-inherit)
+pub use musig2::KeyAggContext;
+
 use bitcoin::hashes::{sha512, Hash, HashEngine, Hmac, HmacEngine};
 use bitcoin::secp256k1::{PublicKey, Scalar, Secp256k1, SecretKey};
 use types::*;
