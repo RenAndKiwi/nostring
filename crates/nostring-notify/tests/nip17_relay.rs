@@ -45,9 +45,7 @@ async fn test_nip17_dm_roundtrip() {
 
     // Query for gift-wrap events (kind 1059)
     // NIP-59 gift wraps have a `p` tag with the recipient's pubkey
-    let filter = Filter::new()
-        .kind(Kind::GiftWrap)
-        .limit(10);
+    let filter = Filter::new().kind(Kind::GiftWrap).limit(10);
 
     let events = recipient_client
         .fetch_events(filter, Duration::from_secs(3))

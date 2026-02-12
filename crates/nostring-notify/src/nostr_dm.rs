@@ -97,11 +97,7 @@ pub async fn send_dm_to_recipient(
 
     let event_id = output.id();
 
-    log::info!(
-        "NIP-17 DM sent to {} (event: {})",
-        recipient_npub,
-        event_id,
-    );
+    log::info!("NIP-17 DM sent to {} (event: {})", recipient_npub, event_id,);
 
     client.disconnect().await;
     Ok(*event_id)

@@ -324,7 +324,8 @@ impl InheritancePolicy {
     #[allow(clippy::type_complexity)]
     pub fn compile_recovery_tapscripts(
         &self,
-    ) -> Result<Vec<(Timelock, Miniscript<DescriptorPublicKey, miniscript::Tap>)>, PolicyError> {
+    ) -> Result<Vec<(Timelock, Miniscript<DescriptorPublicKey, miniscript::Tap>)>, PolicyError>
+    {
         let mut results = Vec::new();
 
         for (timelock, path_info) in &self.recovery {
@@ -646,7 +647,11 @@ mod tests {
         .unwrap();
 
         let tapscripts = policy.compile_recovery_tapscripts().unwrap();
-        assert_eq!(tapscripts.len(), 2, "cascade should produce 2 tapscript leaves");
+        assert_eq!(
+            tapscripts.len(),
+            2,
+            "cascade should produce 2 tapscript leaves"
+        );
 
         // Should be ordered by ascending timelock (BTreeMap)
         assert!(tapscripts[0].0.blocks() < tapscripts[1].0.blocks());

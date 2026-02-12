@@ -222,18 +222,21 @@ impl InheritableVaultBuilder {
         if self.heir_keys.is_empty() {
             return Err(InheritError::NoHeirs);
         }
-        let timelock = self.timelock.ok_or_else(|| {
-            InheritError::Taproot("timelock is required".into())
-        })?;
+        let timelock = self
+            .timelock
+            .ok_or_else(|| InheritError::Taproot("timelock is required".into()))?;
 
-        let desc_keys: Vec<_> = self.heir_keys.iter().map(|h| h.to_descriptor_key()).collect();
+        let desc_keys: Vec<_> = self
+            .heir_keys
+            .iter()
+            .map(|h| h.to_descriptor_key())
+            .collect();
         let threshold = self.heir_threshold.unwrap_or(desc_keys.len());
 
         let heirs = if desc_keys.len() == 1 {
             PathInfo::Single(desc_keys.into_iter().next().unwrap())
         } else {
-            PathInfo::multi(threshold, desc_keys)
-                .map_err(InheritError::Policy)?
+            PathInfo::multi(threshold, desc_keys).map_err(InheritError::Policy)?
         };
 
         create_inheritable_vault(
@@ -331,10 +334,10 @@ pub fn build_heir_claim_psbt(
         return Err(InheritError::Psbt("no UTXOs provided".into()));
     }
 
-    let (timelock, recovery_script) = vault
-        .recovery_scripts
-        .get(recovery_index)
-        .ok_or_else(|| InheritError::Psbt(format!("recovery index {} out of bounds", recovery_index)))?;
+    let (timelock, recovery_script) =
+        vault.recovery_scripts.get(recovery_index).ok_or_else(|| {
+            InheritError::Psbt(format!("recovery index {} out of bounds", recovery_index))
+        })?;
 
     // Total input value
     let total_in: Amount = utxos.iter().map(|(_, txout)| txout.value).sum();
@@ -384,9 +387,10 @@ pub fn build_heir_claim_psbt(
     for (i, (_, txout)) in utxos.iter().enumerate() {
         psbt.inputs[i].witness_utxo = Some(txout.clone());
 
-        psbt.inputs[i]
-            .tap_scripts
-            .insert(control_block.clone(), (recovery_script.clone(), LeafVersion::TapScript));
+        psbt.inputs[i].tap_scripts.insert(
+            control_block.clone(),
+            (recovery_script.clone(), LeafVersion::TapScript),
+        );
 
         psbt.inputs[i].tap_internal_key = Some(vault.aggregate_xonly);
         psbt.inputs[i].tap_merkle_root = vault.taproot_spend_info.merkle_root();
@@ -399,7 +403,11 @@ pub fn build_heir_claim_psbt(
 ///
 /// Script-path spending is heavier than key-path due to the control block
 /// and script in the witness.
-pub fn estimate_heir_claim_vbytes(num_inputs: usize, num_outputs: usize, tree_depth: usize) -> usize {
+pub fn estimate_heir_claim_vbytes(
+    num_inputs: usize,
+    num_outputs: usize,
+    tree_depth: usize,
+) -> usize {
     // Weight units per input (script-path):
     //   Base: (36+1+4)*4 = 164 WU
     //   Witness: items_count(1) + sig(1+64) + script(~40-100) + control_block(1+33+32*depth)
@@ -439,9 +447,7 @@ fn derive_tapscript(
     impl Translator<DescriptorPublicKey, DefiniteDescriptorKey, InheritError> for KeyDeriver {
         fn pk(&mut self, pk: &DescriptorPublicKey) -> Result<DefiniteDescriptorKey, InheritError> {
             // For multi-path descriptors, pick the receive path (first)
-            let single_keys = pk
-                .clone()
-                .into_single_keys();
+            let single_keys = pk.clone().into_single_keys();
 
             let receive_key = single_keys
                 .into_iter()
@@ -500,14 +506,9 @@ fn build_taproot_tree(
         // otherwise put earlier leaves at lower depth.
         let depths = compute_leaf_depths(scripts.len());
         for (i, (_, script)) in scripts.iter().enumerate() {
-            builder = builder
-                .add_leaf(depths[i], script.clone())
-                .map_err(|e| {
-                    InheritError::Taproot(format!(
-                        "taproot builder error at leaf {}: {}",
-                        i, e
-                    ))
-                })?;
+            builder = builder.add_leaf(depths[i], script.clone()).map_err(|e| {
+                InheritError::Taproot(format!("taproot builder error at leaf {}: {}", i, e))
+            })?;
         }
     }
 
@@ -583,9 +584,9 @@ fn compile_recovery_to_tapscript(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{test_keypair, test_chain_code, test_xpub_str};
-    use bitcoin::secp256k1::Secp256k1;
+    use crate::test_utils::{test_chain_code, test_keypair, test_xpub_str};
     use bitcoin::hashes::Hash as _; // needed for Txid::from_byte_array
+    use bitcoin::secp256k1::Secp256k1;
     use miniscript::descriptor::DescriptorPublicKey;
     use nostring_ccd::register_cosigner_with_chain_code;
     use std::str::FromStr;
@@ -603,15 +604,18 @@ mod tests {
         let heir1 = DescriptorPublicKey::from_str(&format!(
             "[00000002/86'/0'/0']{}/<0;1>/*",
             test_xpub_str()
-        )).unwrap();
+        ))
+        .unwrap();
         let heir2 = DescriptorPublicKey::from_str(&format!(
             "[00000003/86'/0'/1']{}/<0;1>/*",
             test_xpub_str()
-        )).unwrap();
+        ))
+        .unwrap();
         let heir3 = DescriptorPublicKey::from_str(&format!(
             "[00000004/86'/0'/2']{}/<0;1>/*",
             test_xpub_str()
-        )).unwrap();
+        ))
+        .unwrap();
         PathInfo::multi(2, vec![heir1, heir2, heir3]).unwrap()
     }
 
@@ -680,11 +684,13 @@ mod tests {
         let heir1 = DescriptorPublicKey::from_str(&format!(
             "[00000002/86'/0'/0']{}/<0;1>/*",
             test_xpub_str()
-        )).unwrap();
+        ))
+        .unwrap();
         let heir2 = DescriptorPublicKey::from_str(&format!(
             "[00000003/86'/0'/1']{}/<0;1>/*",
             test_xpub_str()
-        )).unwrap();
+        ))
+        .unwrap();
 
         let vault = create_cascade_vault(
             &owner_pk,
@@ -699,7 +705,11 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(vault.recovery_scripts.len(), 2, "cascade should have 2 script leaves");
+        assert_eq!(
+            vault.recovery_scripts.len(),
+            2,
+            "cascade should have 2 script leaves"
+        );
         assert!(vault.address.to_string().starts_with("tb1p"));
     }
 
@@ -710,13 +720,30 @@ mod tests {
         let delegated = register_cosigner_with_chain_code(cosigner_pk, test_chain_code(), "test");
 
         let v1 = create_inheritable_vault(
-            &owner_pk, &delegated, 0, single_heir_path(), Timelock::six_months(), 0, Network::Testnet,
-        ).unwrap();
+            &owner_pk,
+            &delegated,
+            0,
+            single_heir_path(),
+            Timelock::six_months(),
+            0,
+            Network::Testnet,
+        )
+        .unwrap();
         let v2 = create_inheritable_vault(
-            &owner_pk, &delegated, 0, single_heir_path(), Timelock::six_months(), 0, Network::Testnet,
-        ).unwrap();
+            &owner_pk,
+            &delegated,
+            0,
+            single_heir_path(),
+            Timelock::six_months(),
+            0,
+            Network::Testnet,
+        )
+        .unwrap();
 
-        assert_eq!(v1.address, v2.address, "same inputs must produce same address");
+        assert_eq!(
+            v1.address, v2.address,
+            "same inputs must produce same address"
+        );
     }
 
     #[test]
@@ -726,13 +753,30 @@ mod tests {
         let delegated = register_cosigner_with_chain_code(cosigner_pk, test_chain_code(), "test");
 
         let v1 = create_inheritable_vault(
-            &owner_pk, &delegated, 0, single_heir_path(), Timelock::six_months(), 0, Network::Testnet,
-        ).unwrap();
+            &owner_pk,
+            &delegated,
+            0,
+            single_heir_path(),
+            Timelock::six_months(),
+            0,
+            Network::Testnet,
+        )
+        .unwrap();
         let v2 = create_inheritable_vault(
-            &owner_pk, &delegated, 0, single_heir_path(), Timelock::one_year(), 0, Network::Testnet,
-        ).unwrap();
+            &owner_pk,
+            &delegated,
+            0,
+            single_heir_path(),
+            Timelock::one_year(),
+            0,
+            Network::Testnet,
+        )
+        .unwrap();
 
-        assert_ne!(v1.address, v2.address, "different timelocks must produce different addresses");
+        assert_ne!(
+            v1.address, v2.address,
+            "different timelocks must produce different addresses"
+        );
     }
 
     #[test]
@@ -742,9 +786,17 @@ mod tests {
         let delegated = register_cosigner_with_chain_code(cosigner_pk, test_chain_code(), "test");
 
         let inheritable = create_inheritable_vault(
-            &owner_pk, &delegated, 0, single_heir_path(), Timelock::six_months(), 0, Network::Testnet,
-        ).unwrap();
-        let plain = nostring_ccd::vault::create_vault(&owner_pk, &delegated, 0, Network::Testnet).unwrap();
+            &owner_pk,
+            &delegated,
+            0,
+            single_heir_path(),
+            Timelock::six_months(),
+            0,
+            Network::Testnet,
+        )
+        .unwrap();
+        let plain =
+            nostring_ccd::vault::create_vault(&owner_pk, &delegated, 0, Network::Testnet).unwrap();
 
         assert_ne!(
             inheritable.address, plain.address,
@@ -759,8 +811,15 @@ mod tests {
         let delegated = register_cosigner_with_chain_code(cosigner_pk, test_chain_code(), "test");
 
         let vault = create_inheritable_vault(
-            &owner_pk, &delegated, 0, single_heir_path(), Timelock::six_months(), 0, Network::Testnet,
-        ).unwrap();
+            &owner_pk,
+            &delegated,
+            0,
+            single_heir_path(),
+            Timelock::six_months(),
+            0,
+            Network::Testnet,
+        )
+        .unwrap();
 
         let secp = Secp256k1::new();
         let output_key = vault.taproot_spend_info.output_key();
@@ -777,7 +836,12 @@ mod tests {
         );
 
         // Verify p2tr(internal, merkle_root) matches
-        let addr_rebuilt = Address::p2tr(&secp, vault.aggregate_xonly, vault.taproot_spend_info.merkle_root(), vault.network);
+        let addr_rebuilt = Address::p2tr(
+            &secp,
+            vault.aggregate_xonly,
+            vault.taproot_spend_info.merkle_root(),
+            vault.network,
+        );
         assert_eq!(vault.address, addr_rebuilt);
     }
 
@@ -788,8 +852,15 @@ mod tests {
         let delegated = register_cosigner_with_chain_code(cosigner_pk, test_chain_code(), "test");
 
         let vault = create_inheritable_vault(
-            &owner_pk, &delegated, 0, single_heir_path(), Timelock::six_months(), 0, Network::Testnet,
-        ).unwrap();
+            &owner_pk,
+            &delegated,
+            0,
+            single_heir_path(),
+            Timelock::six_months(),
+            0,
+            Network::Testnet,
+        )
+        .unwrap();
 
         let outpoint = bitcoin::OutPoint {
             txid: bitcoin::Txid::from_byte_array([0xAA; 32]),
@@ -803,14 +874,30 @@ mod tests {
         let dest_xonly = dest_pk.x_only_public_key().0;
         let destination = Address::p2tr(&secp, dest_xonly, None, Network::Testnet);
 
-        let psbt = build_heir_claim_psbt(&vault, 0, &[(outpoint, TxOut { value: utxo_value, script_pubkey: vault.address.script_pubkey() })], &destination, fee).unwrap();
+        let psbt = build_heir_claim_psbt(
+            &vault,
+            0,
+            &[(
+                outpoint,
+                TxOut {
+                    value: utxo_value,
+                    script_pubkey: vault.address.script_pubkey(),
+                },
+            )],
+            &destination,
+            fee,
+        )
+        .unwrap();
 
         assert_eq!(psbt.unsigned_tx.input.len(), 1);
         assert_eq!(psbt.unsigned_tx.output.len(), 1);
         assert_eq!(psbt.unsigned_tx.output[0].value, utxo_value - fee);
 
         // CSV sequence set
-        assert_eq!(psbt.unsigned_tx.input[0].sequence, Sequence::from_height(Timelock::six_months().blocks()));
+        assert_eq!(
+            psbt.unsigned_tx.input[0].sequence,
+            Sequence::from_height(Timelock::six_months().blocks())
+        );
 
         // Tap scripts populated
         assert!(!psbt.inputs[0].tap_scripts.is_empty());
@@ -825,28 +912,52 @@ mod tests {
         let delegated = register_cosigner_with_chain_code(cosigner_pk, test_chain_code(), "test");
 
         let vault = create_inheritable_vault(
-            &owner_pk, &delegated, 0, single_heir_path(), Timelock::six_months(), 0, Network::Testnet,
-        ).unwrap();
+            &owner_pk,
+            &delegated,
+            0,
+            single_heir_path(),
+            Timelock::six_months(),
+            0,
+            Network::Testnet,
+        )
+        .unwrap();
 
         let utxos = vec![
             (
-                bitcoin::OutPoint { txid: bitcoin::Txid::from_byte_array([0xAA; 32]), vout: 0 },
-                TxOut { value: Amount::from_sat(50_000), script_pubkey: vault.address.script_pubkey() },
+                bitcoin::OutPoint {
+                    txid: bitcoin::Txid::from_byte_array([0xAA; 32]),
+                    vout: 0,
+                },
+                TxOut {
+                    value: Amount::from_sat(50_000),
+                    script_pubkey: vault.address.script_pubkey(),
+                },
             ),
             (
-                bitcoin::OutPoint { txid: bitcoin::Txid::from_byte_array([0xBB; 32]), vout: 1 },
-                TxOut { value: Amount::from_sat(30_000), script_pubkey: vault.address.script_pubkey() },
+                bitcoin::OutPoint {
+                    txid: bitcoin::Txid::from_byte_array([0xBB; 32]),
+                    vout: 1,
+                },
+                TxOut {
+                    value: Amount::from_sat(30_000),
+                    script_pubkey: vault.address.script_pubkey(),
+                },
             ),
         ];
 
         let secp = Secp256k1::new();
         let (_, dest_pk) = test_keypair(99);
-        let destination = Address::p2tr(&secp, dest_pk.x_only_public_key().0, None, Network::Testnet);
+        let destination =
+            Address::p2tr(&secp, dest_pk.x_only_public_key().0, None, Network::Testnet);
 
-        let psbt = build_heir_claim_psbt(&vault, 0, &utxos, &destination, Amount::from_sat(600)).unwrap();
+        let psbt =
+            build_heir_claim_psbt(&vault, 0, &utxos, &destination, Amount::from_sat(600)).unwrap();
 
         assert_eq!(psbt.unsigned_tx.input.len(), 2);
-        assert_eq!(psbt.unsigned_tx.output[0].value.to_sat(), 50_000 + 30_000 - 600);
+        assert_eq!(
+            psbt.unsigned_tx.output[0].value.to_sat(),
+            50_000 + 30_000 - 600
+        );
 
         // Both inputs should have tap scripts
         for input in &psbt.inputs {
@@ -862,19 +973,33 @@ mod tests {
         let delegated = register_cosigner_with_chain_code(cosigner_pk, test_chain_code(), "test");
 
         let vault = create_inheritable_vault(
-            &owner_pk, &delegated, 0, single_heir_path(), Timelock::six_months(), 0, Network::Testnet,
-        ).unwrap();
+            &owner_pk,
+            &delegated,
+            0,
+            single_heir_path(),
+            Timelock::six_months(),
+            0,
+            Network::Testnet,
+        )
+        .unwrap();
 
         let secp = Secp256k1::new();
         let (_, dest_pk) = test_keypair(99);
-        let destination = Address::p2tr(&secp, dest_pk.x_only_public_key().0, None, Network::Testnet);
+        let destination =
+            Address::p2tr(&secp, dest_pk.x_only_public_key().0, None, Network::Testnet);
 
         let result = build_heir_claim_psbt(
             &vault,
             0,
             &[(
-                bitcoin::OutPoint { txid: bitcoin::Txid::from_byte_array([0xAA; 32]), vout: 0 },
-                TxOut { value: Amount::from_sat(500), script_pubkey: vault.address.script_pubkey() },
+                bitcoin::OutPoint {
+                    txid: bitcoin::Txid::from_byte_array([0xAA; 32]),
+                    vout: 0,
+                },
+                TxOut {
+                    value: Amount::from_sat(500),
+                    script_pubkey: vault.address.script_pubkey(),
+                },
             )],
             &destination,
             Amount::from_sat(1000),
@@ -889,20 +1014,34 @@ mod tests {
         let delegated = register_cosigner_with_chain_code(cosigner_pk, test_chain_code(), "test");
 
         let vault = create_inheritable_vault(
-            &owner_pk, &delegated, 0, single_heir_path(), Timelock::six_months(), 0, Network::Testnet,
-        ).unwrap();
+            &owner_pk,
+            &delegated,
+            0,
+            single_heir_path(),
+            Timelock::six_months(),
+            0,
+            Network::Testnet,
+        )
+        .unwrap();
 
         let secp = Secp256k1::new();
         let (_, dest_pk) = test_keypair(99);
-        let destination = Address::p2tr(&secp, dest_pk.x_only_public_key().0, None, Network::Testnet);
+        let destination =
+            Address::p2tr(&secp, dest_pk.x_only_public_key().0, None, Network::Testnet);
 
         // 600 sat - 500 fee = 100 sat (below dust)
         let result = build_heir_claim_psbt(
             &vault,
             0,
             &[(
-                bitcoin::OutPoint { txid: bitcoin::Txid::from_byte_array([0xAA; 32]), vout: 0 },
-                TxOut { value: Amount::from_sat(600), script_pubkey: vault.address.script_pubkey() },
+                bitcoin::OutPoint {
+                    txid: bitcoin::Txid::from_byte_array([0xAA; 32]),
+                    vout: 0,
+                },
+                TxOut {
+                    value: Amount::from_sat(600),
+                    script_pubkey: vault.address.script_pubkey(),
+                },
             )],
             &destination,
             Amount::from_sat(500),
@@ -917,12 +1056,20 @@ mod tests {
         let delegated = register_cosigner_with_chain_code(cosigner_pk, test_chain_code(), "test");
 
         let vault = create_inheritable_vault(
-            &owner_pk, &delegated, 0, single_heir_path(), Timelock::six_months(), 0, Network::Testnet,
-        ).unwrap();
+            &owner_pk,
+            &delegated,
+            0,
+            single_heir_path(),
+            Timelock::six_months(),
+            0,
+            Network::Testnet,
+        )
+        .unwrap();
 
         let secp = Secp256k1::new();
         let (_, dest_pk) = test_keypair(99);
-        let destination = Address::p2tr(&secp, dest_pk.x_only_public_key().0, None, Network::Testnet);
+        let destination =
+            Address::p2tr(&secp, dest_pk.x_only_public_key().0, None, Network::Testnet);
 
         let result = build_heir_claim_psbt(&vault, 0, &[], &destination, Amount::from_sat(500));
         assert!(result.is_err());
@@ -935,20 +1082,34 @@ mod tests {
         let delegated = register_cosigner_with_chain_code(cosigner_pk, test_chain_code(), "test");
 
         let vault = create_inheritable_vault(
-            &owner_pk, &delegated, 0, single_heir_path(), Timelock::six_months(), 0, Network::Testnet,
-        ).unwrap();
+            &owner_pk,
+            &delegated,
+            0,
+            single_heir_path(),
+            Timelock::six_months(),
+            0,
+            Network::Testnet,
+        )
+        .unwrap();
 
         let secp = Secp256k1::new();
         let (_, dest_pk) = test_keypair(99);
-        let destination = Address::p2tr(&secp, dest_pk.x_only_public_key().0, None, Network::Testnet);
+        let destination =
+            Address::p2tr(&secp, dest_pk.x_only_public_key().0, None, Network::Testnet);
 
         // Recovery index 1 doesn't exist for single-heir vault
         let result = build_heir_claim_psbt(
             &vault,
             1,
             &[(
-                bitcoin::OutPoint { txid: bitcoin::Txid::from_byte_array([0xAA; 32]), vout: 0 },
-                TxOut { value: Amount::from_sat(10_000), script_pubkey: vault.address.script_pubkey() },
+                bitcoin::OutPoint {
+                    txid: bitcoin::Txid::from_byte_array([0xAA; 32]),
+                    vout: 0,
+                },
+                TxOut {
+                    value: Amount::from_sat(10_000),
+                    script_pubkey: vault.address.script_pubkey(),
+                },
             )],
             &destination,
             Amount::from_sat(500),
@@ -963,8 +1124,15 @@ mod tests {
         let delegated = register_cosigner_with_chain_code(cosigner_pk, test_chain_code(), "test");
 
         let vault = create_inheritable_vault(
-            &owner_pk, &delegated, 0, single_heir_path(), Timelock::six_months(), 0, Network::Testnet,
-        ).unwrap();
+            &owner_pk,
+            &delegated,
+            0,
+            single_heir_path(),
+            Timelock::six_months(),
+            0,
+            Network::Testnet,
+        )
+        .unwrap();
 
         let asm = vault.recovery_scripts[0].1.to_asm_string();
         assert!(
@@ -987,14 +1155,20 @@ mod tests {
         let delegated = register_cosigner_with_chain_code(cosigner_pk, test_chain_code(), "test");
 
         let heir1 = DescriptorPublicKey::from_str(&format!(
-            "[00000002/86'/0'/0']{}/<0;1>/*", test_xpub_str()
-        )).unwrap();
+            "[00000002/86'/0'/0']{}/<0;1>/*",
+            test_xpub_str()
+        ))
+        .unwrap();
         let heir2 = DescriptorPublicKey::from_str(&format!(
-            "[00000003/86'/0'/1']{}/<0;1>/*", test_xpub_str()
-        )).unwrap();
+            "[00000003/86'/0'/1']{}/<0;1>/*",
+            test_xpub_str()
+        ))
+        .unwrap();
         let heir3 = DescriptorPublicKey::from_str(&format!(
-            "[00000004/86'/0'/2']{}/<0;1>/*", test_xpub_str()
-        )).unwrap();
+            "[00000004/86'/0'/2']{}/<0;1>/*",
+            test_xpub_str()
+        ))
+        .unwrap();
 
         let vault = create_cascade_vault(
             &owner_pk,
@@ -1030,9 +1204,7 @@ mod tests {
         // Use a concrete single-key DescriptorPublicKey (no xpub/wildcard)
         // so the compiled script contains a real x-only key we can sign with.
         let heir_xonly = heir_pk.x_only_public_key().0;
-        let heir_desc_key = DescriptorPublicKey::from_str(&format!(
-            "{}", heir_xonly
-        )).unwrap();
+        let heir_desc_key = DescriptorPublicKey::from_str(&format!("{}", heir_xonly)).unwrap();
 
         let vault = create_inheritable_vault(
             &owner_pk,
@@ -1164,11 +1336,15 @@ mod tests {
         let heir_desc_key = DescriptorPublicKey::from_str(&format!("{}", heir_xonly)).unwrap();
 
         let vault = create_inheritable_vault(
-            &owner_pk, &delegated, 0,
+            &owner_pk,
+            &delegated,
+            0,
             PathInfo::Single(heir_desc_key),
             Timelock::from_blocks(1).unwrap(), // 1 block for testability
-            0, Network::Testnet,
-        ).unwrap();
+            0,
+            Network::Testnet,
+        )
+        .unwrap();
 
         // Create a fake funding UTXO
         let utxo_value = Amount::from_sat(50_000);
@@ -1186,11 +1362,13 @@ mod tests {
         let destination = Address::p2tr(&secp, heir_xonly, None, Network::Testnet);
 
         let psbt = build_heir_claim_psbt(
-            &vault, 0,
+            &vault,
+            0,
             &[(outpoint, utxo_txout.clone())],
             &destination,
             Amount::from_sat(300),
-        ).unwrap();
+        )
+        .unwrap();
 
         // Sign
         let recovery_script = &vault.recovery_scripts[0].1;
@@ -1198,13 +1376,19 @@ mod tests {
         let mut sighash_cache = SighashCache::new(&psbt.unsigned_tx);
         let prevouts = Prevouts::All(&[utxo_txout.clone()]);
         let sighash = sighash_cache
-            .taproot_script_spend_signature_hash(0, &prevouts, leaf_hash, bitcoin::TapSighashType::Default)
+            .taproot_script_spend_signature_hash(
+                0,
+                &prevouts,
+                leaf_hash,
+                bitcoin::TapSighashType::Default,
+            )
             .unwrap();
         let msg = bitcoin::secp256k1::Message::from_digest(*sighash.as_byte_array());
         let keypair = Keypair::from_secret_key(&secp, &heir_sk);
         let schnorr_sig = secp.sign_schnorr(&msg, &keypair);
 
-        let control_block = vault.taproot_spend_info
+        let control_block = vault
+            .taproot_spend_info
             .control_block(&(recovery_script.clone(), LeafVersion::TapScript))
             .unwrap();
 
@@ -1274,10 +1458,15 @@ mod tests {
         let heirs = PathInfo::multi(2, vec![h1_desc, h2_desc, h3_desc]).unwrap();
 
         let vault = create_inheritable_vault(
-            &owner_pk, &delegated, 0, heirs,
+            &owner_pk,
+            &delegated,
+            0,
+            heirs,
             Timelock::from_blocks(1).unwrap(),
-            0, Network::Testnet,
-        ).unwrap();
+            0,
+            Network::Testnet,
+        )
+        .unwrap();
 
         let utxo_value = Amount::from_sat(50_000);
         let utxo_txout = TxOut {
@@ -1293,11 +1482,13 @@ mod tests {
         let destination = Address::p2tr(&secp, h1_xonly, None, Network::Testnet);
 
         let psbt = build_heir_claim_psbt(
-            &vault, 0,
+            &vault,
+            0,
             &[(outpoint, utxo_txout.clone())],
             &destination,
             Amount::from_sat(300),
-        ).unwrap();
+        )
+        .unwrap();
 
         // Sign with heirs 1 and 2 (threshold = 2)
         let recovery_script = &vault.recovery_scripts[0].1;
@@ -1305,22 +1496,34 @@ mod tests {
         let mut sighash_cache = SighashCache::new(&psbt.unsigned_tx);
         let prevouts = Prevouts::All(&[utxo_txout.clone()]);
         let sighash = sighash_cache
-            .taproot_script_spend_signature_hash(0, &prevouts, leaf_hash, bitcoin::TapSighashType::Default)
+            .taproot_script_spend_signature_hash(
+                0,
+                &prevouts,
+                leaf_hash,
+                bitcoin::TapSighashType::Default,
+            )
             .unwrap();
         let msg = bitcoin::secp256k1::Message::from_digest(*sighash.as_byte_array());
 
         let sig1 = secp.sign_schnorr(&msg, &Keypair::from_secret_key(&secp, &heir1_sk));
         let sig2 = secp.sign_schnorr(&msg, &Keypair::from_secret_key(&secp, &heir2_sk));
 
-        let tap_sig1 = Signature { signature: sig1, sighash_type: bitcoin::TapSighashType::Default };
-        let tap_sig2 = Signature { signature: sig2, sighash_type: bitcoin::TapSighashType::Default };
+        let tap_sig1 = Signature {
+            signature: sig1,
+            sighash_type: bitcoin::TapSighashType::Default,
+        };
+        let tap_sig2 = Signature {
+            signature: sig2,
+            sighash_type: bitcoin::TapSighashType::Default,
+        };
 
         // Build witness for multi_a(2, key1, key2, key3):
         // Witness stack (bottom to top): [sig_for_key3_or_empty, sig_for_key2, sig_for_key1, script, control_block]
         // For multi_a, keys are checked in order. Provide sigs for keys that sign,
         // empty byte vec for keys that don't.
         // Key order in script: h1, h2, h3. We sign with h1 and h2, skip h3.
-        let control_block = vault.taproot_spend_info
+        let control_block = vault
+            .taproot_spend_info
             .control_block(&(recovery_script.clone(), LeafVersion::TapScript))
             .unwrap();
 
@@ -1385,7 +1588,12 @@ mod tests {
         let delegated = register_cosigner_with_chain_code(cosigner_pk, test_chain_code(), "test");
 
         let xpub = Xpub::from_str(test_xpub_str()).unwrap();
-        let heir = HeirKey::new("Alice", Fingerprint::from_str("00000002").unwrap(), xpub, None);
+        let heir = HeirKey::new(
+            "Alice",
+            Fingerprint::from_str("00000002").unwrap(),
+            xpub,
+            None,
+        );
 
         let vault = InheritableVaultBuilder::new(owner_pk, delegated, Network::Testnet)
             .heir(heir)
@@ -1407,9 +1615,24 @@ mod tests {
         let delegated = register_cosigner_with_chain_code(cosigner_pk, test_chain_code(), "test");
 
         let xpub = Xpub::from_str(test_xpub_str()).unwrap();
-        let alice = HeirKey::new("Alice", Fingerprint::from_str("00000002").unwrap(), xpub, None);
-        let bob = HeirKey::new("Bob", Fingerprint::from_str("00000003").unwrap(), xpub, None);
-        let carol = HeirKey::new("Carol", Fingerprint::from_str("00000004").unwrap(), xpub, None);
+        let alice = HeirKey::new(
+            "Alice",
+            Fingerprint::from_str("00000002").unwrap(),
+            xpub,
+            None,
+        );
+        let bob = HeirKey::new(
+            "Bob",
+            Fingerprint::from_str("00000003").unwrap(),
+            xpub,
+            None,
+        );
+        let carol = HeirKey::new(
+            "Carol",
+            Fingerprint::from_str("00000004").unwrap(),
+            xpub,
+            None,
+        );
 
         let vault = InheritableVaultBuilder::new(owner_pk, delegated, Network::Testnet)
             .heir(alice)
@@ -1429,8 +1652,7 @@ mod tests {
         let (_cosigner_sk, cosigner_pk) = test_keypair(2);
         let delegated = register_cosigner_with_chain_code(cosigner_pk, test_chain_code(), "test");
 
-        let result = InheritableVaultBuilder::new(owner_pk, delegated, Network::Testnet)
-            .build();
+        let result = InheritableVaultBuilder::new(owner_pk, delegated, Network::Testnet).build();
 
         assert!(result.is_err(), "should fail with no heirs");
     }
@@ -1458,8 +1680,18 @@ mod tests {
         let delegated = register_cosigner_with_chain_code(cosigner_pk, test_chain_code(), "test");
 
         let xpub = Xpub::from_str(test_xpub_str()).unwrap();
-        let alice = HeirKey::new("Alice", Fingerprint::from_str("00000002").unwrap(), xpub, None);
-        let bob = HeirKey::new("Bob", Fingerprint::from_str("00000003").unwrap(), xpub, None);
+        let alice = HeirKey::new(
+            "Alice",
+            Fingerprint::from_str("00000002").unwrap(),
+            xpub,
+            None,
+        );
+        let bob = HeirKey::new(
+            "Bob",
+            Fingerprint::from_str("00000003").unwrap(),
+            xpub,
+            None,
+        );
 
         // No .threshold() call — should default to requiring all heirs (2-of-2)
         let vault = InheritableVaultBuilder::new(owner_pk, delegated.clone(), Network::Testnet)
@@ -1478,13 +1710,20 @@ mod tests {
             .build()
             .unwrap();
 
-        assert_eq!(vault.address, vault2.address, "default threshold should equal explicit all-required");
+        assert_eq!(
+            vault.address, vault2.address,
+            "default threshold should equal explicit all-required"
+        );
     }
 
     #[test]
     fn test_estimate_vbytes() {
         let vbytes_single = estimate_heir_claim_vbytes(1, 1, 0);
-        assert!(vbytes_single > 100 && vbytes_single < 250, "1-in-1-out: {}", vbytes_single);
+        assert!(
+            vbytes_single > 100 && vbytes_single < 250,
+            "1-in-1-out: {}",
+            vbytes_single
+        );
 
         let vbytes_deep = estimate_heir_claim_vbytes(1, 1, 3);
         assert!(vbytes_deep > vbytes_single, "deeper tree should be heavier");

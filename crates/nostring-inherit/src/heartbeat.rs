@@ -182,9 +182,7 @@ pub fn evaluate_batch(
 ) -> Vec<HeartbeatStatus> {
     let mut statuses: Vec<HeartbeatStatus> = vaults
         .iter()
-        .map(|(vault, utxo_height)| {
-            evaluate_heartbeat(vault, *utxo_height, current_height, config)
-        })
+        .map(|(vault, utxo_height)| evaluate_heartbeat(vault, *utxo_height, current_height, config))
         .collect();
 
     // Sort: Expired first, then CheckinRequired, then CheckinRecommended, then Healthy
@@ -197,9 +195,12 @@ pub fn evaluate_batch(
                 HeartbeatAction::Healthy => 3,
             }
         };
-        priority(&a.action)
-            .cmp(&priority(&b.action))
-            .then(a.elapsed_fraction.partial_cmp(&b.elapsed_fraction).unwrap_or(std::cmp::Ordering::Equal).reverse())
+        priority(&a.action).cmp(&priority(&b.action)).then(
+            a.elapsed_fraction
+                .partial_cmp(&b.elapsed_fraction)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .reverse(),
+        )
     });
 
     statuses
@@ -209,7 +210,7 @@ pub fn evaluate_batch(
 mod tests {
     use super::*;
     use crate::policy::PathInfo;
-    use crate::test_utils::{make_test_vault, test_keypair, test_chain_code};
+    use crate::test_utils::{make_test_vault, test_chain_code, test_keypair};
     use bitcoin::Network;
     use miniscript::descriptor::DescriptorPublicKey;
     use nostring_ccd::register_cosigner_with_chain_code;
@@ -230,7 +231,7 @@ mod tests {
     fn test_checkin_recommended() {
         let vault = make_test_vault(1000);
         let config = HeartbeatConfig::default(); // threshold at 0.5
-        // 600 of 1000 blocks elapsed = 0.6
+                                                 // 600 of 1000 blocks elapsed = 0.6
         let status = evaluate_heartbeat(&vault, 100, 700, &config);
 
         assert_eq!(status.action, HeartbeatAction::CheckinRecommended);
@@ -241,7 +242,7 @@ mod tests {
     fn test_checkin_required() {
         let vault = make_test_vault(1000);
         let config = HeartbeatConfig::default(); // critical at 0.9
-        // 950 of 1000 blocks elapsed = 0.95
+                                                 // 950 of 1000 blocks elapsed = 0.95
         let status = evaluate_heartbeat(&vault, 100, 1050, &config);
 
         assert_eq!(status.action, HeartbeatAction::CheckinRequired);
@@ -273,7 +274,7 @@ mod tests {
     fn test_exactly_at_checkin_threshold() {
         let vault = make_test_vault(1000);
         let config = HeartbeatConfig::default(); // threshold at 0.5
-        // Exactly 500 of 1000 = 0.5
+                                                 // Exactly 500 of 1000 = 0.5
         let status = evaluate_heartbeat(&vault, 100, 600, &config);
 
         assert_eq!(status.action, HeartbeatAction::CheckinRecommended);
@@ -283,7 +284,7 @@ mod tests {
     fn test_exactly_at_critical_threshold() {
         let vault = make_test_vault(1000);
         let config = HeartbeatConfig::default(); // critical at 0.9
-        // Exactly 900 of 1000 = 0.9
+                                                 // Exactly 900 of 1000 = 0.9
         let status = evaluate_heartbeat(&vault, 100, 1000, &config);
 
         assert_eq!(status.action, HeartbeatAction::CheckinRequired);
@@ -337,9 +338,18 @@ mod tests {
     #[test]
     fn test_action_to_urgency() {
         assert_eq!(HeartbeatAction::Healthy.to_urgency(), CheckinUrgency::None);
-        assert_eq!(HeartbeatAction::CheckinRecommended.to_urgency(), CheckinUrgency::Warning);
-        assert_eq!(HeartbeatAction::CheckinRequired.to_urgency(), CheckinUrgency::Critical);
-        assert_eq!(HeartbeatAction::Expired.to_urgency(), CheckinUrgency::Expired);
+        assert_eq!(
+            HeartbeatAction::CheckinRecommended.to_urgency(),
+            CheckinUrgency::Warning
+        );
+        assert_eq!(
+            HeartbeatAction::CheckinRequired.to_urgency(),
+            CheckinUrgency::Critical
+        );
+        assert_eq!(
+            HeartbeatAction::Expired.to_urgency(),
+            CheckinUrgency::Expired
+        );
     }
 
     #[test]
@@ -350,9 +360,9 @@ mod tests {
         let config = HeartbeatConfig::default();
 
         let vaults = vec![
-            (vault1, 500),  // healthy (current_height - 500 = 100 blocks elapsed)
-            (vault2, 100),  // critical (500 blocks elapsed = 0.5, recommended)
-            (vault3, 0),    // expired (600 blocks elapsed > 1000? No, 600/1000=0.6 recommended)
+            (vault1, 500), // healthy (current_height - 500 = 100 blocks elapsed)
+            (vault2, 100), // critical (500 blocks elapsed = 0.5, recommended)
+            (vault3, 0),   // expired (600 blocks elapsed > 1000? No, 600/1000=0.6 recommended)
         ];
 
         // current_height = 600
@@ -392,13 +402,17 @@ mod tests {
         let six_months = Timelock::six_months(); // 26,280 blocks
 
         let vault = create_cascade_vault(
-            &owner_pk, &delegated, 0,
+            &owner_pk,
+            &delegated,
+            0,
             vec![
                 (three_months, PathInfo::Single(h1_desc)),
                 (six_months, PathInfo::Single(h2_desc)),
             ],
-            0, Network::Testnet,
-        ).unwrap();
+            0,
+            Network::Testnet,
+        )
+        .unwrap();
 
         // Vault's primary timelock should be 3 months (earliest)
         assert_eq!(vault.timelock.blocks(), 13_140);

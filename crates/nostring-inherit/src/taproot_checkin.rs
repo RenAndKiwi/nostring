@@ -167,8 +167,7 @@ pub fn build_taproot_checkin_psbt(
         psbt.inputs[i].witness_utxo = Some(txout.clone());
 
         // tap_internal_key: the untweaked MuSig2 aggregate key
-        psbt.inputs[i].tap_internal_key =
-            Some(config.vault.taproot_spend_info.internal_key());
+        psbt.inputs[i].tap_internal_key = Some(config.vault.taproot_spend_info.internal_key());
 
         // tap_merkle_root: so the signer can compute the correct taptweak
         psbt.inputs[i].tap_merkle_root = config.vault.taproot_spend_info.merkle_root();
@@ -294,10 +293,7 @@ mod tests {
         let result = build_taproot_checkin_psbt(&config).unwrap();
 
         assert_eq!(result.psbt.unsigned_tx.input.len(), 2);
-        assert_eq!(
-            result.checkin_amount + result.fee,
-            Amount::from_sat(70_000)
-        );
+        assert_eq!(result.checkin_amount + result.fee, Amount::from_sat(70_000));
     }
 
     #[test]
