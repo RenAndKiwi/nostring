@@ -276,7 +276,7 @@ async fn deliver_to_heirs(config: &ServerConfig) {
             match nostring_notify::nostr_dm::send_dm_to_recipient(service_key, npub, &relays, &msg)
                 .await
             {
-                Ok(()) => log::info!("✅ Descriptor delivered to {} via Nostr", heir.label),
+                Ok(_event_id) => log::info!("✅ Descriptor delivered to {} via Nostr", heir.label),
                 Err(e) => log::error!("❌ Nostr delivery to {} failed: {}", heir.label, e),
             }
         }
