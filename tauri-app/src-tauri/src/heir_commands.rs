@@ -60,9 +60,55 @@ pub struct VaultBackup {
     pub heirs: Vec<HeirBackupEntry>,
     /// The vault's P2TR address (for verification)
     pub vault_address: String,
+    /// Taproot internal key (hex, x-only aggregate pubkey before taptweak)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub taproot_internal_key: Option<String>,
+    /// Precompiled recovery scripts with control blocks (one per Tapscript leaf)
+    /// Heir app uses these to build script-path claim PSBTs without recompiling miniscript.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recovery_leaves: Vec<RecoveryLeaf>,
     /// ISO-8601 creation timestamp
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
+}
+
+/// Extract precompiled recovery leaves from a vault.
+fn extract_recovery_leaves(
+    vault: &nostring_inherit::taproot::InheritableVault,
+) -> Vec<RecoveryLeaf> {
+    use bitcoin::taproot::LeafVersion;
+    vault
+        .recovery_scripts
+        .iter()
+        .enumerate()
+        .filter_map(|(i, (timelock, script))| {
+            let cb = vault
+                .taproot_spend_info
+                .control_block(&(script.clone(), LeafVersion::TapScript))?;
+            Some(RecoveryLeaf {
+                leaf_index: i,
+                script_hex: hex::encode(script.as_bytes()),
+                control_block_hex: hex::encode(cb.serialize()),
+                timelock_blocks: timelock.blocks(),
+                leaf_version: LeafVersion::TapScript.to_consensus(),
+            })
+        })
+        .collect()
+}
+
+/// Precompiled Tapscript leaf — everything the heir needs to build a script-path spend.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecoveryLeaf {
+    /// Index into this vec (matches heir's recovery_index)
+    pub leaf_index: usize,
+    /// Compiled miniscript as hex (the actual Script bytes)
+    pub script_hex: String,
+    /// Taproot control block for this leaf (hex)
+    pub control_block_hex: String,
+    /// CSV timelock value for this spending path
+    pub timelock_blocks: u16,
+    /// Tapscript leaf version (0xc0)
+    pub leaf_version: u8,
 }
 
 /// Per-heir entry in the backup.
@@ -833,6 +879,8 @@ pub async fn export_vault_backup(state: State<'_, AppState>) -> Result<CcdResult
         },
         heirs,
         vault_address: vault.address.to_string(),
+        taproot_internal_key: Some(hex::encode(vault.aggregate_xonly.serialize())),
+        recovery_leaves: extract_recovery_leaves(&vault),
         created_at: Some({
             let secs = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -993,6 +1041,9 @@ fn build_vault_backup(
         _ => "unknown",
     };
 
+    let recovery_leaves = extract_recovery_leaves(vault);
+    let internal_key_hex = hex::encode(vault.aggregate_xonly.serialize());
+
     Ok(VaultBackup {
         version: 1,
         network: network_str.to_string(),
@@ -1004,6 +1055,8 @@ fn build_vault_backup(
         threshold: heir_entries.len().max(1),
         heirs: heir_entries,
         vault_address: vault.address.to_string(),
+        taproot_internal_key: Some(internal_key_hex),
+        recovery_leaves,
         created_at: Some({
             let secs = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1041,6 +1094,14 @@ mod tests {
                 npub: Some("npub1test".into()),
             }],
             vault_address: "tb1ptestaddress".into(),
+            taproot_internal_key: Some("a1633cafcc01ebfb6d78e39f687a1f0995c62fc95f51ead10a02ee0be551b5dc".into()),
+            recovery_leaves: vec![RecoveryLeaf {
+                leaf_index: 0,
+                script_hex: "20abcd1234".into(),
+                control_block_hex: "c0deadbeef".into(),
+                timelock_blocks: 26280,
+                leaf_version: 0xc0,
+            }],
             created_at: Some("1739318400".into()),
         }
     }
@@ -1058,6 +1119,41 @@ mod tests {
         assert_eq!(restored.heirs[0].recovery_index, 0);
         assert!(restored.heirs[0].npub.is_some());
         assert_eq!(restored.vault_address, "tb1ptestaddress");
+        // New fields
+        assert!(restored.taproot_internal_key.is_some());
+        assert_eq!(restored.recovery_leaves.len(), 1);
+        assert_eq!(restored.recovery_leaves[0].script_hex, "20abcd1234");
+        assert_eq!(restored.recovery_leaves[0].control_block_hex, "c0deadbeef");
+        assert_eq!(restored.recovery_leaves[0].timelock_blocks, 26280);
+        assert_eq!(restored.recovery_leaves[0].leaf_version, 0xc0);
+    }
+
+    #[test]
+    fn test_backup_backward_compat() {
+        // Old v1 backup without new fields should still parse
+        let old_json = serde_json::json!({
+            "version": 1,
+            "network": "testnet",
+            "owner_pubkey": "02a1633cafcc01ebfb6d78e39f687a1f0995c62fc95f51ead10a02ee0be551b5dc",
+            "cosigner_pubkey": "03a1633cafcc01ebfb6d78e39f687a1f0995c62fc95f51ead10a02ee0be551b5dc",
+            "chain_code": "ab".repeat(32),
+            "address_index": 0,
+            "timelock_blocks": 26280,
+            "threshold": 1,
+            "heirs": [{
+                "label": "Alice",
+                "xpub": "tpubD6NzVbkrYhZ4XgiXtGrdW5XDZA5gE4REcKytCFfnBKUmG3YMRnHk3JdCCcZd4XR2C3dAPHRjcL5LQtxWUpm2m2YbB5YFESaqxBJo8v4gMB7",
+                "fingerprint": "00000000",
+                "derivation_path": "m/84'/1'/0'",
+                "recovery_index": 0
+            }],
+            "vault_address": "tb1ptestaddress"
+        });
+        let restored: VaultBackup = serde_json::from_value(old_json).unwrap();
+        assert_eq!(restored.version, 1);
+        assert!(restored.taproot_internal_key.is_none());
+        assert!(restored.recovery_leaves.is_empty());
+        assert_eq!(restored.heirs[0].npub, None);
     }
 
     #[test]
