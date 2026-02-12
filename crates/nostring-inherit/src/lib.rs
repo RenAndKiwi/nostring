@@ -23,3 +23,4 @@
 pub mod checkin;
 pub mod heir;
 pub mod policy;
+pub mod taproot;

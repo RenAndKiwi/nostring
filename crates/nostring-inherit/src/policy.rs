@@ -127,7 +127,8 @@ impl PathInfo {
     }
 
     /// Convert to a concrete policy
-    fn to_policy(&self) -> Concrete<DescriptorPublicKey> {
+    /// Convert to a concrete miniscript policy.
+    pub(crate) fn to_policy(&self) -> Concrete<DescriptorPublicKey> {
         match self {
             PathInfo::Single(key) => Concrete::Key(key.clone()),
             PathInfo::Multi(thresh, keys) => {
@@ -310,6 +311,39 @@ impl InheritancePolicy {
             .compile()
             .map_err(|e| PolicyError::Compilation(e.to_string()))?;
         Ok(Descriptor::new_wsh(ms)?)
+    }
+
+    /// Compile only the recovery paths to Tapscript leaves.
+    ///
+    /// For use with Taproot outputs where the primary (owner) path is the
+    /// key-path (e.g., MuSig2 aggregate), and recovery paths become script
+    /// leaves. Each recovery path becomes `and(heir_keys, older(timelock))`.
+    ///
+    /// Returns a vec of (timelock, compiled tapscript) pairs, ordered by
+    /// ascending timelock.
+    #[allow(clippy::type_complexity)]
+    pub fn compile_recovery_tapscripts(
+        &self,
+    ) -> Result<Vec<(Timelock, Miniscript<DescriptorPublicKey, miniscript::Tap>)>, PolicyError> {
+        let mut results = Vec::new();
+
+        for (timelock, path_info) in &self.recovery {
+            // Build policy: and(heir_keys, older(timelock))
+            let recovery_policy = Concrete::And(vec![
+                Arc::new(path_info.to_policy()),
+                Arc::new(Concrete::Older(miniscript::RelLockTime::from_height(
+                    timelock.blocks(),
+                ))),
+            ]);
+
+            let ms: Miniscript<DescriptorPublicKey, miniscript::Tap> = recovery_policy
+                .compile()
+                .map_err(|e| PolicyError::Compilation(e.to_string()))?;
+
+            results.push((*timelock, ms));
+        }
+
+        Ok(results)
     }
 }
 
@@ -577,6 +611,70 @@ mod tests {
         let desc_str = descriptor.unwrap().to_string();
         assert!(desc_str.starts_with("wsh("));
         println!("Cascade descriptor: {}", desc_str);
+    }
+
+    #[test]
+    fn test_simple_policy_compiles_to_tapscript() {
+        let policy =
+            InheritancePolicy::simple(owner_key(), heir_key(), Timelock::six_months()).unwrap();
+
+        let tapscripts = policy.compile_recovery_tapscripts().unwrap();
+        assert_eq!(tapscripts.len(), 1);
+
+        let (timelock, ms) = &tapscripts[0];
+        assert_eq!(timelock.blocks(), 26_280);
+
+        // Verify the compiled miniscript string contains expected fragments
+        let ms_str = ms.to_string();
+        assert!(
+            ms_str.contains("older(26280)"),
+            "tapscript should contain timelock: {}",
+            ms_str
+        );
+        println!("Tapscript miniscript: {}", ms);
+    }
+
+    #[test]
+    fn test_cascade_compiles_to_tapscripts() {
+        let policy = InheritancePolicy::cascade(
+            owner_key(),
+            vec![
+                (Timelock::six_months(), PathInfo::Single(heir_key())),
+                (Timelock::one_year(), PathInfo::Single(heir_key_2())),
+            ],
+        )
+        .unwrap();
+
+        let tapscripts = policy.compile_recovery_tapscripts().unwrap();
+        assert_eq!(tapscripts.len(), 2, "cascade should produce 2 tapscript leaves");
+
+        // Should be ordered by ascending timelock (BTreeMap)
+        assert!(tapscripts[0].0.blocks() < tapscripts[1].0.blocks());
+    }
+
+    #[test]
+    fn test_multisig_heir_compiles_to_tapscript() {
+        // 2-of-3 heir threshold + timelock
+        let heirs = PathInfo::multi(2, vec![heir_key(), heir_key_2(), heir_key_3()]).unwrap();
+        let policy = InheritancePolicy::simple_with_multisig_heir(
+            owner_key(),
+            heirs,
+            Timelock::six_months(),
+        )
+        .unwrap();
+
+        let tapscripts = policy.compile_recovery_tapscripts().unwrap();
+        assert_eq!(tapscripts.len(), 1);
+
+        let (_, ms) = &tapscripts[0];
+        let ms_str = ms.to_string();
+        // Multi-heir should contain multi_a (Tapscript multisig) or thresh
+        println!("Multi-heir tapscript: {}", ms_str);
+        assert!(
+            ms_str.contains("multi_a") || ms_str.contains("thresh"),
+            "multi-heir should use multi_a or thresh: {}",
+            ms_str
+        );
     }
 
     #[test]
