@@ -15,9 +15,11 @@ export interface CcdResult<T> {
 }
 
 export interface HeartbeatStatus {
-  status: string;
-  days_since_checkin: number;
-  recommended_action: string;
+  current_block: number;
+  expiry_block: number;
+  blocks_remaining: number;
+  days_remaining: number;
+  action: string;
   elapsed_fraction: number;
 }
 
@@ -30,16 +32,25 @@ export interface DeliveryReport {
 // ─── CCD Commands ───────────────────────────────────────────────────────────
 
 export async function registerCosigner(
-  xpub: string,
+  pubkeyHex: string,
+  chainCodeHex: string,
   label: string
-): Promise<CcdResult<string>> {
-  return invoke('register_cosigner', { xpub, label });
+): Promise<CcdResult<any>> {
+  return invoke('register_cosigner', {
+    pubkey_hex: pubkeyHex,
+    chain_code_hex: chainCodeHex,
+    label,
+  });
 }
 
 export async function createCcdVault(
-  timelockBlocks: number
-): Promise<CcdResult<string>> {
-  return invoke('create_ccd_vault', { timelock_blocks: timelockBlocks });
+  timelockBlocks: number,
+  addressIndex?: number
+): Promise<CcdResult<any>> {
+  return invoke('create_ccd_vault', {
+    timelock_blocks: timelockBlocks,
+    address_index: addressIndex ?? null,
+  });
 }
 
 export async function buildCheckinPsbt(): Promise<CcdResult<string>> {

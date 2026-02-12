@@ -13,7 +13,7 @@
     try {
       const result = await createCcdVault(timelockBlocks);
       if (result.success && result.data) {
-        vaultAddress.set(result.data);
+        vaultAddress.set(result.data.address);
         vaultCreated.set(true);
         appError.set(null);
       } else {

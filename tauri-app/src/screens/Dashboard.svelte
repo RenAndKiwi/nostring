@@ -7,6 +7,12 @@
   let loadError = $state<string | null>(null);
   let loading = $state(true);
 
+  function statusLevel(hb: HeartbeatStatus): 'healthy' | 'warning' | 'urgent' {
+    if (hb.days_remaining <= 0) return 'urgent';
+    if (hb.elapsed_fraction > 0.75) return 'warning';
+    return 'healthy';
+  }
+
   async function refresh() {
     loading = true;
     try {
@@ -19,7 +25,8 @@
       if (hbResult.success && hbResult.data) {
         heartbeat = hbResult.data;
       } else if (hbResult.error) {
-        appError.set(hbResult.error);
+        // Not an app error — might just be no UTXOs yet
+        heartbeat = null;
       }
     } catch (e: any) {
       appError.set(e.message || 'Failed to load status');
@@ -27,7 +34,6 @@
     loading = false;
   }
 
-  // Load on mount
   $effect(() => { refresh(); });
 </script>
 
@@ -54,23 +60,24 @@
   {#if loading}
     <p class="loading">Loading status...</p>
   {:else if heartbeat}
-    <div class="status-card" class:urgent={heartbeat.status === 'overdue'} class:warning={heartbeat.status === 'due_soon'}>
+    {@const level = statusLevel(heartbeat)}
+    <div class="status-card" class:urgent={level === 'urgent'} class:warning={level === 'warning'}>
       <div class="status-header">
         <h2>
-          {#if heartbeat.status === 'healthy'}
+          {#if level === 'healthy'}
             ✅ Healthy
-          {:else if heartbeat.status === 'due_soon'}
+          {:else if level === 'warning'}
             ⚠️ Check-in Due Soon
           {:else}
-            🚨 Overdue
+            🚨 Timelock Expired
           {/if}
         </h2>
       </div>
 
       <div class="status-details">
         <div class="stat">
-          <span class="stat-label">Days since check-in</span>
-          <span class="stat-value">{heartbeat.days_since_checkin}</span>
+          <span class="stat-label">Days remaining</span>
+          <span class="stat-value">{heartbeat.days_remaining.toFixed(1)} days ({heartbeat.blocks_remaining.toLocaleString()} blocks)</span>
         </div>
         <div class="stat">
           <span class="stat-label">Timelock progress</span>
@@ -80,19 +87,29 @@
           <span class="stat-value">{(heartbeat.elapsed_fraction * 100).toFixed(1)}%</span>
         </div>
         <div class="stat">
+          <span class="stat-label">Current block</span>
+          <span class="stat-value mono">{heartbeat.current_block.toLocaleString()}</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Expiry block</span>
+          <span class="stat-value mono">{heartbeat.expiry_block.toLocaleString()}</span>
+        </div>
+        <div class="stat">
           <span class="stat-label">Recommended action</span>
-          <span class="stat-value">{heartbeat.recommended_action}</span>
+          <span class="stat-value">{heartbeat.action}</span>
         </div>
       </div>
 
-      {#if heartbeat.status !== 'healthy'}
+      {#if level !== 'healthy'}
         <button class="btn primary" onclick={() => navigate('checkin')}>
           Check In Now →
         </button>
       {/if}
     </div>
   {:else}
-    <p class="empty">No vault configured. <button class="link-btn" onclick={() => navigate('vault')}>Create one</button>.</p>
+    <p class="empty">
+      No heartbeat data available. Fund your vault and wait for confirmation.
+    </p>
   {/if}
 
   <div class="actions">
@@ -109,14 +126,11 @@
 
   .loading { color: #888; }
   .empty { color: #888; }
-  .link-btn {
-    background: none;
-    border: none;
+  .mono {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 0.85rem;
+    word-break: break-all;
     color: #f7931a;
-    cursor: pointer;
-    padding: 0;
-    font: inherit;
-    text-decoration: underline;
   }
 
   .info-card {
@@ -131,12 +145,6 @@
   }
 
   .label { font-size: 0.8rem; color: #888; }
-  .mono {
-    font-family: 'SF Mono', 'Fira Code', monospace;
-    font-size: 0.85rem;
-    word-break: break-all;
-    color: #f7931a;
-  }
 
   .warning-card {
     display: flex;
