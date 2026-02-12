@@ -4,6 +4,8 @@
   "identifier": "com.nostring.app",
   "version": "0.1.0",
   "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173"
   },

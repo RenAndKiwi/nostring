@@ -29,6 +29,21 @@ export interface DeliveryReport {
   failed: { heir_label: string; error: string }[];
 }
 
+export interface SigningSessionData {
+  session_id: string;
+  nonce_request: Record<string, unknown>;
+}
+
+export interface OwnerChallenge {
+  sighash: string;
+  agg_nonce: string;
+}
+
+export interface ChallengeData {
+  sign_challenge: Record<string, unknown>;
+  owner_challenges: OwnerChallenge[];
+}
+
 // ─── CCD Commands ───────────────────────────────────────────────────────────
 
 export async function registerCosigner(
@@ -67,14 +82,14 @@ export async function getCcdLoadError(): Promise<CcdResult<string | null>> {
 
 // ─── Signing Ceremony ───────────────────────────────────────────────────────
 
-export async function startSigningSession(): Promise<CcdResult<any>> {
+export async function startSigningSession(): Promise<CcdResult<SigningSessionData>> {
   return invoke('start_signing_session');
 }
 
 export async function submitNonces(
   ownerPubnoncesHex: string[],
   cosignerResponseJson: string
-): Promise<CcdResult<any>> {
+): Promise<CcdResult<ChallengeData>> {
   return invoke('submit_nonces', {
     owner_pubnonces_hex: ownerPubnoncesHex,
     cosigner_response_json: cosignerResponseJson,
