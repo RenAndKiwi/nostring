@@ -18,7 +18,6 @@
       const seedExists = await hasSeed();
       appPhase.set(seedExists ? 'unlock' : 'onboarding');
     } catch {
-      // If hasSeed fails (e.g., in dev without Tauri), default to onboarding
       appPhase.set('onboarding');
     }
   });
@@ -80,13 +79,6 @@
 </main>
 
 <style>
-  :global(body) {
-    margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: #0a0a0a;
-    color: #e0e0e0;
-  }
-
   main {
     max-width: 800px;
     margin: 0 auto;
@@ -99,15 +91,15 @@
     align-items: center;
     justify-content: center;
     min-height: 60vh;
-    color: #888;
+    color: var(--text-muted);
   }
 
   .loading-screen .logo { font-size: 3rem; }
 
   .error-banner {
-    background: #4a1c1c;
-    border: 1px solid #8b3030;
-    border-radius: 8px;
+    background: color-mix(in srgb, var(--error) 15%, transparent);
+    border: 1px solid color-mix(in srgb, var(--error) 30%, transparent);
+    border-radius: var(--radius);
     padding: 0.75rem 1rem;
     margin: 1rem 0;
     display: flex;
@@ -118,7 +110,7 @@
   .error-banner button {
     background: none;
     border: none;
-    color: #e0e0e0;
+    color: var(--text);
     cursor: pointer;
     font-size: 1.1rem;
   }

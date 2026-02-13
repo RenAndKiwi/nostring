@@ -109,17 +109,17 @@
 <style>
   .screen { max-width: 600px; }
   h1 { font-size: 1.8rem; margin-bottom: 0.25rem; }
-  .subtitle { color: #888; margin-bottom: 2rem; }
+  .subtitle { color: var(--text-muted); margin-bottom: 2rem; }
 
   .info-box {
-    background: #1a1a1a;
-    border: 1px solid #333;
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 8px;
     padding: 1rem;
     margin-bottom: 1.5rem;
   }
 
-  .info-box p { color: #aaa; line-height: 1.6; margin: 0.5rem 0; font-size: 0.9rem; }
+  .info-box p { color: var(--text-muted); line-height: 1.6; margin: 0.5rem 0; font-size: 0.9rem; }
 
   .form {
     display: flex;
@@ -135,23 +135,23 @@
 
   label span {
     font-size: 0.85rem;
-    color: #aaa;
+    color: var(--text-muted);
     font-weight: 500;
   }
 
-  .help { font-size: 0.8rem; color: #666; margin: 0; line-height: 1.5; }
+  .help { font-size: 0.8rem; color: var(--text-muted); margin: 0; line-height: 1.5; }
 
   input {
-    background: #1a1a1a;
-    border: 1px solid #333;
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 6px;
     padding: 0.75rem;
-    color: #e0e0e0;
+    color: var(--text);
     font-size: 0.95rem;
     font-family: 'SF Mono', 'Fira Code', monospace;
   }
 
-  input:focus { outline: none; border-color: #f7931a; }
+  input:focus { outline: none; border-color: var(--gold-light); }
 
   .chain-code-row {
     display: flex;
@@ -170,10 +170,10 @@
     transition: all 0.15s;
   }
 
-  .btn.primary { background: #f7931a; color: #000; }
-  .btn.primary:hover { background: #f9a84d; }
-  .btn.secondary { background: #333; color: #e0e0e0; }
-  .btn.secondary:hover { background: #444; }
+  .btn.primary { background: var(--gold-light); color: #000; }
+  .btn.primary:hover { background: var(--gold); }
+  .btn.secondary { background: var(--surface-variant); color: var(--text); }
+  .btn.secondary:hover { background: var(--border); }
   .btn.btn-small { padding: 0.5rem 0.75rem; font-size: 0.85rem; }
   .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
@@ -191,7 +191,7 @@
   .success-card .check { font-size: 1.5rem; color: #4ade80; }
   .success-card p {
     margin: 0.25rem 0 0;
-    color: #888;
+    color: var(--text-muted);
     font-family: 'SF Mono', 'Fira Code', monospace;
     font-size: 0.85rem;
   }

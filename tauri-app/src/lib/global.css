@@ -1,0 +1,249 @@
+/* ============================================
+   NoString Design System — Bitcoin Butlers Brand
+   ============================================ */
+
+/* --- CSS Variables --- */
+:root {
+  /* Backgrounds */
+  --bg: #0A0A0A;
+  --surface: #1A1A2E;
+  --surface-variant: #262834;
+
+  /* Gold palette */
+  --gold-light: #FBDC7B;
+  --gold: #FDA24A;
+  --gold-dark: #FF9125;
+
+  /* Text */
+  --text: #FFFFFF;
+  --text-muted: #9CA3AF;
+
+  /* Semantic */
+  --success: #10B981;
+  --warning: #F59E0B;
+  --error: #EF4444;
+  --info: #3B82F6;
+
+  /* Borders */
+  --border: #333333;
+  --border-focus: var(--gold-light);
+
+  /* Radius */
+  --radius: 8px;
+  --radius-sm: 4px;
+  --radius-lg: 12px;
+
+  /* Spacing */
+  --sp-xs: 4px;
+  --sp-sm: 8px;
+  --sp-md: 12px;
+  --sp-lg: 16px;
+  --sp-xl: 24px;
+  --sp-xxl: 32px;
+}
+
+/* --- Base --- */
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+button {
+  font-family: inherit;
+}
+
+/* --- Typography --- */
+.gold-text {
+  background: linear-gradient(180deg, #FFD700 0%, #FFC107 50%, #FFA500 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.label {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin-bottom: var(--sp-xs);
+}
+
+.mono {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+/* --- Cards --- */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--sp-lg);
+}
+
+/* --- Buttons --- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-sm);
+  padding: var(--sp-md) var(--sp-xl);
+  border-radius: var(--radius);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  border: none;
+}
+
+.btn-primary {
+  background: var(--gold-light);
+  color: #000;
+}
+.btn-primary:hover {
+  background: var(--gold);
+}
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-outline {
+  background: transparent;
+  color: var(--gold-light);
+  border: 1px solid var(--border);
+}
+.btn-outline:hover {
+  border-color: var(--gold-light);
+  background: color-mix(in srgb, var(--gold-light) 7%, transparent);
+}
+
+.btn-success {
+  background: var(--success);
+  color: #fff;
+}
+.btn-success:hover {
+  opacity: 0.9;
+}
+
+.btn-danger {
+  background: var(--error);
+  color: #fff;
+}
+
+/* --- Form inputs --- */
+input, textarea, select {
+  background: var(--surface-variant);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  padding: var(--sp-md);
+  font-size: 0.9rem;
+  font-family: inherit;
+  width: 100%;
+  box-sizing: border-box;
+  transition: border-color 0.15s;
+}
+
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--border-focus);
+}
+
+input::placeholder, textarea::placeholder {
+  color: var(--text-muted);
+}
+
+/* --- Badges --- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-xs);
+  padding: 2px 10px;
+  border-radius: 16px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.badge-success {
+  color: var(--success);
+  background: #10B98115;
+  border: 1px solid #10B98130;
+}
+
+.badge-warning {
+  color: var(--warning);
+  background: #F59E0B15;
+  border: 1px solid #F59E0B30;
+}
+
+.badge-error {
+  color: var(--error);
+  background: #EF444415;
+  border: 1px solid #EF444430;
+}
+
+/* --- Info rows --- */
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: var(--sp-xs) 0;
+  gap: var(--sp-md);
+}
+
+.info-row .info-label {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  min-width: 100px;
+  flex-shrink: 0;
+}
+
+.info-row .info-value {
+  color: var(--gold-light);
+  font-size: 0.85rem;
+  font-weight: 500;
+  text-align: right;
+  word-break: break-all;
+}
+
+/* --- Section headers --- */
+.section-header h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 var(--sp-xs);
+}
+
+.section-header p {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* --- Error/Warning boxes --- */
+.error-box {
+  background: color-mix(in srgb, var(--error) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--error) 30%, transparent);
+  border-radius: var(--radius);
+  padding: var(--sp-md);
+  color: var(--error);
+  font-size: 0.85rem;
+}
+
+.warning-box {
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warning) 30%, transparent);
+  border-radius: var(--radius);
+  padding: var(--sp-md);
+  color: var(--warning);
+  font-size: 0.85rem;
+}
+
+.success-box {
+  background: color-mix(in srgb, var(--success) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
+  border-radius: var(--radius);
+  padding: var(--sp-md);
+  color: var(--success);
+  font-size: 0.85rem;
+}

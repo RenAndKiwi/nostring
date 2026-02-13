@@ -77,7 +77,7 @@
   .screen { max-width: 600px; }
   h1 { font-size: 1.8rem; margin-bottom: 0.25rem; }
   h2 { color: #4ade80; margin-bottom: 0.5rem; }
-  .subtitle { color: #888; margin-bottom: 2rem; }
+  .subtitle { color: var(--text-muted); margin-bottom: 2rem; }
 
   .form {
     display: flex;
@@ -93,7 +93,7 @@
 
   label > span {
     font-size: 0.85rem;
-    color: #aaa;
+    color: var(--text-muted);
     font-weight: 500;
   }
 
@@ -105,19 +105,19 @@
 
   .timelock-input input[type="range"] {
     flex: 1;
-    accent-color: #f7931a;
+    accent-color: var(--gold-light);
   }
 
   .timelock-value {
     font-family: 'SF Mono', 'Fira Code', monospace;
     font-size: 0.9rem;
-    color: #f7931a;
+    color: var(--gold-light);
     white-space: nowrap;
   }
 
   .help {
     font-size: 0.8rem;
-    color: #666;
+    color: var(--text-muted);
     line-height: 1.5;
   }
 
@@ -129,26 +129,26 @@
   }
 
   .address-label {
-    color: #888;
+    color: var(--text-muted);
     font-size: 0.85rem;
     margin-bottom: 0.5rem;
   }
 
   .address {
-    background: #0a0a0a;
-    border: 1px solid #333;
+    background: var(--bg);
+    border: 1px solid var(--border);
     border-radius: 6px;
     padding: 0.75rem;
     font-family: 'SF Mono', 'Fira Code', monospace;
     font-size: 0.85rem;
     word-break: break-all;
-    color: #f7931a;
+    color: var(--gold-light);
     margin-bottom: 1rem;
   }
 
   .note {
     font-size: 0.8rem;
-    color: #888;
+    color: var(--text-muted);
     line-height: 1.5;
     margin-bottom: 1.5rem;
   }
@@ -163,7 +163,7 @@
     transition: all 0.15s;
   }
 
-  .btn.primary { background: #f7931a; color: #000; }
-  .btn.primary:hover { background: #f9a84d; }
+  .btn.primary { background: var(--gold-light); color: #000; }
+  .btn.primary:hover { background: var(--gold); }
   .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

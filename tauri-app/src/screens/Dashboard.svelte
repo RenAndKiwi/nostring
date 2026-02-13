@@ -124,18 +124,18 @@
   h1 { font-size: 1.8rem; margin-bottom: 1.5rem; }
   h2 { margin: 0; }
 
-  .loading { color: #888; }
-  .empty { color: #888; }
+  .loading { color: var(--text-muted); }
+  .empty { color: var(--text-muted); }
   .mono {
     font-family: 'SF Mono', 'Fira Code', monospace;
     font-size: 0.85rem;
     word-break: break-all;
-    color: #f7931a;
+    color: var(--gold-light);
   }
 
   .info-card {
-    background: #1a1a1a;
-    border: 1px solid #333;
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 8px;
     padding: 1rem;
     margin-bottom: 1rem;
@@ -144,7 +144,7 @@
     gap: 0.35rem;
   }
 
-  .label { font-size: 0.8rem; color: #888; }
+  .label { font-size: 0.8rem; color: var(--text-muted); }
 
   .warning-card {
     display: flex;
@@ -157,7 +157,7 @@
     margin-bottom: 1rem;
   }
 
-  .warning-card p { margin: 0.25rem 0 0; color: #ccc; font-size: 0.85rem; }
+  .warning-card p { margin: 0.25rem 0 0; color: var(--text); font-size: 0.85rem; }
 
   .status-card {
     background: #0d2818;
@@ -190,19 +190,19 @@
     gap: 0.25rem;
   }
 
-  .stat-label { font-size: 0.8rem; color: #888; }
+  .stat-label { font-size: 0.8rem; color: var(--text-muted); }
   .stat-value { font-size: 0.95rem; }
 
   .progress-bar {
     height: 8px;
-    background: #333;
+    background: var(--surface-variant);
     border-radius: 4px;
     overflow: hidden;
   }
 
   .progress-fill {
     height: 100%;
-    background: #f7931a;
+    background: var(--gold-light);
     border-radius: 4px;
     transition: width 0.3s;
   }
@@ -223,8 +223,8 @@
     transition: all 0.15s;
   }
 
-  .btn.primary { background: #f7931a; color: #000; }
-  .btn.primary:hover { background: #f9a84d; }
-  .btn.secondary { background: #333; color: #e0e0e0; }
-  .btn.secondary:hover { background: #444; }
+  .btn.primary { background: var(--gold-light); color: #000; }
+  .btn.primary:hover { background: var(--gold); }
+  .btn.secondary { background: var(--surface-variant); color: var(--text); }
+  .btn.secondary:hover { background: var(--border); }
 </style>

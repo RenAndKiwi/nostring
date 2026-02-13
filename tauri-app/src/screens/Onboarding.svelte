@@ -37,8 +37,8 @@
 
   const strengthColor = $derived(
     !passwordStrength ? '#666' :
-    passwordStrength.strength === 'VeryStrong' || passwordStrength.strength === 'Strong' ? '#4caf50' :
-    passwordStrength.strength === 'Medium' ? '#f7931a' : '#ff6b6b'
+    passwordStrength.strength === 'VeryStrong' || passwordStrength.strength === 'Strong' ? 'var(--success)' :
+    passwordStrength.strength === 'Medium' ? 'var(--gold-light)' : 'var(--error)'
   );
 
   async function handleCreate() {
@@ -259,9 +259,9 @@
   .screen { max-width: 480px; margin: 0 auto; }
 
   .logo { font-size: 3rem; text-align: center; margin-bottom: 0.5rem; }
-  h1 { text-align: center; font-size: 2rem; margin: 0; color: #f7931a; }
+  h1 { text-align: center; font-size: 2rem; margin: 0; color: var(--gold-light); }
   h2 { margin-top: 0; }
-  .subtitle { text-align: center; color: #888; margin-bottom: 2rem; }
+  .subtitle { text-align: center; color: var(--text-muted); margin-bottom: 2rem; }
 
   .choices { display: flex; flex-direction: column; gap: 1rem; }
 
@@ -270,32 +270,32 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 0.25rem;
-    background: #1a1a1a;
-    border: 1px solid #333;
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 8px;
     padding: 1.25rem;
     cursor: pointer;
     transition: all 0.15s;
     text-align: left;
-    color: #e0e0e0;
+    color: var(--text);
   }
 
-  .choice-card:hover { border-color: #f7931a; }
+  .choice-card:hover { border-color: var(--gold-light); }
   .choice-card:disabled { opacity: 0.5; cursor: not-allowed; }
   .choice-icon { font-size: 1.5rem; }
   .choice-title { font-size: 1.1rem; font-weight: 600; }
-  .choice-desc { font-size: 0.85rem; color: #888; }
+  .choice-desc { font-size: 0.85rem; color: var(--text-muted); }
 
   .step-card {
-    background: #1a1a1a;
-    border: 1px solid #333;
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 8px;
     padding: 1.5rem;
   }
 
-  .step-card p { color: #aaa; line-height: 1.5; font-size: 0.9rem; }
+  .step-card p { color: var(--text-muted); line-height: 1.5; font-size: 0.9rem; }
 
-  .warning-text { color: #f7931a !important; font-weight: 500; }
+  .warning-text { color: var(--gold-light) !important; font-weight: 500; }
 
   .word-grid {
     display: grid;
@@ -308,48 +308,48 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    background: #0a0a0a;
-    border: 1px solid #333;
+    background: var(--bg);
+    border: 1px solid var(--border);
     border-radius: 4px;
     padding: 0.4rem 0.6rem;
   }
 
-  .word-num { font-size: 0.7rem; color: #666; min-width: 1.2rem; }
+  .word-num { font-size: 0.7rem; color: var(--text-muted); min-width: 1.2rem; }
   .word-text { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.85rem; }
 
   .confirm-notice {
-    background: #2d2a0d;
-    border: 1px solid #5c5a1a;
+    background: color-mix(in srgb, var(--warning) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warning) 30%, transparent);
     border-radius: 6px;
     padding: 0.75rem;
     margin: 1rem 0;
   }
 
-  .confirm-notice p { margin: 0; font-size: 0.85rem; color: #ccc; }
+  .confirm-notice p { margin: 0; font-size: 0.85rem; color: var(--text); }
 
   label { display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 1rem; }
-  label span { font-size: 0.85rem; color: #aaa; font-weight: 500; }
-  .field-error { font-size: 0.8rem; color: #ff6b6b; }
+  label span { font-size: 0.85rem; color: var(--text-muted); font-weight: 500; }
+  .field-error { font-size: 0.8rem; color: var(--error); }
 
   input, textarea {
-    background: #0a0a0a;
-    border: 1px solid #333;
+    background: var(--bg);
+    border: 1px solid var(--border);
     border-radius: 6px;
     padding: 0.75rem;
-    color: #e0e0e0;
+    color: var(--text);
     font-size: 0.95rem;
     font-family: 'SF Mono', 'Fira Code', monospace;
   }
 
-  input:focus, textarea:focus { outline: none; border-color: #f7931a; }
-  .input-error { border-color: #ff6b6b !important; }
+  input:focus, textarea:focus { outline: none; border-color: var(--gold-light); }
+  .input-error { border-color: var(--error) !important; }
 
   .password-row { display: flex; gap: 0.5rem; align-items: center; }
   .password-row input { flex: 1; }
 
   .toggle-btn {
-    background: #1a1a1a;
-    border: 1px solid #333;
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 6px;
     padding: 0.6rem;
     cursor: pointer;
@@ -357,11 +357,11 @@
     line-height: 1;
   }
 
-  .toggle-btn:hover { border-color: #f7931a; }
+  .toggle-btn:hover { border-color: var(--gold-light); }
 
   .strength-bar {
     height: 4px;
-    background: #333;
+    background: var(--surface-variant);
     border-radius: 2px;
     overflow: hidden;
     margin-top: 0.25rem;
@@ -370,7 +370,7 @@
   .strength-fill { height: 100%; border-radius: 2px; transition: all 0.3s; }
 
   .strength-label { font-size: 0.75rem; }
-  .strength-warn { font-size: 0.75rem; color: #f7931a; }
+  .strength-warn { font-size: 0.75rem; color: var(--gold-light); }
 
   .actions { display: flex; gap: 1rem; }
 
@@ -384,9 +384,9 @@
     transition: all 0.15s;
   }
 
-  .btn.primary { background: #f7931a; color: #000; }
-  .btn.primary:hover { background: #f9a84d; }
-  .btn.secondary { background: #333; color: #e0e0e0; }
-  .btn.secondary:hover { background: #444; }
+  .btn.primary { background: var(--gold-light); color: #000; }
+  .btn.primary:hover { background: var(--gold); }
+  .btn.secondary { background: var(--surface-variant); color: var(--text); }
+  .btn.secondary:hover { background: var(--border); }
   .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

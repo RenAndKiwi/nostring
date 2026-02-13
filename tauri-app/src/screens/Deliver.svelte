@@ -226,7 +226,7 @@
   .screen { max-width: 600px; }
   h1 { font-size: 1.8rem; margin-bottom: 0.25rem; }
   h2 { font-size: 1.2rem; margin-top: 1.5rem; }
-  .subtitle { color: #888; margin-bottom: 2rem; }
+  .subtitle { color: var(--text-muted); margin-bottom: 2rem; }
 
   .copy-toast {
     position: fixed;
@@ -234,7 +234,7 @@
     right: 1rem;
     background: #1a5c2e;
     border: 1px solid #2a8c4e;
-    color: #e0e0e0;
+    color: var(--text);
     padding: 0.5rem 1rem;
     border-radius: 6px;
     font-size: 0.85rem;
@@ -244,8 +244,8 @@
   .form { display: flex; flex-direction: column; gap: 1.25rem; }
 
   .pre-summary {
-    background: #1a1a1a;
-    border: 1px solid #333;
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 8px;
     padding: 1rem;
     display: flex;
@@ -254,29 +254,29 @@
   }
 
   .summary-row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; font-size: 0.85rem; }
-  .summary-row.ok { color: #4caf50; }
-  .summary-row.warn { color: #f7931a; }
+  .summary-row.ok { color: var(--success); }
+  .summary-row.warn { color: var(--gold-light); }
 
   label { display: flex; flex-direction: column; gap: 0.35rem; }
-  label span { font-size: 0.85rem; color: #aaa; font-weight: 500; }
-  .optional { font-weight: 400; color: #666; }
+  label span { font-size: 0.85rem; color: var(--text-muted); font-weight: 500; }
+  .optional { font-weight: 400; color: var(--text-muted); }
 
-  .field-error { font-size: 0.8rem; color: #ff6b6b; font-weight: 400; }
+  .field-error { font-size: 0.8rem; color: var(--error); font-weight: 400; }
 
   input, textarea {
-    background: #1a1a1a;
-    border: 1px solid #333;
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 6px;
     padding: 0.75rem;
-    color: #e0e0e0;
+    color: var(--text);
     font-size: 0.95rem;
     font-family: 'SF Mono', 'Fira Code', monospace;
   }
 
-  input:focus, textarea:focus { outline: none; border-color: #f7931a; }
-  .input-error { border-color: #ff6b6b !important; }
+  input:focus, textarea:focus { outline: none; border-color: var(--gold-light); }
+  .input-error { border-color: var(--error) !important; }
 
-  .help { font-size: 0.8rem; color: #666; margin: 0; }
+  .help { font-size: 0.8rem; color: var(--text-muted); margin: 0; }
 
   hr { border: none; border-top: 1px solid #333; margin: 2rem 0; }
 
@@ -290,7 +290,7 @@
 
   .tag {
     display: inline-block;
-    background: #333;
+    background: var(--surface-variant);
     padding: 0.25rem 0.5rem;
     border-radius: 4px;
     font-size: 0.85rem;
@@ -298,7 +298,7 @@
   }
 
   .fail-item { margin: 0.5rem 0; }
-  .fail-reason { color: #888; font-size: 0.8rem; margin-left: 0.5rem; }
+  .fail-reason { color: var(--text-muted); font-size: 0.8rem; margin-left: 0.5rem; }
 
   .export-result { margin-top: 1rem; }
 
@@ -308,7 +308,7 @@
     align-items: center;
   }
 
-  .code-label { font-size: 0.8rem; color: #888; font-weight: 500; }
+  .code-label { font-size: 0.8rem; color: var(--text-muted); font-weight: 500; }
 
   .code-actions { display: flex; gap: 0.5rem; }
 
@@ -317,17 +317,17 @@
     border: 1px solid #444;
     border-radius: 4px;
     padding: 0.25rem 0.5rem;
-    color: #ccc;
+    color: var(--text);
     font-size: 0.75rem;
     cursor: pointer;
     transition: all 0.15s;
   }
 
-  .copy-btn:hover { background: #333; border-color: #f7931a; }
+  .copy-btn:hover { background: var(--surface-variant); border-color: var(--gold-light); }
 
   .code-block {
-    background: #0a0a0a;
-    border: 1px solid #333;
+    background: var(--bg);
+    border: 1px solid var(--border);
     border-radius: 6px;
     padding: 0.75rem;
     font-family: 'SF Mono', 'Fira Code', monospace;
@@ -350,9 +350,9 @@
     transition: all 0.15s;
   }
 
-  .btn.primary { background: #f7931a; color: #000; }
-  .btn.primary:hover { background: #f9a84d; }
-  .btn.secondary { background: #333; color: #e0e0e0; }
-  .btn.secondary:hover { background: #444; }
+  .btn.primary { background: var(--gold-light); color: #000; }
+  .btn.primary:hover { background: var(--gold); }
+  .btn.secondary { background: var(--surface-variant); color: var(--text); }
+  .btn.secondary:hover { background: var(--border); }
   .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

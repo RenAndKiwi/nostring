@@ -50,19 +50,19 @@
     align-items: center;
     gap: 2rem;
     padding: 1rem 0;
-    border-bottom: 1px solid #222;
+    border-bottom: 1px solid var(--border);
     margin-bottom: 1rem;
   }
 
   .logo { display: flex; align-items: center; gap: 0.5rem; }
   .logo-icon { font-size: 1.5rem; }
-  .logo-text { font-size: 1.2rem; font-weight: 700; color: #f7931a; }
+  .logo-text { font-size: 1.2rem; font-weight: 700; color: var(--gold-light); }
   .network-badge {
     font-size: 0.7rem;
     font-weight: 600;
     text-transform: uppercase;
-    background: #f7931a33;
-    color: #f7931a;
+    background: var(--warning)33;
+    color: var(--warning);
     padding: 0.15rem 0.4rem;
     border-radius: 3px;
     letter-spacing: 0.05em;
@@ -84,8 +84,8 @@
     transition: all 0.15s;
   }
 
-  .tab:hover { color: #ccc; background: #1a1a1a; }
-  .tab.active { color: #f7931a; border-color: #f7931a33; background: #f7931a11; }
+  .tab:hover { color: #ccc; background: var(--surface); }
+  .tab.active { color: var(--gold-light); border-color: var(--gold-light)33; background: var(--gold-light)11; }
   .tab-icon { font-size: 1rem; }
 
   .lock-btn {
@@ -98,5 +98,5 @@
     transition: all 0.15s;
   }
 
-  .lock-btn:hover { border-color: #f7931a; background: #1a1a1a; }
+  .lock-btn:hover { border-color: var(--gold-light); background: var(--surface); }
 </style>

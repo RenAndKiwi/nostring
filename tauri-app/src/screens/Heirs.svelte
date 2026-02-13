@@ -213,7 +213,7 @@
   .screen { max-width: 600px; }
   h1 { font-size: 1.8rem; margin-bottom: 0.25rem; }
   h2 { font-size: 1.2rem; margin-top: 1.5rem; }
-  .subtitle { color: #888; margin-bottom: 1.5rem; }
+  .subtitle { color: var(--text-muted); margin-bottom: 1.5rem; }
 
   .delivery-summary {
     display: flex;
@@ -223,38 +223,38 @@
     font-size: 0.85rem;
   }
 
-  .delivery-ok { color: #4caf50; }
-  .delivery-warn { color: #f7931a; }
+  .delivery-ok { color: var(--success); }
+  .delivery-warn { color: var(--gold-light); }
 
   .empty {
-    background: #1a1a1a;
-    border: 1px solid #333;
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 8px;
     padding: 1.5rem;
     text-align: center;
-    color: #888;
+    color: var(--text-muted);
   }
 
   .form { display: flex; flex-direction: column; gap: 1.25rem; }
 
   label { display: flex; flex-direction: column; gap: 0.35rem; }
-  label span { font-size: 0.85rem; color: #aaa; font-weight: 500; }
-  .optional { font-weight: 400; color: #666; }
+  label span { font-size: 0.85rem; color: var(--text-muted); font-weight: 500; }
+  .optional { font-weight: 400; color: var(--text-muted); }
 
-  .field-error { font-size: 0.8rem; color: #ff6b6b; font-weight: 400; }
+  .field-error { font-size: 0.8rem; color: var(--error); font-weight: 400; }
 
   input, textarea {
-    background: #1a1a1a;
-    border: 1px solid #333;
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 6px;
     padding: 0.75rem;
-    color: #e0e0e0;
+    color: var(--text);
     font-size: 0.95rem;
     font-family: 'SF Mono', 'Fira Code', monospace;
   }
 
-  input:focus, textarea:focus { outline: none; border-color: #f7931a; }
-  .input-error { border-color: #ff6b6b !important; }
+  input:focus, textarea:focus { outline: none; border-color: var(--gold-light); }
+  .input-error { border-color: var(--error) !important; }
 
   .heir-list { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem; }
 
@@ -262,8 +262,8 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    background: #1a1a1a;
-    border: 1px solid #333;
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 6px;
     padding: 0.75rem 1rem;
   }
@@ -271,11 +271,11 @@
   .heir-info { display: flex; align-items: center; gap: 0.75rem; }
   .heir-icon { font-size: 1.2rem; }
   .heir-name { font-weight: 500; display: block; }
-  .heir-fp { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.75rem; color: #666; display: block; }
-  .heir-npub { font-size: 0.75rem; color: #4caf50; display: block; }
-  .heir-no-npub { font-size: 0.75rem; color: #888; display: block; font-style: italic; }
+  .heir-fp { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.75rem; color: var(--text-muted); display: block; }
+  .heir-npub { font-size: 0.75rem; color: var(--success); display: block; }
+  .heir-no-npub { font-size: 0.75rem; color: var(--text-muted); display: block; font-style: italic; }
 
-  .btn-remove { background: none; border: none; color: #666; cursor: pointer; font-size: 1.1rem; padding: 0.25rem; }
+  .btn-remove { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.1rem; padding: 0.25rem; }
   .btn-remove:hover { color: #ff4444; }
 
   .confirm-overlay {
@@ -289,7 +289,7 @@
   }
 
   .confirm-dialog {
-    background: #1a1a1a;
+    background: var(--surface);
     border: 1px solid #444;
     border-radius: 12px;
     padding: 1.5rem;
@@ -298,8 +298,8 @@
   }
 
   .confirm-dialog h3 { margin-top: 0; }
-  .confirm-dialog p { color: #aaa; line-height: 1.5; }
-  .confirm-detail { font-size: 0.85rem; color: #888; }
+  .confirm-dialog p { color: var(--text-muted); line-height: 1.5; }
+  .confirm-detail { font-size: 0.85rem; color: var(--text-muted); }
 
   .actions { display: flex; gap: 1rem; margin-top: 0.5rem; }
 
@@ -313,11 +313,11 @@
     transition: all 0.15s;
   }
 
-  .btn.primary { background: #f7931a; color: #000; }
-  .btn.primary:hover { background: #f9a84d; }
-  .btn.secondary { background: #333; color: #e0e0e0; }
-  .btn.secondary:hover { background: #444; }
-  .btn.danger { background: #5c1a1a; color: #e0e0e0; }
+  .btn.primary { background: var(--gold-light); color: #000; }
+  .btn.primary:hover { background: var(--gold); }
+  .btn.secondary { background: var(--surface-variant); color: var(--text); }
+  .btn.secondary:hover { background: var(--border); }
+  .btn.danger { background: #5c1a1a; color: var(--text); }
   .btn.danger:hover { background: #7a2020; }
   .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

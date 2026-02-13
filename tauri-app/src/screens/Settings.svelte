@@ -153,12 +153,12 @@
     padding: 0.5rem;
     border: 1px solid #444;
     border-radius: 4px;
-    background: #1a1a1a;
+    background: var(--surface);
     color: #eee;
     font-size: 0.95rem;
   }
   .field small {
-    color: #888;
+    color: var(--text-muted);
     font-size: 0.8rem;
   }
   button {
@@ -166,7 +166,7 @@
     padding: 0.7rem;
     border: none;
     border-radius: 4px;
-    background: #f7931a;
+    background: var(--gold-light);
     color: #fff;
     font-weight: 600;
     font-size: 1rem;
@@ -182,12 +182,12 @@
     margin-top: 0.5rem;
     border: 1px solid #444;
     border-radius: 4px;
-    background: #1a1a1a;
-    color: #ccc;
+    background: var(--surface);
+    color: var(--text);
     font-size: 0.9rem;
     cursor: pointer;
   }
-  .test-btn:hover { background: #222; border-color: #666; }
+  .test-btn:hover { background: #222; border-color: var(--text-muted); }
   .test-btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .connection-ok {
     margin-top: 0.5rem;
@@ -211,9 +211,9 @@
     margin-top: 1rem;
     padding: 0.75rem;
     background: #3b2f00;
-    border: 1px solid #f7931a;
+    border: 1px solid var(--gold-light);
     border-radius: 4px;
-    color: #f7931a;
+    color: var(--gold-light);
     font-size: 0.9rem;
   }
 </style>

@@ -79,8 +79,8 @@
   }
 
   .logo { font-size: 3rem; margin-bottom: 0.5rem; }
-  h1 { font-size: 2rem; margin: 0; color: #f7931a; }
-  .subtitle { color: #888; margin-bottom: 2rem; }
+  h1 { font-size: 2rem; margin: 0; color: var(--gold-light); }
+  .subtitle { color: var(--text-muted); margin-bottom: 2rem; }
 
   .unlock-card {
     width: 100%;
@@ -90,14 +90,14 @@
   }
 
   label { display: flex; flex-direction: column; gap: 0.35rem; }
-  .field-error { font-size: 0.8rem; color: #ff6b6b; }
+  .field-error { font-size: 0.8rem; color: var(--error); }
 
   .password-row { display: flex; gap: 0.5rem; align-items: center; }
   .password-row input { flex: 1; }
 
   .toggle-btn {
-    background: #1a1a1a;
-    border: 1px solid #333;
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 6px;
     padding: 0.7rem;
     cursor: pointer;
@@ -105,22 +105,22 @@
     line-height: 1;
   }
 
-  .toggle-btn:hover { border-color: #f7931a; }
+  .toggle-btn:hover { border-color: var(--gold-light); }
 
   input {
     width: 100%;
-    background: #1a1a1a;
-    border: 1px solid #333;
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 6px;
     padding: 0.85rem;
-    color: #e0e0e0;
+    color: var(--text);
     font-size: 1rem;
     text-align: center;
     box-sizing: border-box;
   }
 
-  input:focus { outline: none; border-color: #f7931a; }
-  .input-error { border-color: #ff6b6b !important; }
+  input:focus { outline: none; border-color: var(--gold-light); }
+  .input-error { border-color: var(--error) !important; }
 
   .btn {
     padding: 0.85rem 1.5rem;
@@ -132,7 +132,7 @@
     transition: all 0.15s;
   }
 
-  .btn.primary { background: #f7931a; color: #000; }
-  .btn.primary:hover { background: #f9a84d; }
+  .btn.primary { background: var(--gold-light); color: #000; }
+  .btn.primary:hover { background: var(--gold); }
   .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>
