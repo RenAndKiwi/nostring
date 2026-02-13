@@ -32,9 +32,7 @@ use crate::ccd_commands::CcdResult;
 // Descriptor backup format (shared with heir app via nostring-inherit)
 // ============================================================================
 
-pub use nostring_inherit::backup::{
-    extract_recovery_leaves, HeirBackupEntry, VaultBackup,
-};
+pub use nostring_inherit::backup::{extract_recovery_leaves, HeirBackupEntry, VaultBackup};
 
 // ============================================================================
 // Response types
@@ -813,9 +811,7 @@ pub async fn export_vault_backup(state: State<'_, AppState>) -> Result<CcdResult
 
 /// Compress the vault backup JSON into a `nostring:v1:<base64(gzip)>` URI for QR display.
 #[tauri::command]
-pub async fn compress_vault_for_qr(
-    state: State<'_, AppState>,
-) -> Result<CcdResult<String>, ()> {
+pub async fn compress_vault_for_qr(state: State<'_, AppState>) -> Result<CcdResult<String>, ()> {
     use base64::Engine;
     use flate2::write::GzEncoder;
     use flate2::Compression;
@@ -825,7 +821,11 @@ pub async fn compress_vault_for_qr(
     let export_result = export_vault_backup(state).await?;
     let json = match export_result.data {
         Some(j) => j,
-        None => return Ok(CcdResult::err(export_result.error.unwrap_or_else(|| "No backup".into()))),
+        None => {
+            return Ok(CcdResult::err(
+                export_result.error.unwrap_or_else(|| "No backup".into()),
+            ))
+        }
     };
 
     let mut encoder = GzEncoder::new(Vec::new(), Compression::best());
