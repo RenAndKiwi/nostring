@@ -3556,6 +3556,7 @@ dependencies = [
  "base64 0.22.1",
  "bitcoin",
  "bitcoinconsensus",
+ "hex",
  "miniscript",
  "nostring-ccd",
  "nostring-core",

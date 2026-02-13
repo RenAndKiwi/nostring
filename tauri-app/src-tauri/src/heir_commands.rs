@@ -29,101 +29,12 @@ use tauri::State;
 use crate::ccd_commands::CcdResult;
 
 // ============================================================================
-// Descriptor backup format
+// Descriptor backup format (shared with heir app via nostring-inherit)
 // ============================================================================
 
-/// Serializable vault descriptor backup.
-///
-/// Contains everything an heir needs to reconstruct the vault,
-/// find the UTXO on-chain, and build a claim transaction.
-/// Delivered via NIP-17 encrypted DM or physical backup.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VaultBackup {
-    /// Format version (for future compatibility)
-    pub version: u32,
-    /// Bitcoin network
-    pub network: String,
-    /// Owner's compressed public key (hex)
-    pub owner_pubkey: String,
-    /// Co-signer's compressed public key (hex)
-    pub cosigner_pubkey: String,
-    /// CCD chain code (hex, 32 bytes)
-    pub chain_code: String,
-    /// BIP-32 derivation index for this vault
-    pub address_index: u32,
-    /// Timelock in blocks
-    pub timelock_blocks: u16,
-    /// Threshold required for multi-heir claim (e.g., 2 of 3).
-    /// For single heir, this is 1. For n-of-n, equals heirs.len().
-    pub threshold: usize,
-    /// Heir information
-    pub heirs: Vec<HeirBackupEntry>,
-    /// The vault's P2TR address (for verification)
-    pub vault_address: String,
-    /// Taproot internal key (hex, x-only aggregate pubkey before taptweak)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub taproot_internal_key: Option<String>,
-    /// Precompiled recovery scripts with control blocks (one per Tapscript leaf)
-    /// Heir app uses these to build script-path claim PSBTs without recompiling miniscript.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub recovery_leaves: Vec<RecoveryLeaf>,
-    /// ISO-8601 creation timestamp
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub created_at: Option<String>,
-}
-
-/// Extract precompiled recovery leaves from a vault.
-fn extract_recovery_leaves(
-    vault: &nostring_inherit::taproot::InheritableVault,
-) -> Vec<RecoveryLeaf> {
-    use bitcoin::taproot::LeafVersion;
-    vault
-        .recovery_scripts
-        .iter()
-        .enumerate()
-        .filter_map(|(i, (timelock, script))| {
-            let cb = vault
-                .taproot_spend_info
-                .control_block(&(script.clone(), LeafVersion::TapScript))?;
-            Some(RecoveryLeaf {
-                leaf_index: i,
-                script_hex: hex::encode(script.as_bytes()),
-                control_block_hex: hex::encode(cb.serialize()),
-                timelock_blocks: timelock.blocks(),
-                leaf_version: LeafVersion::TapScript.to_consensus(),
-            })
-        })
-        .collect()
-}
-
-/// Precompiled Tapscript leaf — everything the heir needs to build a script-path spend.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RecoveryLeaf {
-    /// Index into this vec (matches heir's recovery_index)
-    pub leaf_index: usize,
-    /// Compiled miniscript as hex (the actual Script bytes)
-    pub script_hex: String,
-    /// Taproot control block for this leaf (hex)
-    pub control_block_hex: String,
-    /// CSV timelock value for this spending path
-    pub timelock_blocks: u16,
-    /// Tapscript leaf version (0xc0)
-    pub leaf_version: u8,
-}
-
-/// Per-heir entry in the backup.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HeirBackupEntry {
-    pub label: String,
-    pub xpub: String,
-    pub fingerprint: String,
-    pub derivation_path: String,
-    /// Which recovery script leaf this heir uses
-    pub recovery_index: usize,
-    /// Nostr npub for DM delivery
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub npub: Option<String>,
-}
+pub use nostring_inherit::backup::{
+    extract_recovery_leaves, HeirBackupEntry, VaultBackup,
+};
 
 // ============================================================================
 // Response types
@@ -1074,6 +985,7 @@ fn build_vault_backup(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nostring_inherit::backup::RecoveryLeaf;
 
     fn sample_backup() -> VaultBackup {
         VaultBackup {

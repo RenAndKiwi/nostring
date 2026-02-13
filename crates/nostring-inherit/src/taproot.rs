@@ -51,6 +51,9 @@ pub enum InheritError {
 
     #[error("Miniscript error: {0}")]
     Miniscript(#[from] miniscript::Error),
+
+    #[error("Backup error: {0}")]
+    Backup(String),
 }
 
 /// An inheritable CCD vault with both key-path and script-path spending.

@@ -20,6 +20,7 @@
 //! )
 //! ```
 
+pub mod backup;
 pub mod checkin;
 pub mod heartbeat;
 pub mod heir;
