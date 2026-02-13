@@ -127,6 +127,7 @@ fn main() {
             heir_commands::broadcast_heir_claim,
             heir_commands::merge_heir_signatures,
             heir_commands::export_vault_backup,
+            heir_commands::compress_vault_for_qr,
             heir_commands::deliver_descriptor_to_heirs,
         ])
         .run(tauri::generate_context!())

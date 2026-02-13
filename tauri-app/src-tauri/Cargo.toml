@@ -26,6 +26,7 @@ serde_json.workspace = true
 tokio.workspace = true
 rustls = { version = "0.23", features = ["ring"] }
 base64 = "0.22"
+flate2 = "1"
 hex = "0.4"
 log = "0.4"
 zeroize.workspace = true

@@ -211,6 +211,10 @@ export async function exportVaultBackup(): Promise<CcdResult<string>> {
   return invoke('export_vault_backup');
 }
 
+export async function compressVaultForQr(): Promise<CcdResult<string>> {
+  return invoke('compress_vault_for_qr');
+}
+
 export async function deliverDescriptorToHeirs(
   ownerNsec: string,
   relays: string[]

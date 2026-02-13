@@ -808,6 +808,42 @@ pub async fn export_vault_backup(state: State<'_, AppState>) -> Result<CcdResult
 }
 
 // ============================================================================
+// QR Code Compression
+// ============================================================================
+
+/// Compress the vault backup JSON into a `nostring:v1:<base64(gzip)>` URI for QR display.
+#[tauri::command]
+pub async fn compress_vault_for_qr(
+    state: State<'_, AppState>,
+) -> Result<CcdResult<String>, ()> {
+    use base64::Engine;
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+    use std::io::Write;
+
+    // First get the export JSON
+    let export_result = export_vault_backup(state).await?;
+    let json = match export_result.data {
+        Some(j) => j,
+        None => return Ok(CcdResult::err(export_result.error.unwrap_or_else(|| "No backup".into()))),
+    };
+
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::best());
+    if let Err(e) = encoder.write_all(json.as_bytes()) {
+        return Ok(CcdResult::err(format!("Compression failed: {}", e)));
+    }
+    let compressed = match encoder.finish() {
+        Ok(c) => c,
+        Err(e) => return Ok(CcdResult::err(format!("Compression failed: {}", e))),
+    };
+
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&compressed);
+    let uri = format!("nostring:v1:{}", b64);
+
+    Ok(CcdResult::ok(uri))
+}
+
+// ============================================================================
 // NIP-17 Descriptor Delivery
 // ============================================================================
 

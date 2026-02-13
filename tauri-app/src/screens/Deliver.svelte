@@ -1,11 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { appError } from '../lib/stores';
-  import { deliverDescriptorToHeirs, exportVaultBackup, listHeirs } from '../lib/tauri';
+  import { deliverDescriptorToHeirs, exportVaultBackup, compressVaultForQr, listHeirs } from '../lib/tauri';
   import type { DeliveryReport, HeirInfo } from '../lib/tauri';
   import CopyToast from '../components/CopyToast.svelte';
   import DeliveryReportCard from '../components/DeliveryReport.svelte';
   import CodeBlock from '../components/CodeBlock.svelte';
+  import QrCode from '../components/QrCode.svelte';
 
   let nsecInput = $state('');
   let relaysInput = $state('wss://relay.damus.io\nwss://relay.primal.net');
@@ -13,6 +14,8 @@
   let exportLoading = $state(false);
   let report = $state<DeliveryReport | null>(null);
   let backupJson = $state('');
+  let qrData = $state('');
+  let qrLoading = $state(false);
   let copyFeedback = $state<string | null>(null);
   let nsecError = $state('');
   let heirs = $state<HeirInfo[]>([]);
@@ -55,6 +58,16 @@
       else appError.set(result.error || 'Delivery failed');
     } catch (e: any) { appError.set(e.message || 'Unexpected error'); }
     loading = false;
+  }
+
+  async function handleShowQr() {
+    qrLoading = true; appError.set(null);
+    try {
+      const result = await compressVaultForQr();
+      if (result.success && result.data) qrData = result.data;
+      else appError.set(result.error || 'Failed to generate QR');
+    } catch (e: any) { appError.set(e.message || 'Unexpected error'); }
+    qrLoading = false;
   }
 
   async function handleExport() {
@@ -125,6 +138,22 @@
 
   <hr />
 
+  <div class="card qr-section">
+    <h2>QR Code</h2>
+    <p class="help">Heir scans this QR with the NoString Heir app.</p>
+
+    <button class="btn btn-outline" onclick={handleShowQr} disabled={qrLoading}>
+      {qrLoading ? 'Generating...' : '📱 Show QR Code'}
+    </button>
+
+    {#if qrData}
+      <QrCode data={qrData} size={320} />
+      <p class="qr-hint">nostring:v1 compressed format ({qrData.length} chars)</p>
+    {/if}
+  </div>
+
+  <hr />
+
   <div class="card manual">
     <h2>Manual Export</h2>
     <p class="help">For heirs without Nostr, export the backup JSON and share it directly.</p>
@@ -174,4 +203,7 @@
   .export-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
 
   hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
+
+  .qr-section { display: flex; flex-direction: column; gap: 1rem; }
+  .qr-hint { text-align: center; font-size: 0.75rem; color: var(--text-muted); margin: 0; }
 </style>
