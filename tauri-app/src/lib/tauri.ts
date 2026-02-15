@@ -62,6 +62,14 @@ export async function importWatchOnly(xpub: string, password: string): Promise<C
   return invoke('import_watch_only', { xpub, password });
 }
 
+export async function isUnlocked(): Promise<boolean> {
+  return invoke('is_unlocked');
+}
+
+export async function isWatchOnly(): Promise<boolean> {
+  return invoke('is_watch_only');
+}
+
 export async function unlockSeed(password: string): Promise<CcdResult<boolean>> {
   return invoke('unlock_seed', { password });
 }

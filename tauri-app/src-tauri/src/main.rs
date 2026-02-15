@@ -52,6 +52,8 @@ fn main() {
             commands::import_seed,
             commands::import_watch_only,
             commands::has_seed,
+            commands::is_unlocked,
+            commands::is_watch_only,
             commands::unlock_seed,
             commands::lock_wallet,
             // Policy status

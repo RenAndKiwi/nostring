@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { currentScreen, appError, appPhase } from './lib/stores';
-  import { hasSeed } from './lib/tauri';
+  import { hasSeed, isUnlocked } from './lib/tauri';
   import Onboarding from './screens/Onboarding.svelte';
   import Unlock from './screens/Unlock.svelte';
   import Setup from './screens/Setup.svelte';
@@ -15,8 +15,14 @@
 
   onMount(async () => {
     try {
-      const seedExists = await hasSeed();
-      appPhase.set(seedExists ? 'unlock' : 'onboarding');
+      const walletExists = await hasSeed();
+      if (!walletExists) {
+        appPhase.set('onboarding');
+        return;
+      }
+      // Check if already unlocked (watch-only without password hash)
+      const alreadyUnlocked = await isUnlocked();
+      appPhase.set(alreadyUnlocked ? 'ready' : 'unlock');
     } catch {
       appPhase.set('onboarding');
     }

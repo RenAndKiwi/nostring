@@ -16,6 +16,68 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 use zeroize::Zeroize;
 
+/// Password hash for watch-only mode (protects local DB metadata).
+/// Uses iterated HMAC-SHA256 (10,000 rounds) with random salt.
+/// Format: `salt_hex:hash_hex:rounds`
+const PASSWORD_HASH_ROUNDS: u32 = 10_000;
+
+fn hash_password(password: &str) -> String {
+    use bitcoin::hashes::{hmac, sha256, Hash, HashEngine, Hmac};
+    let mut salt = [0u8; 16];
+    getrandom::getrandom(&mut salt).expect("Failed to generate random salt");
+
+    // Iterated HMAC-SHA256: H_0 = HMAC(salt, password), H_i = HMAC(salt, H_{i-1})
+    let mut result = Hmac::<sha256::Hash>::hash(password.as_bytes()).to_byte_array();
+    for _ in 0..PASSWORD_HASH_ROUNDS {
+        let mut engine = hmac::HmacEngine::<sha256::Hash>::new(&salt);
+        engine.input(&result);
+        result = Hmac::<sha256::Hash>::from_engine(engine).to_byte_array();
+    }
+
+    format!(
+        "{}:{}:{}",
+        hex::encode(salt),
+        hex::encode(result),
+        PASSWORD_HASH_ROUNDS
+    )
+}
+
+fn verify_password_hash(password: &str, stored: &str) -> bool {
+    use bitcoin::hashes::{hmac, sha256, Hash, HashEngine, Hmac};
+    let parts: Vec<&str> = stored.splitn(3, ':').collect();
+    if parts.len() < 2 {
+        return false;
+    }
+    let salt = match hex::decode(parts[0]) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    let expected = match hex::decode(parts[1]) {
+        Ok(h) => h,
+        Err(_) => return false,
+    };
+    let rounds = if parts.len() == 3 {
+        parts[2].parse::<u32>().unwrap_or(PASSWORD_HASH_ROUNDS)
+    } else {
+        PASSWORD_HASH_ROUNDS
+    };
+
+    let mut result = Hmac::<sha256::Hash>::hash(password.as_bytes()).to_byte_array();
+    for _ in 0..rounds {
+        let mut engine = hmac::HmacEngine::<sha256::Hash>::new(&salt);
+        engine.input(&result);
+        result = Hmac::<sha256::Hash>::from_engine(engine).to_byte_array();
+    }
+
+    // Constant-time comparison
+    result.len() == expected.len()
+        && result
+            .iter()
+            .zip(expected.iter())
+            .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+            == 0
+}
+
 /// Result type for commands
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CommandResult<T> {
@@ -150,7 +212,7 @@ pub async fn import_seed(
 #[tauri::command]
 pub async fn import_watch_only(
     xpub: String,
-    _password: String,
+    mut password: String,
     state: State<'_, AppState>,
 ) -> Result<CommandResult<bool>, ()> {
     if !xpub.starts_with("xpub")
@@ -164,9 +226,13 @@ pub async fn import_watch_only(
         ));
     }
 
-    // Write-through: memory + SQLite
+    // Store password hash for unlock verification
+    let pw_hash = hash_password(&password);
+    password.zeroize();
+
     state.set_owner_xpub(&xpub);
     state.set_watch_only(true);
+    state.persist_config("password_hash", &pw_hash);
 
     let mut unlocked = state.unlocked.lock().unwrap();
     *unlocked = true;
@@ -182,16 +248,61 @@ pub async fn has_seed(state: State<'_, AppState>) -> Result<bool, ()> {
     Ok(seed_lock.is_some() || xpub_lock.is_some())
 }
 
-/// Unlock (decrypt) the seed with password
+/// Check if the wallet is already unlocked (e.g. watch-only auto-unlock).
+#[tauri::command]
+pub async fn is_unlocked(state: State<'_, AppState>) -> Result<bool, ()> {
+    let unlocked = state.unlocked.lock().unwrap();
+    Ok(*unlocked)
+}
+
+/// Check if the wallet is in watch-only mode.
+#[tauri::command]
+pub async fn is_watch_only(state: State<'_, AppState>) -> Result<bool, ()> {
+    let wo = state.watch_only.lock().unwrap();
+    Ok(*wo)
+}
+
+/// Unlock (decrypt) the seed with password, or verify password for watch-only.
 #[tauri::command]
 pub async fn unlock_seed(
     mut password: String,
     state: State<'_, AppState>,
 ) -> Result<CommandResult<bool>, ()> {
+    // Check watch-only mode first
+    let is_wo = *state.watch_only.lock().unwrap();
+    if is_wo {
+        // Watch-only: verify password hash
+        let conn = state.db.lock().unwrap();
+        let stored_hash = crate::db::config_get(&conn, "password_hash").ok().flatten();
+        drop(conn);
+
+        let result = match stored_hash {
+            Some(hash) => {
+                if verify_password_hash(&password, &hash) {
+                    let mut unlocked = state.unlocked.lock().unwrap();
+                    *unlocked = true;
+                    Ok(CommandResult::ok(true))
+                } else {
+                    Ok(CommandResult::err("Incorrect password"))
+                }
+            }
+            None => {
+                // Legacy watch-only without password hash — auto-unlock
+                let mut unlocked = state.unlocked.lock().unwrap();
+                *unlocked = true;
+                Ok(CommandResult::ok(true))
+            }
+        };
+
+        password.zeroize();
+        return result;
+    }
+
+    // Seed-based: decrypt to verify password
     let seed_lock = state.encrypted_seed.lock().unwrap();
 
     let result = match &*seed_lock {
-        None => Ok(CommandResult::err("No seed loaded")),
+        None => Ok(CommandResult::err("No wallet configured")),
         Some(encrypted_bytes) => {
             let encrypted = match EncryptedSeed::from_bytes(encrypted_bytes) {
                 Ok(e) => e,
@@ -199,7 +310,6 @@ pub async fn unlock_seed(
             };
 
             match decrypt_seed(&encrypted, &password) {
-                // Decrypted seed is wrapped in Zeroizing — auto-zeroed on drop
                 Ok(_decrypted_seed) => {
                     drop(seed_lock);
                     let mut unlocked = state.unlocked.lock().unwrap();
@@ -211,9 +321,7 @@ pub async fn unlock_seed(
         }
     };
 
-    // Zeroize password after use
     password.zeroize();
-
     result
 }
 
@@ -2770,4 +2878,65 @@ pub async fn generate_checkin_psbt_chain(
         count
     );
     Ok(CommandResult::ok(psbts))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_password_hash_roundtrip() {
+        let password = "test_password_123";
+        let hash = hash_password(password);
+        assert!(verify_password_hash(password, &hash));
+    }
+
+    #[test]
+    fn test_password_hash_wrong_password() {
+        let hash = hash_password("correct_password");
+        assert!(!verify_password_hash("wrong_password", &hash));
+    }
+
+    #[test]
+    fn test_password_hash_unique_salts() {
+        let h1 = hash_password("same_password");
+        let h2 = hash_password("same_password");
+        // Different salts produce different hashes
+        assert_ne!(h1, h2);
+        // Both verify correctly
+        assert!(verify_password_hash("same_password", &h1));
+        assert!(verify_password_hash("same_password", &h2));
+    }
+
+    #[test]
+    fn test_password_hash_invalid_format() {
+        assert!(!verify_password_hash("test", "not_a_valid_hash"));
+        assert!(!verify_password_hash("test", ""));
+        assert!(!verify_password_hash("test", "invalid_hex:abcd"));
+    }
+
+    #[test]
+    fn test_password_hash_constant_time() {
+        // Verify the hash format includes rounds
+        let hash = hash_password("test");
+        let parts: Vec<&str> = hash.splitn(3, ':').collect();
+        assert_eq!(parts.len(), 3, "Hash should have salt:hash:rounds format");
+        assert_eq!(parts[0].len(), 32, "Salt should be 16 bytes = 32 hex chars");
+        assert_eq!(parts[1].len(), 64, "Hash should be 32 bytes = 64 hex chars");
+        assert_eq!(parts[2], "10000", "Rounds should be 10000");
+    }
+
+    #[test]
+    fn test_password_hash_empty_password() {
+        let hash = hash_password("");
+        assert!(verify_password_hash("", &hash));
+        assert!(!verify_password_hash("not_empty", &hash));
+    }
+
+    #[test]
+    fn test_password_hash_unicode() {
+        let hash = hash_password("пароль🔑");
+        assert!(verify_password_hash("пароль🔑", &hash));
+        assert!(!verify_password_hash("пароль", &hash));
+    }
 }

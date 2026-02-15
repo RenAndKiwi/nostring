@@ -3436,6 +3436,7 @@ dependencies = [
  "base64 0.22.1",
  "bitcoin",
  "flate2",
+ "getrandom 0.2.17",
  "hex",
  "log",
  "miniscript",

@@ -1,16 +1,22 @@
 <script lang="ts">
   import { appPhase, appError } from '../lib/stores';
-  import { importWatchOnly, createSeed, importSeed, checkPasswordStrength } from '../lib/tauri';
+  import { importWatchOnly, createSeed, importSeed, checkPasswordStrength, setNetwork, setElectrumUrl, validateXpub } from '../lib/tauri';
   import type { PasswordStrength } from '../lib/tauri';
+  import { validateXpubInput, xpubPrefixForNetwork, defaultElectrumUrl } from '../lib/validation';
 
   type Step =
     | 'choose'
-    | 'xpub-enter' | 'xpub-password'
+    | 'xpub-network' | 'xpub-enter' | 'xpub-password'
     | 'create-show' | 'create-confirm' | 'create-password'
     | 'import-enter' | 'import-password';
 
   let step = $state<Step>('choose');
   let showAdvanced = $state(false);
+
+  // Network
+  let selectedNetwork = $state('testnet');
+
+  const xpubPrefix = $derived(xpubPrefixForNetwork(selectedNetwork));
 
   // Watch-only
   let xpubInput = $state('');
@@ -54,14 +60,31 @@
   }
 
   // Watch-only xpub
-  function handleXpubNext() {
-    xpubError = '';
-    const v = xpubInput.trim();
-    if (!v) { xpubError = 'Please paste your xpub'; return; }
-    if (!v.startsWith('xpub') && !v.startsWith('tpub') && !v.startsWith('[')) {
-      xpubError = 'Expected xpub, tpub, or descriptor (e.g. [fingerprint/path]xpub...)';
+  function handleNetworkNext() {
+    // Don't persist yet — wait until full onboarding completes
+    step = 'xpub-enter';
+  }
+
+  async function handleXpubNext() {
+    const result = validateXpubInput(xpubInput, selectedNetwork);
+    xpubError = result.error;
+    if (!result.valid) return;
+
+    // Validate xpub cryptographically via backend
+    loading = true;
+    try {
+      const backendCheck = await validateXpub(xpubInput.trim());
+      if (!backendCheck.success) {
+        xpubError = backendCheck.error || 'Invalid xpub format';
+        loading = false;
+        return;
+      }
+    } catch (e: any) {
+      xpubError = e.message || 'Failed to validate xpub';
+      loading = false;
       return;
     }
+    loading = false;
     step = 'xpub-password';
   }
 
@@ -69,6 +92,11 @@
     if (!validatePassword()) return;
     loading = true; appError.set(null);
     try {
+      // Persist network + Electrum URL first
+      await setNetwork(selectedNetwork);
+      const url = defaultElectrumUrl(selectedNetwork);
+      if (url) await setElectrumUrl(url);
+
       const result = await importWatchOnly(xpubInput.trim(), passwordInput);
       if (result.success) {
         clearSensitive();
@@ -137,7 +165,7 @@
 
   {#if step === 'choose'}
     <div class="choices">
-      <button class="choice-card primary-choice" onclick={() => step = 'xpub-enter'}>
+      <button class="choice-card primary-choice" onclick={() => step = 'xpub-network'}>
         <span class="choice-icon">👁️</span>
         <span class="choice-title">Import Watch-Only Wallet</span>
         <span class="choice-desc">Paste your xpub from a hardware wallet. Keys stay on your signing device. <strong>Recommended.</strong></span>
@@ -166,6 +194,47 @@
       {/if}
     </div>
 
+  {:else if step === 'xpub-network'}
+    <div class="step-card">
+      <h2>Select Network</h2>
+      <p>Choose the Bitcoin network before importing your key. Use <strong>Testnet</strong> to try things out with fake coins first.</p>
+
+      <div class="network-options">
+        <label class="network-option" class:selected={selectedNetwork === 'testnet'}>
+          <input type="radio" bind:group={selectedNetwork} value="testnet" />
+          <div>
+            <span class="net-title">🧪 Testnet</span>
+            <span class="net-desc">Free test coins. Use this to learn the app.</span>
+          </div>
+        </label>
+        <label class="network-option" class:selected={selectedNetwork === 'bitcoin'}>
+          <input type="radio" bind:group={selectedNetwork} value="bitcoin" />
+          <div>
+            <span class="net-title">₿ Mainnet</span>
+            <span class="net-desc">Real Bitcoin. Only if you know what you're doing.</span>
+          </div>
+        </label>
+        <label class="network-option" class:selected={selectedNetwork === 'signet'}>
+          <input type="radio" bind:group={selectedNetwork} value="signet" />
+          <div>
+            <span class="net-title">🔬 Signet</span>
+            <span class="net-desc">Stable test network for developers.</span>
+          </div>
+        </label>
+      </div>
+
+      {#if selectedNetwork === 'bitcoin'}
+        <div class="mainnet-warning">
+          ⚠️ This software is in early development. Use testnet first to verify the flow works correctly before putting real funds at risk.
+        </div>
+      {/if}
+
+      <div class="actions">
+        <button class="btn btn-primary" onclick={handleNetworkNext}>Next →</button>
+        <button class="btn btn-outline" onclick={() => step = 'choose'}>← Back</button>
+      </div>
+    </div>
+
   {:else if step === 'xpub-enter'}
     <div class="step-card">
       <h2>Import Watch-Only Wallet</h2>
@@ -174,7 +243,7 @@
 
       <label>
         <span>Extended Public Key</span>
-        <textarea bind:value={xpubInput} rows="4" placeholder="tpubD6NzVbkrYhZ4... or [fingerprint/86'/1'/0']tpub..." class:input-error={xpubError}></textarea>
+        <textarea bind:value={xpubInput} rows="4" placeholder="{xpubPrefix}D6NzVbkrYhZ4... or [fingerprint/86'/{selectedNetwork === 'bitcoin' ? '0' : '1'}'/0']{xpubPrefix}..." class:input-error={xpubError}></textarea>
         {#if xpubError}<span class="field-error">{xpubError}</span>{/if}
       </label>
 
@@ -356,4 +425,24 @@
   .strength-warn { font-size: 0.75rem; color: var(--gold-light); }
 
   .actions { display: flex; gap: 1rem; }
+
+  .network-options { display: flex; flex-direction: column; gap: 0.5rem; margin: 1rem 0; }
+  .network-option {
+    display: flex; align-items: center; gap: 0.75rem;
+    background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 0.75rem 1rem; cursor: pointer; transition: border-color 0.15s;
+  }
+  .network-option:hover { border-color: var(--gold-light); }
+  .network-option.selected { border-color: var(--gold-light); background: color-mix(in srgb, var(--gold-light) 5%, var(--bg)); }
+  .network-option input[type="radio"] { accent-color: var(--gold-light); }
+  .network-option div { display: flex; flex-direction: column; }
+  .net-title { font-weight: 600; font-size: 0.95rem; }
+  .net-desc { font-size: 0.8rem; color: var(--text-muted); }
+
+  .mainnet-warning {
+    background: color-mix(in srgb, var(--error) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--error) 30%, transparent);
+    border-radius: var(--radius-sm); padding: 0.75rem; margin: 0.5rem 0;
+    font-size: 0.85rem; color: var(--error);
+  }
 </style>

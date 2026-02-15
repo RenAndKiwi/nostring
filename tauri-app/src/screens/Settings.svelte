@@ -1,9 +1,11 @@
 <script lang="ts">
   import { currentNetwork, appError } from '../lib/stores';
-  import { getNetwork, setNetwork, getElectrumUrl, setElectrumUrl, refreshPolicyStatus } from '../lib/tauri';
+  import { getNetwork, setNetwork, getElectrumUrl, setElectrumUrl, refreshPolicyStatus, isWatchOnly } from '../lib/tauri';
   import { onMount } from 'svelte';
+  import StatusBadge from '../components/StatusBadge.svelte';
 
   let network = $state('bitcoin');
+  let watchOnly = $state(false);
   let electrumUrl = $state('');
   let saving = $state(false);
   let saved = $state(false);
@@ -21,6 +23,7 @@
     try {
       network = await getNetwork();
       electrumUrl = await getElectrumUrl();
+      watchOnly = await isWatchOnly();
       currentNetwork.set(network);
     } catch (e: any) {
       appError.set(`Failed to load settings: ${e}`);
@@ -28,7 +31,6 @@
   });
 
   async function handleNetworkChange() {
-    // When network changes, suggest default Electrum URL
     const defaultUrl = defaultElectrumUrls[network] || '';
     if (!electrumUrl || Object.values(defaultElectrumUrls).includes(electrumUrl)) {
       electrumUrl = defaultUrl;
@@ -36,29 +38,20 @@
   }
 
   async function handleSave() {
-    saving = true;
-    saved = false;
-    appError.set(null);
-
+    saving = true; saved = false; appError.set(null);
     try {
       await setNetwork(network);
-      if (electrumUrl.trim()) {
-        await setElectrumUrl(electrumUrl.trim());
-      }
+      if (electrumUrl.trim()) await setElectrumUrl(electrumUrl.trim());
       currentNetwork.set(network);
       saved = true;
       setTimeout(() => { saved = false; }, 2000);
     } catch (e: any) {
       appError.set(`Failed to save settings: ${e}`);
-    } finally {
-      saving = false;
-    }
+    } finally { saving = false; }
   }
 
   async function handleTestConnection() {
-    testing = true;
-    connectionResult = null;
-    connectionDetail = '';
+    testing = true; connectionResult = null; connectionDetail = '';
     try {
       const result = await refreshPolicyStatus();
       if (result.success) {
@@ -73,147 +66,87 @@
     } catch (e: any) {
       connectionResult = 'fail';
       connectionDetail = e.message || 'Connection failed';
-    } finally {
-      testing = false;
-    }
+    } finally { testing = false; }
   }
 </script>
 
 <div class="screen">
-  <h2>⚙️ Settings</h2>
+  <h1>Settings</h1>
 
-  <div class="field">
-    <label for="network">Network</label>
-    <select id="network" bind:value={network} onchange={handleNetworkChange}>
-      <option value="bitcoin">Mainnet</option>
-      <option value="testnet">Testnet</option>
-      <option value="signet">Signet</option>
-    </select>
+  <div class="card wallet-mode">
+    {#if watchOnly}
+      <div class="mode-row">
+        <StatusBadge label="Watch-Only" type="success" />
+        <span class="mode-icon">👁️</span>
+      </div>
+      <p class="mode-desc">Keys stay on your hardware wallet. This app only builds unsigned transactions.</p>
+    {:else}
+      <div class="mode-row">
+        <StatusBadge label="Seed-Based" type="warning" />
+        <span class="mode-icon">🔑</span>
+      </div>
+      <p class="mode-desc">This device holds key material. Consider switching to watch-only for better security.</p>
+    {/if}
   </div>
 
-  <div class="field">
-    <label for="electrum">Electrum Server</label>
-    <input
-      id="electrum"
-      type="text"
-      bind:value={electrumUrl}
-      placeholder={defaultElectrumUrls[network] || 'ssl://host:port'}
-    />
-    <small>Default: {defaultElectrumUrls[network] || 'none'}</small>
+  <div class="card">
+    <label>
+      <span>Network</span>
+      <select bind:value={network} onchange={handleNetworkChange}>
+        <option value="bitcoin">Mainnet</option>
+        <option value="testnet">Testnet</option>
+        <option value="signet">Signet</option>
+      </select>
+    </label>
+
+    <label>
+      <span>Electrum Server</span>
+      <input type="text" bind:value={electrumUrl} placeholder={defaultElectrumUrls[network] || 'ssl://host:port'} />
+      <span class="hint">Default: {defaultElectrumUrls[network] || 'none'}</span>
+    </label>
+
+    <div class="actions">
+      <button class="btn btn-primary" onclick={handleSave} disabled={saving}>
+        {#if saving}Saving...{:else if saved}✅ Saved{:else}Save Settings{/if}
+      </button>
+
+      <button class="btn btn-outline" onclick={handleTestConnection} disabled={testing || !electrumUrl.trim()}>
+        {testing ? 'Testing...' : '🔌 Test Connection'}
+      </button>
+    </div>
+
+    {#if connectionResult === 'success'}
+      <div class="success-box">✅ {connectionDetail}</div>
+    {:else if connectionResult === 'fail'}
+      <div class="error-box">❌ {connectionDetail}</div>
+    {/if}
   </div>
-
-  <button onclick={handleSave} disabled={saving}>
-    {#if saving}
-      Saving...
-    {:else if saved}
-      ✅ Saved
-    {:else}
-      Save Settings
-    {/if}
-  </button>
-
-  <button class="test-btn" onclick={handleTestConnection} disabled={testing || !electrumUrl.trim()}>
-    {#if testing}
-      Testing...
-    {:else}
-      🔌 Test Connection
-    {/if}
-  </button>
-
-  {#if connectionResult === 'success'}
-    <div class="connection-ok">✅ {connectionDetail}</div>
-  {:else if connectionResult === 'fail'}
-    <div class="connection-fail">❌ {connectionDetail}</div>
-  {/if}
 
   {#if network !== 'bitcoin'}
-    <div class="warning">
+    <div class="warning-box">
       ⚠️ You are on <strong>{network}</strong>. Do not use real funds.
     </div>
   {/if}
 </div>
 
 <style>
-  .screen {
-    max-width: 500px;
-    margin: 0 auto;
-    padding: 1.5rem;
+  .screen { max-width: 500px; }
+  h1 { font-size: 1.8rem; margin-bottom: 1.5rem; }
+
+  .wallet-mode { margin-bottom: 1rem; }
+  .mode-row { display: flex; align-items: center; gap: 0.5rem; }
+  .mode-icon { font-size: 1.2rem; }
+  .mode-desc { font-size: 0.8rem; color: var(--text-muted); margin: 0.5rem 0 0; }
+
+  label { display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 1rem; }
+  label span { font-size: 0.85rem; color: var(--text-muted); font-weight: 500; }
+  .hint { font-weight: 400 !important; font-size: 0.75rem !important; }
+
+  select {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 0.5rem; color: var(--text); font-size: 0.95rem;
   }
-  h2 { margin-bottom: 1.5rem; }
-  .field {
-    margin-bottom: 1.25rem;
-  }
-  .field label {
-    display: block;
-    font-weight: 600;
-    margin-bottom: 0.35rem;
-  }
-  .field input, .field select {
-    width: 100%;
-    padding: 0.5rem;
-    border: 1px solid #444;
-    border-radius: 4px;
-    background: var(--surface);
-    color: #eee;
-    font-size: 0.95rem;
-  }
-  .field small {
-    color: var(--text-muted);
-    font-size: 0.8rem;
-  }
-  button {
-    width: 100%;
-    padding: 0.7rem;
-    border: none;
-    border-radius: 4px;
-    background: var(--gold-light);
-    color: #fff;
-    font-weight: 600;
-    font-size: 1rem;
-    cursor: pointer;
-  }
-  button:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-  .test-btn {
-    width: 100%;
-    padding: 0.6rem;
-    margin-top: 0.5rem;
-    border: 1px solid #444;
-    border-radius: 4px;
-    background: var(--surface);
-    color: var(--text);
-    font-size: 0.9rem;
-    cursor: pointer;
-  }
-  .test-btn:hover { background: #222; border-color: var(--text-muted); }
-  .test-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  .connection-ok {
-    margin-top: 0.5rem;
-    padding: 0.5rem;
-    background: #0d2818;
-    border: 1px solid #1a5c2e;
-    border-radius: 4px;
-    color: #4ade80;
-    font-size: 0.85rem;
-  }
-  .connection-fail {
-    margin-top: 0.5rem;
-    padding: 0.5rem;
-    background: #2d0d0d;
-    border: 1px solid #5c1a1a;
-    border-radius: 4px;
-    color: #f87171;
-    font-size: 0.85rem;
-  }
-  .warning {
-    margin-top: 1rem;
-    padding: 0.75rem;
-    background: #3b2f00;
-    border: 1px solid var(--gold-light);
-    border-radius: 4px;
-    color: var(--gold-light);
-    font-size: 0.9rem;
-  }
+  select:focus { outline: none; border-color: var(--gold-light); }
+
+  .actions { display: flex; gap: 0.75rem; margin-top: 0.5rem; }
 </style>
