@@ -34,7 +34,7 @@ musig2 = { version = "0.3", features = ["secp256k1"] }
 # Encryption
 aes-gcm = "0.10"
 argon2 = "0.5"
-rand = "0.8"
+rand = "0.9"
 zeroize = { version = "1.8", features = ["derive"] }
 
 # Miniscript (from Liana)
