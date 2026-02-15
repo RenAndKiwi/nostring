@@ -6,7 +6,7 @@ edition.workspace = true
 license.workspace = true
 
 [build-dependencies]
-tauri-build = { version = "2.0", features = [] }
+tauri-build = { version = "2.5", features = [] }
 
 [dependencies]
 nostring-ccd = { path = "../../crates/nostring-ccd" }
