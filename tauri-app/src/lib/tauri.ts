@@ -58,6 +58,10 @@ export async function importSeed(mnemonic: string, password: string): Promise<Cc
   return invoke('import_seed', { mnemonic, password });
 }
 
+export async function importWatchOnly(xpub: string, password: string): Promise<CcdResult<boolean>> {
+  return invoke('import_watch_only', { xpub, password });
+}
+
 export async function unlockSeed(password: string): Promise<CcdResult<boolean>> {
   return invoke('unlock_seed', { password });
 }
