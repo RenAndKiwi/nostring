@@ -27,7 +27,7 @@ tokio.workspace = true
 rustls = { version = "0.23", features = ["ring"] }
 base64 = "0.22"
 flate2 = "1"
-getrandom = "0.2"
+getrandom = "0.3"
 hex = "0.4"
 log = "0.4"
 zeroize.workspace = true
