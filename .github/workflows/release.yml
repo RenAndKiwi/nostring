@@ -94,7 +94,7 @@ jobs:
           cd dist && 7z a ${{ matrix.artifact }}.zip nostring.exe
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.artifact }}
           path: dist/${{ matrix.artifact }}.*
